@@ -9,42 +9,92 @@ beforeAll(() => {
 });
 
 describe('validatePasswordStrength', () => {
-  it('rejects passwords shorter than 12 chars', async () => {
+  it('rejects an empty string', async () => {
     const { validatePasswordStrength } = await import('@/lib/auth/password');
-    const r = validatePasswordStrength('Aa1!short');
+    const r = validatePasswordStrength('');
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/12 characters/);
+    if (!r.ok) expect(r.reason).toMatch(/required/i);
   });
 
-  it('rejects passwords without an uppercase letter', async () => {
+  it('rejects a whitespace-only string', async () => {
     const { validatePasswordStrength } = await import('@/lib/auth/password');
-    const r = validatePasswordStrength('alllowercase1');
+    const r = validatePasswordStrength('   ');
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/uppercase/i);
+    if (!r.ok) expect(r.reason).toMatch(/required/i);
   });
 
-  it('rejects passwords without a lowercase letter', async () => {
+  it('accepts a single-character password', async () => {
     const { validatePasswordStrength } = await import('@/lib/auth/password');
-    const r = validatePasswordStrength('ALLUPPERCASE1');
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/lowercase/i);
+    const r = validatePasswordStrength('a');
+    expect(r.ok).toBe(true);
   });
 
-  it('rejects passwords without a digit', async () => {
+  it('accepts a short alphanumeric password', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('hello');
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts a password without uppercase letters', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('alllowercase');
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts a password without digits', async () => {
     const { validatePasswordStrength } = await import('@/lib/auth/password');
     const r = validatePasswordStrength('NoDigitsHereXX');
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/digit/i);
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts a password shorter than 12 characters', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('Aa1!short');
+    expect(r.ok).toBe(true);
   });
 
   it('rejects common passwords (case-insensitive)', async () => {
     const { validatePasswordStrength } = await import('@/lib/auth/password');
-    const r = validatePasswordStrength('Password1234');
+    const r = validatePasswordStrength('password');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/too common/i);
   });
 
-  it('accepts a strong password', async () => {
+  it('rejects common passwords regardless of case', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('PASSWORD');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/too common/i);
+  });
+
+  it('rejects "123456" (common password)', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('123456');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/too common/i);
+  });
+
+  it('rejects "qwerty" (common password)', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('qwerty');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/too common/i);
+  });
+
+  it('rejects passwords longer than 256 characters', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('a'.repeat(257));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/256/);
+  });
+
+  it('accepts a password of exactly 256 characters', async () => {
+    const { validatePasswordStrength } = await import('@/lib/auth/password');
+    const r = validatePasswordStrength('a'.repeat(256));
+    expect(r.ok).toBe(true);
+  });
+
+  it('accepts a normal strong password', async () => {
     const { validatePasswordStrength } = await import('@/lib/auth/password');
     const r = validatePasswordStrength('CorrectHorseBattery9');
     expect(r.ok).toBe(true);

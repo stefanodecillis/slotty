@@ -277,7 +277,7 @@ Use the `ipWhiteList` middleware on the `/admin` router. Webhooks at `/api/webho
 ## First-run setup
 
 1. Visit `https://<your-domain>/setup` from an allowlisted IP.
-2. Create your admin account (username + password ≥ 12 chars, mixed character classes).
+2. Create your admin account (pick whatever password you want — Slotty only blocks the very common ones).
 3. Sign in at `/admin/login`.
 4. Connect your Google accounts at `/admin/calendars`.
 5. Configure your default schedule at `/admin/availability`.

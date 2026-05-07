@@ -69,7 +69,7 @@ export default async function SetupPage({ searchParams }: PageProps) {
               type="password"
               required
               autoComplete="new-password"
-              helperText="At least 12 characters with upper- and lowercase letters and a digit."
+              helperText="Pick anything you'll remember. At least 1 character."
             />
             <TextField
               label="Confirm password"

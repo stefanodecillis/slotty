@@ -87,20 +87,14 @@ const COMMON_PASSWORDS: ReadonlySet<string> = new Set([
 ]);
 
 export function validatePasswordStrength(plain: string): PasswordStrengthResult {
-  if (plain.length < 12) {
-    return { ok: false, reason: 'Password must be at least 12 characters long.' };
+  if (plain.trim().length === 0) {
+    return { ok: false, reason: 'Password is required.' };
   }
-  if (!/[A-Z]/.test(plain)) {
-    return { ok: false, reason: 'Password must include an uppercase letter.' };
-  }
-  if (!/[a-z]/.test(plain)) {
-    return { ok: false, reason: 'Password must include a lowercase letter.' };
-  }
-  if (!/[0-9]/.test(plain)) {
-    return { ok: false, reason: 'Password must include a digit.' };
+  if (plain.length > 256) {
+    return { ok: false, reason: 'Password must be at most 256 characters.' };
   }
   if (COMMON_PASSWORDS.has(plain.toLowerCase())) {
-    return { ok: false, reason: 'Password is too common. Choose something less guessable.' };
+    return { ok: false, reason: 'That password is too common — pick something less obvious.' };
   }
   return { ok: true };
 }
