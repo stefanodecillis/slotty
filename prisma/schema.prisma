@@ -51,6 +51,21 @@ model Session {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Per-IP login attempt log used by rate limiter. Failed attempts
+// drive an exponential backoff window; successful attempts let
+// the limiter clear stale failures. Old rows pruned by a job.
+// ─────────────────────────────────────────────────────────────
+model LoginAttempt {
+  id          String   @id @default(cuid())
+  ip          String
+  success     Boolean
+  attemptedAt DateTime @default(now()) @map("attempted_at")
+
+  @@index([ip, attemptedAt])
+  @@map("login_attempts")
+}
+
+// ─────────────────────────────────────────────────────────────
 // Persistent job queue (no Redis). Polled every 5 s by the
 // in-process worker. See src/lib/jobs/.
 // ─────────────────────────────────────────────────────────────
