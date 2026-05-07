@@ -26,6 +26,10 @@ beforeAll(() => {
 beforeEach(async () => {
   const { db } = await import('@/lib/db');
   await db.busyEvent.deleteMany({});
+  // Phase 6 introduces EventType rows that reference Calendar/ConnectedAccount;
+  // clear them first so the cascading deletes here don't trip the FK guard.
+  await db.eventTypeQuestion.deleteMany({});
+  await db.eventType.deleteMany({});
   await db.calendar.deleteMany({});
   await db.connectedAccount.deleteMany({});
 });

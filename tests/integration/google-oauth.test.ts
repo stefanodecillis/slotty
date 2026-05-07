@@ -26,6 +26,8 @@ beforeAll(() => {
 beforeEach(async () => {
   const { db } = await import('@/lib/db');
   await db.busyEvent.deleteMany({});
+  await db.eventTypeQuestion.deleteMany({});
+  await db.eventType.deleteMany({});
   await db.calendar.deleteMany({});
   await db.connectedAccount.deleteMany({});
   await db.job.deleteMany({});
