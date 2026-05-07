@@ -36,6 +36,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             Event Types
           </Link>
           <Link
+            href="/admin/bookings"
+            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
+          >
+            Bookings
+          </Link>
+          <Link
             href="/admin/profile"
             className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
           >

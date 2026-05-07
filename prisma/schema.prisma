@@ -165,6 +165,7 @@ model ConnectedAccount {
 
   calendars        Calendar[]
   destinationFor   EventType[]
+  bookings         Booking[]
 
   @@unique([provider, googleUserEmail])
   @@map("connected_accounts")
@@ -256,6 +257,7 @@ model EventType {
   destinationCalendar Calendar         @relation(fields: [destinationCalendarId], references: [id], onDelete: Restrict)
   schedule           Schedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   questions          EventTypeQuestion[]
+  bookings           Booking[]
 
   @@index([userId, archived, hidden])
   @@index([slug])
@@ -276,4 +278,63 @@ model EventTypeQuestion {
 
   @@index([eventTypeId, position])
   @@map("event_type_questions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 7 — Bookings.
+// A confirmed booking row. The `googleEventId` is null for the brief window
+// between local insert and Google insert; if Google insert fails we keep the
+// local row with `needsSync=true` so the booker still gets a confirmation
+// page and the admin can retry. `clientRequestId` provides idempotent replay.
+// ─────────────────────────────────────────────────────────────
+model Booking {
+  id                  String    @id @default(cuid())
+  eventTypeId         String    @map("event_type_id")
+  googleAccountId     String    @map("google_account_id")
+  googleCalendarId    String    @map("google_calendar_id")
+  googleEventId       String?   @map("google_event_id") // null until Google insert succeeds
+  startAt             DateTime  @map("start_at")
+  endAt               DateTime  @map("end_at")
+  status              String    @default("confirmed") // confirmed | cancelled | rescheduled
+  bookerName          String    @map("booker_name")
+  bookerEmail         String    @map("booker_email")
+  bookerTimezone      String    @map("booker_timezone")
+  additionalGuestsJson String   @default("[]") @map("additional_guests_json") // JSON array of email strings
+  notes               String?
+  answersJson         String    @default("{}") @map("answers_json") // map of questionId -> answer value
+  cancelTokenHash     String    @map("cancel_token_hash") // sha256 of the cancel token
+  rescheduleTokenHash String    @map("reschedule_token_hash")
+  meetingUrl          String?   @map("meeting_url") // for Google Meet (or custom_link copy, in_person address, phone, etc.)
+  noShow              Boolean   @default(false) @map("no_show")
+  clientRequestId     String?   @map("client_request_id") // idempotency
+  needsSync           Boolean   @default(false) @map("needs_sync") // true if Google insert failed
+  syncError           String?   @map("sync_error")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  cancelledAt         DateTime? @map("cancelled_at")
+  cancelReason        String?   @map("cancel_reason")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  eventType        EventType         @relation(fields: [eventTypeId], references: [id], onDelete: Restrict)
+  googleAccount    ConnectedAccount  @relation(fields: [googleAccountId], references: [id], onDelete: Restrict)
+  history          BookingHistory[]
+
+  @@unique([eventTypeId, clientRequestId]) // idempotency dedupe
+  @@index([startAt, endAt])
+  @@index([eventTypeId, status])
+  @@index([status, startAt])
+  @@map("bookings")
+}
+
+model BookingHistory {
+  id          String   @id @default(cuid())
+  bookingId   String   @map("booking_id")
+  action      String   // created | rescheduled | cancelled | no_show_marked | no_show_cleared
+  payloadJson String   @default("{}") @map("payload_json") // before/after snapshots
+  actor       String   // "booker" | "owner" | "system"
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, createdAt])
+  @@map("booking_history")
 }

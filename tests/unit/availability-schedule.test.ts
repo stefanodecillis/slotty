@@ -16,6 +16,10 @@ async function createTestUser(timezone = 'UTC') {
 
 beforeEach(async () => {
   const { db } = await import('@/lib/db');
+  await db.bookingHistory.deleteMany({});
+  await db.booking.deleteMany({});
+  await db.eventTypeQuestion.deleteMany({});
+  await db.eventType.deleteMany({});
   await db.scheduleRule.deleteMany({});
   await db.dateOverride.deleteMany({});
   await db.schedule.deleteMany({});

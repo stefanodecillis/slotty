@@ -73,6 +73,8 @@ function makeInput(overrides: Record<string, unknown> = {}) {
 
 beforeEach(async () => {
   const { db } = await import('@/lib/db');
+  await db.bookingHistory.deleteMany({});
+  await db.booking.deleteMany({});
   await db.eventTypeQuestion.deleteMany({});
   await db.eventType.deleteMany({});
   await db.calendar.deleteMany({});

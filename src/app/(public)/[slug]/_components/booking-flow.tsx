@@ -125,37 +125,44 @@ export function BookingFlow(props: Props) {
     }
     setStep('submitting');
     try {
+      // Use a stable client_request_id for this submission so a network retry
+      // (e.g. the user smashing the button) doesn't double-book.
+      const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       const res = await fetch('/api/public/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          slug,
-          startUtc: selectedSlot.startUtc,
-          name,
-          email,
-          guests: guests
+          eventTypeSlug: slug,
+          startAt: selectedSlot.startUtc,
+          bookerName: name,
+          bookerEmail: email,
+          bookerTimezone: bookerTz,
+          additionalGuests: guests
             .split(',')
             .map((g) => g.trim())
             .filter(Boolean),
           notes,
           answers,
-          bookerTz,
+          clientRequestId,
         }),
       });
-      if (res.status === 503) {
-        show({
-          message: 'Booking submissions go live in Phase 7. Your details are valid.',
-        });
-        setStep('pending');
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { manageUrl?: string };
+      if (data.manageUrl) {
+        // Send the booker to the management page (which is what gives them
+        // their cancel + reschedule URL going forward).
+        window.location.href = data.manageUrl;
         return;
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // Phase 7 will return a redirect URL.
       setStep('pending');
     } catch (err) {
-      show({ message: 'Submission failed. Please try again.' });
+      show({
+        message: err instanceof Error ? err.message : 'Submission failed. Please try again.',
+      });
       setStep('details');
-      void err;
     }
   }
 

@@ -21,6 +21,7 @@ import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { listEventsIncremental } from '@/lib/google/calendar';
 import { markAccountNeedsReauth } from '@/lib/google/client';
+import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
 
 interface ParsedTime {
   startAt: Date;
@@ -157,6 +158,13 @@ export async function syncCalendarIncremental(calendarId: string): Promise<void>
     where: { id: accountId },
     data: { lastSyncedAt: new Date(), lastSyncError: null },
   });
+
+  // After a sync the busy table may have changed for any number of event
+  // types, so we drop the entire slot cache rather than enumerate IDs. The
+  // cache also folds in BusyEvent.updatedAt as part of its key, so this is
+  // a defensive belt-and-braces; we drop it explicitly here so callers that
+  // share the same process see fresh slots immediately.
+  invalidateSlotCache();
 
   logger.info(
     {

@@ -113,6 +113,8 @@ async function seed(opts: {
 beforeEach(async () => {
   const { db } = await import('@/lib/db');
   await db.busyEvent.deleteMany({});
+  await db.bookingHistory.deleteMany({});
+  await db.booking.deleteMany({});
   await db.eventType.deleteMany({});
   await db.calendar.deleteMany({});
   await db.connectedAccount.deleteMany({});

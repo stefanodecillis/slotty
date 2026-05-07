@@ -3,8 +3,13 @@
  *
  * `listCalendars` and `listEventsIncremental` are the read-side; the latter
  * is the heart of the sync engine. `insertEvent` / `patchEvent` /
- * `deleteEvent` will be filled in during Phase 7 when we begin writing
- * to Google. `watchCalendar` / `stopWatch` drive push notifications.
+ * `deleteEvent` are the write-side used by the Phase 7 booking flow.
+ * `watchCalendar` / `stopWatch` drive push notifications.
+ *
+ * All write helpers retry exactly once on a 401 by re-fetching the authed
+ * client (`getAuthedClient` will trigger a token refresh automatically). They
+ * return Google's response payload unchanged so callers can inspect htmlLink,
+ * hangoutLink, and conferenceData entry points.
  */
 import { google, calendar_v3 } from 'googleapis';
 
@@ -30,6 +35,33 @@ export interface IncrementalListResult {
 
 function calendarApi(client: Awaited<ReturnType<typeof getAuthedClient>>) {
   return google.calendar({ version: 'v3', auth: client });
+}
+
+/**
+ * Run the supplied API call. On a 401 we re-fetch the authed client (which
+ * triggers a token refresh) and retry once before propagating.
+ */
+async function withAuthRetry<T>(
+  accountId: string,
+  fn: (cal: ReturnType<typeof calendarApi>) => Promise<T>,
+): Promise<T> {
+  const client = await getAuthedClient(accountId);
+  try {
+    return await fn(calendarApi(client));
+  } catch (err) {
+    const status =
+      (err as { code?: number; response?: { status?: number } })?.response?.status ??
+      (err as { code?: number }).code;
+    if (status === 401) {
+      logger.warn(
+        { event: 'google.write.retry_after_401', accountId },
+        'got 401 on Google write call, refreshing token and retrying once',
+      );
+      const fresh = await getAuthedClient(accountId);
+      return await fn(calendarApi(fresh));
+    }
+    throw err;
+  }
 }
 
 export async function listCalendars(accountId: string): Promise<GCalendar[]> {
@@ -123,55 +155,123 @@ export async function listEventsIncremental(
   }
 }
 
+export interface InsertEventOpts {
+  /** Google's `sendUpdates` param. Defaults to 'all' for booking flows. */
+  sendUpdates?: 'all' | 'externalOnly' | 'none';
+}
+
 /**
- * Phase 7 hook — placeholder. Returns the inserted event with `htmlLink` set
- * so we can store it on the booking record.
+ * Insert a new event on the destination calendar. Returns Google's response
+ * including any conferenceData (e.g. Meet link) Google created server-side.
+ *
+ * Pass `event.conferenceData.createRequest` to request a Meet link; we
+ * automatically set `conferenceDataVersion: 1` in that case so Google honours
+ * the request.
  */
 export async function insertEvent(
   accountId: string,
   calendarId: string,
   event: calendar_v3.Schema$Event,
+  opts: InsertEventOpts = {},
 ): Promise<calendar_v3.Schema$Event> {
-  const auth = await getAuthedClient(accountId);
-  const cal = calendarApi(auth);
-
-  const params: calendar_v3.Params$Resource$Events$Insert = {
-    calendarId,
-    requestBody: event,
-  };
-  if (event.conferenceData?.createRequest) {
-    params.conferenceDataVersion = 1;
-  }
-  const { data } = await cal.events.insert(params);
-  return data;
+  return withAuthRetry(accountId, async (cal) => {
+    const params: calendar_v3.Params$Resource$Events$Insert = {
+      calendarId,
+      requestBody: event,
+      sendUpdates: opts.sendUpdates ?? 'all',
+    };
+    if (event.conferenceData?.createRequest) {
+      params.conferenceDataVersion = 1;
+    }
+    const { data } = await cal.events.insert(params);
+    return data;
+  });
 }
 
-/** Phase 7 hook — placeholder. */
+export interface PatchEventOpts {
+  sendUpdates?: 'all' | 'externalOnly' | 'none';
+}
+
+/**
+ * Patch an existing event. We deliberately accept only the partial payload
+ * the caller provides; Phase 7 reschedule omits `conferenceData` so the
+ * existing Meet link is preserved.
+ */
 export async function patchEvent(
   accountId: string,
   calendarId: string,
   eventId: string,
   patch: calendar_v3.Schema$Event,
+  opts: PatchEventOpts = {},
 ): Promise<calendar_v3.Schema$Event> {
-  const auth = await getAuthedClient(accountId);
-  const cal = calendarApi(auth);
-  const { data } = await cal.events.patch({
-    calendarId,
-    eventId,
-    requestBody: patch,
+  return withAuthRetry(accountId, async (cal) => {
+    const { data } = await cal.events.patch({
+      calendarId,
+      eventId,
+      requestBody: patch,
+      sendUpdates: opts.sendUpdates ?? 'all',
+    });
+    return data;
   });
-  return data;
 }
 
-/** Phase 7 hook — placeholder. */
+export interface DeleteEventOpts {
+  sendUpdates?: 'all' | 'externalOnly' | 'none';
+}
+
+/**
+ * Delete a Google event. With `sendUpdates: 'all'` (the default) Google emails
+ * cancellation notices to every attendee — this is how Slotty avoids running
+ * its own SMTP for cancellations.
+ *
+ * 404 / 410 are swallowed: if the event is already gone, the booking-side
+ * cancel still succeeds.
+ */
 export async function deleteEvent(
   accountId: string,
   calendarId: string,
   eventId: string,
+  opts: DeleteEventOpts = {},
 ): Promise<void> {
-  const auth = await getAuthedClient(accountId);
-  const cal = calendarApi(auth);
-  await cal.events.delete({ calendarId, eventId });
+  try {
+    await withAuthRetry(accountId, async (cal) => {
+      await cal.events.delete({
+        calendarId,
+        eventId,
+        sendUpdates: opts.sendUpdates ?? 'all',
+      });
+    });
+  } catch (err) {
+    const status =
+      (err as { code?: number; response?: { status?: number } })?.response?.status ??
+      (err as { code?: number }).code;
+    if (status === 404 || status === 410) {
+      logger.info(
+        { event: 'google.delete.already_gone', accountId, calendarId, eventId, status },
+        'Google event already deleted, treating as success',
+      );
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Extract a video conference URL from a Google insertEvent / patchEvent
+ * response. We look at `hangoutLink` first (the convenient top-level field
+ * Google sets for Meet), then fall back to scanning `conferenceData.entryPoints`
+ * for an entry of type `video`. Returns null if no conference link is present.
+ */
+export function extractMeetingUrl(
+  event: calendar_v3.Schema$Event | null | undefined,
+): string | null {
+  if (!event) return null;
+  if (event.hangoutLink) return event.hangoutLink;
+  const entryPoints = event.conferenceData?.entryPoints ?? [];
+  for (const ep of entryPoints) {
+    if (ep.entryPointType === 'video' && ep.uri) return ep.uri;
+  }
+  return null;
 }
 
 export interface WatchResult {

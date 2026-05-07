@@ -14,7 +14,13 @@ async function createTestUser() {
 }
 
 beforeEach(async () => {
+  // Phase 7 added Booking → EventType → User. Clear bookings + event types
+  // before users so cascade deletes don't trip the Restrict FK on Booking.
   const { db } = await import('@/lib/db');
+  await db.bookingHistory.deleteMany({});
+  await db.booking.deleteMany({});
+  await db.eventTypeQuestion.deleteMany({});
+  await db.eventType.deleteMany({});
   await db.session.deleteMany({});
   await db.user.deleteMany({});
 });
