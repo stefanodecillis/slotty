@@ -15,6 +15,8 @@ const nextConfig = {
       'agent-base',
       'sharp',
       'argon2',
+      'pino',
+      'pino-pretty',
     ],
   },
   images: {
@@ -28,6 +30,7 @@ const nextConfig = {
       // Our instrumentation hook + in-process scheduler also need these as externals
       // so googleapis (which transitively imports node:http2/stream) isn't bundled.
       const extraExternals = [
+        // googleapis subtree
         'googleapis',
         'googleapis-common',
         'google-auth-library',
@@ -35,8 +38,27 @@ const nextConfig = {
         'gcp-metadata',
         'https-proxy-agent',
         'agent-base',
+        // native modules
         'sharp',
         'argon2',
+        // pino + transitive worker-thread deps. Bundling these breaks
+        // pino-pretty's worker (it tries to resolve vendor-chunks/lib/worker.js).
+        'pino',
+        'pino-pretty',
+        'pino-abstract-transport',
+        'thread-stream',
+        'sonic-boom',
+        'on-exit-leak-free',
+        'real-require',
+        'quick-format-unescaped',
+        'fast-redact',
+        'safe-stable-stringify',
+        'split2',
+        'colorette',
+        'fast-copy',
+        'dateformat',
+        'secure-json-parse',
+        'pump',
       ];
       const existing = Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean);
       config.externals = [
