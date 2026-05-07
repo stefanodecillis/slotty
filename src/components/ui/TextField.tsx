@@ -1,6 +1,6 @@
 'use client';
 
-import React, { forwardRef, useId, useState } from 'react';
+import React, { forwardRef, useId } from 'react';
 import { cn } from '@/lib/utils/cn';
 
 export interface TextFieldProps {
@@ -25,6 +25,15 @@ export interface TextFieldProps {
   autoFocus?: boolean;
 }
 
+/**
+ * M3 outlined text field with floating label.
+ *
+ * The "floating" detection is CSS-based via `:placeholder-shown` and `:focus`
+ * rather than React state — so it works correctly with browser autofill,
+ * native form submission, and any uncontrolled use. We always render a
+ * placeholder of `" "` (a single space) so `:placeholder-shown` reliably
+ * matches the empty state.
+ */
 export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, TextFieldProps>(
   (
     {
@@ -54,39 +63,80 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
     const id = idProp ?? generatedId;
     const helperId = `${id}-helper`;
 
-    const [internalValue, setInternalValue] = useState(defaultValue ?? '');
-    const [focused, setFocused] = useState(false);
-
-    const controlled = value !== undefined;
-    const currentValue = controlled ? value : internalValue;
-
-    const isFloating = focused || currentValue.length > 0 || Boolean(placeholder);
-
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      if (!controlled) setInternalValue(e.target.value);
       onChange?.(e.target.value);
     };
-
-    const borderClass = error
-      ? focused
-        ? 'border-2 border-error'
-        : 'border border-error'
-      : focused
-        ? 'border-2 border-primary'
-        : 'border border-outline';
-
-    const labelColorClass = error ? 'text-error' : focused ? 'text-primary' : 'text-on-surface-variant';
 
     const inputPaddingLeft = leadingIcon ? 'pl-12' : 'pl-4';
     const inputPaddingRight = trailingIcon ? 'pr-12' : 'pr-4';
 
+    // Always pass a non-empty placeholder so :placeholder-shown reliably
+    // matches the empty state. A user-supplied placeholder still works.
+    const effectivePlaceholder = placeholder && placeholder.length > 0 ? placeholder : ' ';
+
     const sharedInputClass = cn(
-      'w-full bg-transparent text-body-l text-on-surface outline-none',
+      'peer w-full bg-transparent text-body-l text-on-surface outline-none',
       'placeholder:text-on-surface-variant/60',
       'disabled:cursor-not-allowed',
+      // Drive border state via CSS:
+      //   default (empty + not focused) → outline color
+      //   focused                       → primary color, 2px
+      //   error                         → error color
+      // The border itself lives on the wrapper div; we only need the input
+      // to expose its state via :focus (which the wrapper picks up via
+      // focus-within).
       inputPaddingLeft,
       inputPaddingRight,
     );
+
+    const wrapperBorderClass = error
+      ? 'border border-error focus-within:border-2 focus-within:border-error'
+      : 'border border-outline focus-within:border-2 focus-within:border-primary';
+
+    // Floating label classes:
+    //  - default state: floating (top-0, small, primary-on-focus)
+    //  - input is empty AND unfocused: centered, body-l, on-surface-variant
+    //
+    // The peer modifier reads the input's :placeholder-shown / :focus state.
+    // This works for autofilled inputs because once a value is present the
+    // browser does NOT report :placeholder-shown.
+    const labelClass = cn(
+      'pointer-events-none absolute select-none',
+      leadingIcon ? 'left-12' : 'left-4',
+      'transition-all duration-200 ease-emphasized',
+      // Floating (default) styling — applies unless overridden below
+      'top-0 -translate-y-1/2 px-1 text-label-m',
+      'bg-surface-container-low',
+      // Resting (centered) styling when input is empty AND not focused
+      'peer-placeholder-shown:top-1/2',
+      'peer-placeholder-shown:-translate-y-1/2',
+      'peer-placeholder-shown:text-body-l',
+      'peer-placeholder-shown:bg-transparent',
+      'peer-placeholder-shown:px-0',
+      // Re-float on focus, even when empty
+      'peer-focus:top-0',
+      'peer-focus:-translate-y-1/2',
+      'peer-focus:px-1',
+      'peer-focus:text-label-m',
+      'peer-focus:bg-surface-container-low',
+      // Color
+      error
+        ? 'text-error peer-focus:text-error'
+        : 'text-on-surface-variant peer-focus:text-primary',
+    );
+
+    const commonProps = {
+      id,
+      name,
+      required,
+      disabled,
+      autoComplete,
+      autoFocus,
+      placeholder: effectivePlaceholder,
+      'aria-invalid': error,
+      'aria-describedby': helperText ? helperId : undefined,
+      onChange: handleChange,
+    };
 
     return (
       <div className={cn('relative flex flex-col gap-1', className)}>
@@ -94,78 +144,51 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
           className={cn(
             'relative flex items-center rounded-shape-xs bg-transparent',
             'transition-colors duration-200 ease-standard',
-            borderClass,
+            wrapperBorderClass,
             disabled && 'opacity-38',
           )}
         >
           {leadingIcon && (
-            <span className="absolute left-3 flex items-center text-[20px] text-on-surface-variant">
+            <span className="absolute left-3 z-10 flex items-center text-[20px] text-on-surface-variant">
               {leadingIcon}
             </span>
           )}
 
-          {/* Floating label */}
-          <label
-            htmlFor={id}
-            className={cn(
-              'pointer-events-none absolute select-none',
-              leadingIcon ? 'left-12' : 'left-4',
-              'transition-all duration-200 ease-emphasized',
-              isFloating
-                ? cn(
-                    'top-0 -translate-y-1/2 px-1 text-label-m',
-                    'bg-surface',
-                  )
-                : 'top-1/2 -translate-y-1/2 text-body-l',
-              labelColorClass,
-            )}
-          >
-            {label}
-            {required && <span aria-hidden="true"> *</span>}
-          </label>
-
           {multiline ? (
             <textarea
               ref={ref as React.Ref<HTMLTextAreaElement>}
-              id={id}
-              name={name}
               rows={rows}
-              required={required}
-              disabled={disabled}
-              value={controlled ? value : internalValue}
-              onChange={handleChange}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              placeholder={focused ? (placeholder ?? '') : ''}
-              autoComplete={autoComplete}
-              autoFocus={autoFocus}
-              aria-invalid={error}
-              aria-describedby={helperText ? helperId : undefined}
+              {...(value !== undefined
+                ? { value }
+                : defaultValue !== undefined
+                  ? { defaultValue }
+                  : {})}
+              {...commonProps}
               className={cn(sharedInputClass, 'resize-none py-4')}
             />
           ) : (
             <input
               ref={ref as React.Ref<HTMLInputElement>}
-              id={id}
-              name={name}
               type={type}
-              required={required}
-              disabled={disabled}
-              value={controlled ? value : internalValue}
-              onChange={handleChange}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
-              placeholder={focused ? (placeholder ?? '') : ''}
-              autoComplete={autoComplete}
-              autoFocus={autoFocus}
-              aria-invalid={error}
-              aria-describedby={helperText ? helperId : undefined}
+              {...(value !== undefined
+                ? { value }
+                : defaultValue !== undefined
+                  ? { defaultValue }
+                  : {})}
+              {...commonProps}
               className={cn(sharedInputClass, 'h-14')}
             />
           )}
 
+          {/* Label is rendered AFTER the input so the `peer-*` Tailwind
+              modifiers can read the input's :placeholder-shown / :focus state. */}
+          <label htmlFor={id} className={labelClass}>
+            {label}
+            {required && <span aria-hidden="true"> *</span>}
+          </label>
+
           {trailingIcon && (
-            <span className="absolute right-3 flex items-center text-[20px] text-on-surface-variant">
+            <span className="absolute right-3 z-10 flex items-center text-[20px] text-on-surface-variant">
               {trailingIcon}
             </span>
           )}
