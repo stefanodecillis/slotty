@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.bun/
+
+# Build output
+.next/
+out/
+dist/
+build/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Data (volume)
+data/
+backups/
+prisma/*.db
+prisma/*.db-journal
+prisma/*.db-shm
+prisma/*.db-wal
+
+# Logs
+*.log
+logs/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test
+coverage/
+.nyc_output/
+playwright-report/
+playwright/.cache/
+
+# Misc
+*.tsbuildinfo
+next-env.d.ts
+.turbo/

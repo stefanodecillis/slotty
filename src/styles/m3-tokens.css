@@ -1,0 +1,81 @@
+/*
+  Static M3 token snapshot — seed #4F6CFF, SchemeTonalSpot variant.
+  Regenerate: bun run theme:generate #RRGGBB
+  Values are R G B channels (space-separated) for Tailwind's rgb(... / <alpha-value>) pattern.
+*/
+
+:root {
+  --md-sys-color-primary: 69 85 180;
+  --md-sys-color-on-primary: 255 255 255;
+  --md-sys-color-primary-container: 224 224 255;
+  --md-sys-color-on-primary-container: 0 6 101;
+  --md-sys-color-secondary: 90 93 124;
+  --md-sys-color-on-secondary: 255 255 255;
+  --md-sys-color-secondary-container: 224 224 255;
+  --md-sys-color-on-secondary-container: 23 26 55;
+  --md-sys-color-tertiary: 119 83 108;
+  --md-sys-color-on-tertiary: 255 255 255;
+  --md-sys-color-tertiary-container: 255 216 243;
+  --md-sys-color-on-tertiary-container: 46 13 38;
+  --md-sys-color-error: 186 26 26;
+  --md-sys-color-on-error: 255 255 255;
+  --md-sys-color-error-container: 255 218 214;
+  --md-sys-color-on-error-container: 65 0 2;
+  --md-sys-color-background: 251 248 255;
+  --md-sys-color-on-background: 27 27 34;
+  --md-sys-color-surface: 251 248 255;
+  --md-sys-color-on-surface: 27 27 34;
+  --md-sys-color-surface-variant: 228 225 249;
+  --md-sys-color-on-surface-variant: 70 70 89;
+  --md-sys-color-surface-dim: 219 216 224;
+  --md-sys-color-surface-bright: 251 248 255;
+  --md-sys-color-surface-container-lowest: 255 255 255;
+  --md-sys-color-surface-container-low: 245 242 250;
+  --md-sys-color-surface-container: 239 236 244;
+  --md-sys-color-surface-container-high: 234 230 239;
+  --md-sys-color-surface-container-highest: 228 225 233;
+  --md-sys-color-outline: 117 117 138;
+  --md-sys-color-outline-variant: 199 197 219;
+  --md-sys-color-scrim: 0 0 0;
+  --md-sys-color-inverse-surface: 48 47 56;
+  --md-sys-color-inverse-on-surface: 242 239 248;
+  --md-sys-color-inverse-primary: 187 195 255;
+}
+
+[data-theme="dark"] {
+  --md-sys-color-primary: 187 195 255;
+  --md-sys-color-on-primary: 14 28 122;
+  --md-sys-color-primary-container: 44 58 153;
+  --md-sys-color-on-primary-container: 224 224 255;
+  --md-sys-color-secondary: 196 195 228;
+  --md-sys-color-on-secondary: 42 46 77;
+  --md-sys-color-secondary-container: 65 68 98;
+  --md-sys-color-on-secondary-container: 224 224 255;
+  --md-sys-color-tertiary: 238 179 224;
+  --md-sys-color-on-tertiary: 68 35 61;
+  --md-sys-color-tertiary-container: 93 58 84;
+  --md-sys-color-on-tertiary-container: 255 216 243;
+  --md-sys-color-error: 255 180 171;
+  --md-sys-color-on-error: 105 0 5;
+  --md-sys-color-error-container: 147 0 10;
+  --md-sys-color-on-error-container: 255 218 214;
+  --md-sys-color-background: 27 27 34;
+  --md-sys-color-on-background: 228 225 236;
+  --md-sys-color-surface: 27 27 34;
+  --md-sys-color-on-surface: 228 225 236;
+  --md-sys-color-surface-variant: 70 70 89;
+  --md-sys-color-on-surface-variant: 199 197 219;
+  --md-sys-color-surface-dim: 27 27 34;
+  --md-sys-color-surface-bright: 57 56 64;
+  --md-sys-color-surface-container-lowest: 22 22 28;
+  --md-sys-color-surface-container-low: 35 35 43;
+  --md-sys-color-surface-container: 39 38 47;
+  --md-sys-color-surface-container-high: 50 49 58;
+  --md-sys-color-surface-container-highest: 61 60 69;
+  --md-sys-color-outline: 144 143 164;
+  --md-sys-color-outline-variant: 70 70 89;
+  --md-sys-color-scrim: 0 0 0;
+  --md-sys-color-inverse-surface: 228 225 236;
+  --md-sys-color-inverse-on-surface: 48 47 56;
+  --md-sys-color-inverse-primary: 69 85 180;
+}

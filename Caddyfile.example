@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddyfile.example — Caddy v2 reverse-proxy configuration for Slotty.
+#
+# Usage:
+#   1. Replace book.example.com with your real domain.
+#   2. Adjust the allowed CIDRs in @admin to match your LAN / Tailscale range.
+#   3. Copy to /etc/caddy/Caddyfile (or wherever Caddy reads its config).
+#   4. caddy reload
+#
+# Caddy automatically provisions and renews TLS certificates via Let's Encrypt.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Nginx alternative ───────────────────────────────────────────────────────
+# If you prefer Nginx, the equivalent IP-allowlist for /admin looks like:
+#
+# server {
+#     listen 443 ssl;
+#     server_name book.example.com;
+#
+#     # -- Admin IP allowlist --
+#     location ~ ^/admin|^/api/admin/ {
+#         # Allow your LAN and Tailscale CGNAT range; deny everyone else.
+#         allow 192.168.0.0/16;
+#         allow 100.64.0.0/10;
+#         deny  all;
+#         proxy_pass http://127.0.0.1:3000;
+#         proxy_set_header Host              $host;
+#         proxy_set_header X-Real-IP         $remote_addr;
+#         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#     }
+#
+#     # -- Public routes (Google webhook must remain reachable) --
+#     location / {
+#         proxy_pass http://127.0.0.1:3000;
+#         proxy_set_header Host              $host;
+#         proxy_set_header X-Real-IP         $remote_addr;
+#         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#     }
+# }
+# ─────────────────────────────────────────────────────────────────────────────
+
+book.example.com {
+
+    # ── Defense-in-depth headers applied to every response ───────────────────
+    header /* X-Frame-Options DENY
+    header /* Referrer-Policy strict-origin-when-cross-origin
+
+    # ── Admin IP-allowlist matcher ────────────────────────────────────────────
+    # Allow only traffic originating from trusted CIDRs.
+    # Add more `remote_ip` values (space-separated) to extend the list, e.g.:
+    #   remote_ip 192.168.0.0/16 100.64.0.0/10 10.0.0.0/8
+    @admin {
+        path /admin* /api/admin/*
+        not remote_ip 192.168.0.0/16 100.64.0.0/10
+    }
+
+    # Return 403 for admin paths coming from non-allowed origins.
+    handle @admin {
+        respond "Forbidden" 403
+    }
+
+    # ── Google Calendar webhook — must stay publicly reachable ────────────────
+    # Google POSTs push notifications here; do NOT put it behind the IP guard.
+    # This route falls through to the general reverse_proxy below.
+    # (No special block needed — the @admin matcher excludes /api/webhooks/*.)
+
+    # ── General reverse-proxy ────────────────────────────────────────────────
+    reverse_proxy 127.0.0.1:3000 {
+        # Forward the real client IP so Next.js can log it correctly.
+        header_up X-Real-IP {remote_host}
+    }
+}

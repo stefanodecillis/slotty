@@ -1,0 +1,43 @@
+# Dependencies — reinstalled inside the container.
+node_modules
+
+# Next.js build artefacts — rebuilt inside the container.
+.next
+
+# Version control metadata.
+.git
+.gitignore
+
+# Persistent data volume — never bake the database into the image.
+data
+backups
+
+# Secrets — never bake credentials into the image.
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+# Keep the example so developers can reference it from inside the build context
+# if needed, but in practice it is not copied by any Dockerfile stage.
+!.env.example
+
+# Test artefacts.
+tests
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+coverage
+
+# Documentation (keep README for context if desired, exclude the rest).
+CHANGELOG.md
+CONTRIBUTING.md
+docs
+
+# Editor / OS artefacts.
+.DS_Store
+.vscode
+.idea
+*.swp
+*.swo

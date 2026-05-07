@@ -1,0 +1,71 @@
+// Slotty data model.
+// Phase 0 includes only the foundational tables (User, Job).
+// Subsequent phases extend this schema additively via Prisma migrations.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = []
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("SLOTTY_DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Single-user owner. Exactly one row exists in MVP.
+// ─────────────────────────────────────────────────────────────
+model User {
+  id            String   @id @default(cuid())
+  username      String   @unique
+  passwordHash  String   @map("password_hash")
+  email         String
+  displayName   String   @map("display_name")
+  avatarPath    String?  @map("avatar_path")
+  bio           String?
+  timezone      String   @default("UTC")
+  locale        String   @default("en")
+  theme         String   @default("system") // light | dark | system
+  seedColor     String   @default("#4F6CFF") @map("seed_color")
+  totpSecretEnc String?  @map("totp_secret_enc")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  sessions Session[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Lucia v3 sessions. Body fields populated in Phase 1.
+// ─────────────────────────────────────────────────────────────
+model Session {
+  id        String   @id
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+
+  user User @relation(references: [id], fields: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Persistent job queue (no Redis). Polled every 5 s by the
+// in-process worker. See src/lib/jobs/.
+// ─────────────────────────────────────────────────────────────
+model Job {
+  id          String   @id @default(cuid())
+  kind        String
+  runAt       DateTime @map("run_at")
+  payloadJson String   @default("{}") @map("payload_json")
+  attempts    Int      @default(0)
+  status      String   @default("pending") // pending | running | done | failed
+  lastError   String?  @map("last_error")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([status, runAt])
+  @@index([kind, status])
+  @@map("jobs")
+}
