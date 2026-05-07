@@ -1,6 +1,6 @@
 'use client';
 
-import React, { forwardRef, useId } from 'react';
+import * as React from 'react';
 import { cn } from '@/lib/utils/cn';
 
 export interface TextFieldProps {
@@ -33,8 +33,14 @@ export interface TextFieldProps {
  * native form submission, and any uncontrolled use. We always render a
  * placeholder of `" "` (a single space) so `:placeholder-shown` reliably
  * matches the empty state.
+ *
+ * For a bare M3 outlined input without a floating label, use `<Input>` and
+ * `<Label>` directly.
  */
-export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, TextFieldProps>(
+export const TextField = React.forwardRef<
+  HTMLInputElement | HTMLTextAreaElement,
+  TextFieldProps
+>(
   (
     {
       label,
@@ -59,7 +65,7 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
     },
     ref,
   ) => {
-    const generatedId = useId();
+    const generatedId = React.useId();
     const id = idProp ?? generatedId;
     const helperId = `${id}-helper`;
 
@@ -78,13 +84,6 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
       'peer w-full bg-transparent text-body-l text-on-surface outline-none',
       'placeholder:text-on-surface-variant/60',
       'disabled:cursor-not-allowed',
-      // Drive border state via CSS:
-      //   default (empty + not focused) → outline color
-      //   focused                       → primary color, 2px
-      //   error                         → error color
-      // The border itself lives on the wrapper div; we only need the input
-      // to expose its state via :focus (which the wrapper picks up via
-      // focus-within).
       inputPaddingLeft,
       inputPaddingRight,
     );
@@ -96,24 +95,20 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
     // Floating label classes:
     //  - default state: floating (top-0, small, primary-on-focus)
     //  - input is empty AND unfocused: centered, body-l, on-surface-variant
-    //
-    // The peer modifier reads the input's :placeholder-shown / :focus state.
-    // This works for autofilled inputs because once a value is present the
-    // browser does NOT report :placeholder-shown.
     const labelClass = cn(
       'pointer-events-none absolute select-none',
       leadingIcon ? 'left-12' : 'left-4',
       'transition-all duration-200 ease-emphasized',
-      // Floating (default) styling — applies unless overridden below
+      // Floating (default) — applies unless overridden below.
       'top-0 -translate-y-1/2 px-1 text-label-m',
       'bg-surface-container-low',
-      // Resting (centered) styling when input is empty AND not focused
+      // Resting (centered) styling when input is empty AND not focused.
       'peer-placeholder-shown:top-1/2',
       'peer-placeholder-shown:-translate-y-1/2',
       'peer-placeholder-shown:text-body-l',
       'peer-placeholder-shown:bg-transparent',
       'peer-placeholder-shown:px-0',
-      // Re-float on focus, even when empty
+      // Re-float on focus, even when empty.
       'peer-focus:top-0',
       'peer-focus:-translate-y-1/2',
       'peer-focus:px-1',
@@ -138,6 +133,13 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
       onChange: handleChange,
     };
 
+    const valueProps =
+      value !== undefined
+        ? { value }
+        : defaultValue !== undefined
+          ? { defaultValue }
+          : {};
+
     return (
       <div className={cn('relative flex flex-col gap-1', className)}>
         <div
@@ -158,11 +160,7 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
             <textarea
               ref={ref as React.Ref<HTMLTextAreaElement>}
               rows={rows}
-              {...(value !== undefined
-                ? { value }
-                : defaultValue !== undefined
-                  ? { defaultValue }
-                  : {})}
+              {...valueProps}
               {...commonProps}
               className={cn(sharedInputClass, 'resize-none py-4')}
             />
@@ -170,11 +168,7 @@ export const TextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, Text
             <input
               ref={ref as React.Ref<HTMLInputElement>}
               type={type}
-              {...(value !== undefined
-                ? { value }
-                : defaultValue !== undefined
-                  ? { defaultValue }
-                  : {})}
+              {...valueProps}
               {...commonProps}
               className={cn(sharedInputClass, 'h-14')}
             />

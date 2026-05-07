@@ -1,64 +1,112 @@
 'use client';
 
+import * as React from 'react';
+import { Slot } from '@radix-ui/react-slot';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils/cn';
 
 export interface NavItem {
   href: string;
   label: string;
-  icon: string; // Material Symbols icon name
+  /** Material Symbols icon name. */
+  icon: string;
+  /**
+   * Optional explicit override. When omitted, active state is derived from
+   * the current pathname (`usePathname()`).
+   */
   active?: boolean;
 }
 
-export interface NavigationRailProps {
+export interface NavigationRailProps extends React.HTMLAttributes<HTMLElement> {
   items: NavItem[];
-  className?: string;
+  /**
+   * Server-rendered fallback pathname. Used when `usePathname()` is not yet
+   * hydrated (which would otherwise return `null` in some edge cases).
+   */
+  pathname?: string;
+}
+
+function isActive(item: NavItem, pathname: string): boolean {
+  if (item.active !== undefined) return item.active;
+  if (item.href === '/admin') {
+    return pathname === '/admin' || pathname === '';
+  }
+  return pathname.startsWith(item.href);
 }
 
 /**
  * M3 Navigation Rail — vertical, sticky, 80px wide.
- * Shown on md+ screens. Active item has filled icon indicator.
+ * Shown on md+ screens. Active item gets a filled icon inside a chip.
  */
-export function NavigationRail({ items, className }: NavigationRailProps) {
-  return (
-    <nav
-      className={cn(
-        'hidden md:flex flex-col items-center gap-1 py-4 w-20 shrink-0',
-        className,
-      )}
-      aria-label="Primary navigation"
-    >
-      {items.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
+export const NavigationRail = React.forwardRef<HTMLElement, NavigationRailProps>(
+  ({ items, className, pathname: pathnameProp, ...props }, ref) => {
+    const clientPathname = usePathname();
+    const pathname = clientPathname ?? pathnameProp ?? '';
+
+    return (
+      <nav
+        ref={ref}
+        className={cn(
+          'hidden md:flex flex-col items-center gap-1 py-4 w-20 shrink-0',
+          className,
+        )}
+        aria-label="Primary navigation"
+        {...props}
+      >
+        {items.map((item) => (
+          <NavigationRailItem key={item.href} item={item} active={isActive(item, pathname)} />
+        ))}
+      </nav>
+    );
+  },
+);
+NavigationRail.displayName = 'NavigationRail';
+
+interface NavigationRailItemProps {
+  item: NavItem;
+  active: boolean;
+  /** When true, render via `<Slot>` so the child is the link element. */
+  asChild?: boolean;
+}
+
+const NavigationRailItem = React.forwardRef<HTMLAnchorElement, NavigationRailItemProps>(
+  ({ item, active, asChild = false }, ref) => {
+    const Comp = asChild ? Slot : Link;
+    return (
+      <Comp
+        ref={ref as React.Ref<HTMLAnchorElement>}
+        href={item.href}
+        className={cn(
+          'flex flex-col items-center gap-1 w-full px-2 py-3 rounded-shape-l text-label-s transition-colors',
+          active
+            ? 'text-on-secondary-container'
+            : 'text-on-surface-variant hover:text-on-surface',
+        )}
+        aria-current={active ? 'page' : undefined}
+      >
+        <span
           className={cn(
-            'flex flex-col items-center gap-1 w-full px-2 py-3 rounded-shape-l text-label-s transition-colors',
-            item.active
-              ? 'text-on-secondary-container'
-              : 'text-on-surface-variant hover:text-on-surface',
+            'flex h-8 w-14 items-center justify-center rounded-full transition-colors',
+            active ? 'bg-secondary-container' : 'hover:bg-surface-container',
           )}
-          aria-current={item.active ? 'page' : undefined}
         >
           <span
-            className={cn(
-              'flex h-8 w-14 items-center justify-center rounded-full',
-              item.active ? 'bg-secondary-container' : 'hover:bg-surface-container',
-            )}
+            className="material-symbols-outlined text-[22px]"
+            style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}
           >
-            <span
-              className={cn(
-                'material-symbols-outlined text-[22px]',
-                item.active && 'font-variation-settings: "FILL" 1',
-              )}
-              style={item.active ? { fontVariationSettings: "'FILL' 1" } : undefined}
-            >
-              {item.icon}
-            </span>
+            {item.icon}
           </span>
-          <span className="text-center leading-tight">{item.label}</span>
-        </Link>
-      ))}
-    </nav>
-  );
-}
+        </span>
+        <span className="text-center leading-tight">{item.label}</span>
+      </Comp>
+    );
+  },
+);
+NavigationRailItem.displayName = 'NavigationRail.Item';
+
+const NavigationRailNamespace = Object.assign(NavigationRail, {
+  Item: NavigationRailItem,
+});
+
+export { NavigationRailNamespace as NavigationRailWithItem, NavigationRailItem };

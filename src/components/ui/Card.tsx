@@ -1,9 +1,24 @@
-import React, { forwardRef } from 'react';
+import * as React from 'react';
+import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
 
+/**
+ * Material You (M3) Card.
+ *
+ * Three variants — `filled` (surface-container-highest), `outlined`, `elevated`.
+ * Composed from `<CardRoot>` plus `<CardHeader>`, `<CardTitle>`,
+ * `<CardDescription>`, `<CardContent>`, `<CardActions>`.
+ *
+ * The legacy `<Card.Header>` / `<Card.Content>` / `<Card.Actions>` namespace
+ * is preserved via `Object.assign` for backwards compatibility, but new code
+ * should prefer the named exports for cleaner RSC bundling.
+ */
 const cardVariants = cva(
-  ['relative flex flex-col overflow-hidden rounded-shape-md transition-shadow duration-200 ease-standard'],
+  [
+    'relative flex flex-col overflow-hidden rounded-shape-md',
+    'transition-shadow duration-200 ease-standard',
+  ],
   {
     variants: {
       variant: {
@@ -20,19 +35,25 @@ const cardVariants = cva(
 
 export interface CardProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof cardVariants> {}
-
-function CardRoot({ className, variant, children, ...props }: CardProps) {
-  return (
-    <div className={cn(cardVariants({ variant }), className)} {...props}>
-      {children}
-    </div>
-  );
+    VariantProps<typeof cardVariants> {
+  asChild?: boolean;
 }
 
+const CardRoot = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, variant, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : 'div';
+    return (
+      <Comp
+        ref={ref as React.Ref<HTMLDivElement>}
+        className={cn(cardVariants({ variant }), className)}
+        {...props}
+      />
+    );
+  },
+);
 CardRoot.displayName = 'Card';
 
-const CardHeader = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
@@ -41,18 +62,43 @@ const CardHeader = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     />
   ),
 );
+CardHeader.displayName = 'CardHeader';
 
-CardHeader.displayName = 'Card.Header';
-
-const CardContent = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn('px-4 pb-4 text-body-m text-on-surface', className)} {...props} />
+    <h3
+      ref={ref}
+      className={cn('text-headline-s text-on-surface', className)}
+      {...props}
+    />
   ),
 );
+CardTitle.displayName = 'CardTitle';
 
-CardContent.displayName = 'Card.Content';
+const CardDescription = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLParagraphElement>
+>(({ className, ...props }, ref) => (
+  <p
+    ref={ref}
+    className={cn('text-body-m text-on-surface-variant', className)}
+    {...props}
+  />
+));
+CardDescription.displayName = 'CardDescription';
 
-const CardActions = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn('px-4 pb-4 text-body-m text-on-surface', className)}
+      {...props}
+    />
+  ),
+);
+CardContent.displayName = 'CardContent';
+
+const CardActions = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
@@ -61,11 +107,18 @@ const CardActions = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEleme
     />
   ),
 );
+CardActions.displayName = 'CardActions';
 
-CardActions.displayName = 'Card.Actions';
-
-export const Card = Object.assign(CardRoot, {
+/**
+ * Backwards-compatible namespace export. New code should import the
+ * individual subcomponents directly.
+ */
+const Card = Object.assign(CardRoot, {
   Header: CardHeader,
+  Title: CardTitle,
+  Description: CardDescription,
   Content: CardContent,
   Actions: CardActions,
 });
+
+export { Card, CardRoot, CardHeader, CardTitle, CardDescription, CardContent, CardActions, cardVariants };

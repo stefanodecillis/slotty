@@ -1,23 +1,22 @@
 'use client';
 
-import React, { forwardRef } from 'react';
+import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { cn } from '@/lib/utils/cn';
 
 const DialogRoot = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogClose = DialogPrimitive.Close;
-
 const DialogPortal = DialogPrimitive.Portal;
 
-const DialogOverlay = forwardRef<
+const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-scrim/32',
+      'fixed inset-0 z-50 bg-scrim/50',
       'data-[state=open]:animate-in data-[state=closed]:animate-out',
       'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
       'transition-opacity duration-300 ease-emphasized',
@@ -26,10 +25,9 @@ const DialogOverlay = forwardRef<
     {...props}
   />
 ));
-
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
-const DialogContent = forwardRef<
+const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
@@ -39,7 +37,7 @@ const DialogContent = forwardRef<
       ref={ref}
       className={cn(
         'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-        'w-full max-w-[560px] rounded-shape-xl bg-surface-container-high p-6',
+        'w-full max-w-md rounded-shape-xl bg-surface-container-high p-6',
         'shadow-lg outline-none',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
@@ -54,10 +52,9 @@ const DialogContent = forwardRef<
     </DialogPrimitive.Content>
   </DialogPortal>
 ));
-
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
-const DialogTitle = forwardRef<
+const DialogTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
 >(({ className, ...props }, ref) => (
@@ -67,10 +64,25 @@ const DialogTitle = forwardRef<
     {...props}
   />
 ));
-
 DialogTitle.displayName = DialogPrimitive.Title.displayName;
 
-const DialogBody = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+const DialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn('mb-6 text-body-m text-on-surface-variant', className)}
+    {...props}
+  />
+));
+DialogDescription.displayName = DialogPrimitive.Description.displayName;
+
+/**
+ * Free-form body container — used when the dialog body has multiple
+ * paragraphs or interactive content (vs a single description string).
+ */
+const DialogBody = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
@@ -79,10 +91,9 @@ const DialogBody = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
     />
   ),
 );
+DialogBody.displayName = 'DialogBody';
 
-DialogBody.displayName = 'Dialog.Body';
-
-const DialogActions = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+const DialogFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
@@ -91,16 +102,39 @@ const DialogActions = forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEle
     />
   ),
 );
+DialogFooter.displayName = 'DialogFooter';
 
-DialogActions.displayName = 'Dialog.Actions';
+// Back-compat alias for the original `<Dialog.Actions>` namespace member.
+const DialogActions = DialogFooter;
 
-export const Dialog = Object.assign(DialogRoot, {
+/**
+ * Backwards-compatible namespace export. New code should prefer the named
+ * exports (`DialogContent`, `DialogTitle`, `DialogFooter`, …) for cleaner
+ * RSC bundling.
+ */
+const Dialog = Object.assign(DialogRoot, {
   Trigger: DialogTrigger,
   Close: DialogClose,
+  Portal: DialogPortal,
   Content: DialogContent,
   Title: DialogTitle,
+  Description: DialogDescription,
   Body: DialogBody,
+  Footer: DialogFooter,
   Actions: DialogActions,
 });
 
-export { DialogPrimitive };
+export {
+  Dialog,
+  DialogTrigger,
+  DialogClose,
+  DialogPortal,
+  DialogOverlay,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+  DialogFooter,
+  DialogActions,
+  DialogPrimitive,
+};
