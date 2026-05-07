@@ -1,7 +1,7 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { Dialog } from '@/components/ui/Dialog';
@@ -52,11 +52,6 @@ export default function SecurityPage() {
 
   useEffect(() => {
     void loadSessions();
-    // Detect if TOTP is enabled via a simple data attribute set server-side
-    // (we avoid a separate API call by checking the DOM — but here we use fetch).
-    void fetch('/api/admin/security/sessions').then(() => {
-      // This gives us a session check; TOTP status is loaded separately.
-    });
   }, [loadSessions]);
 
   async function handleChangePassword() {
@@ -141,21 +136,32 @@ export default function SecurityPage() {
     await loadSessions();
   }
 
+  const otherSessions = sessions.filter((s) => !s.isCurrent);
+
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-headline-m text-on-surface">Security</h1>
-        <p className="text-body-m text-on-surface-variant">
-          Manage your password, two-factor authentication, and active sessions.
+    <div className="mx-auto flex max-w-4xl flex-col">
+      <Link
+        href="/admin/settings"
+        className="mb-4 inline-flex w-fit items-center gap-1 text-label-l text-on-surface-variant transition-colors hover:text-on-surface"
+      >
+        <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+        Back to settings
+      </Link>
+
+      <header className="mb-8">
+        <h1 className="text-display-s text-on-background">Security</h1>
+        <p className="mt-1 text-body-l text-on-surface-variant">
+          Password, two-factor authentication, and active sessions.
         </p>
       </header>
 
-      {/* Change password */}
-      <Card variant="filled">
-        <Card.Header>
-          <h2 className="text-title-m text-on-surface">Change password</h2>
-        </Card.Header>
-        <Card.Content>
+      {/* Password */}
+      <section>
+        <h2 className="text-title-l text-on-surface">Password</h2>
+        <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+          Use a long, unique password. After changing, you'll need to sign in again.
+        </p>
+        <div className="rounded-shape-md bg-surface-container-low p-6">
           <div className="flex flex-col gap-4">
             <TextField
               label="Current password"
@@ -178,97 +184,139 @@ export default function SecurityPage() {
               onChange={(v) => setConfirmPassword(v)}
               autoComplete="new-password"
             />
-            {passwordError && <p className="text-body-s text-error">{passwordError}</p>}
-            {passwordSuccess && <p className="text-body-s text-secondary">{passwordSuccess}</p>}
-            <Button
-              variant="filled"
-              onClick={() => void handleChangePassword()}
-              disabled={savingPassword}
-            >
-              {savingPassword ? 'Saving...' : 'Change password'}
-            </Button>
+            {passwordError && (
+              <p className="text-body-s text-error" role="alert">
+                {passwordError}
+              </p>
+            )}
+            {passwordSuccess && (
+              <p className="text-body-s text-tertiary">{passwordSuccess}</p>
+            )}
+            <div className="flex justify-end">
+              <Button
+                variant="filled"
+                onClick={() => void handleChangePassword()}
+                loading={savingPassword}
+                disabled={savingPassword}
+              >
+                Change password
+              </Button>
+            </div>
           </div>
-        </Card.Content>
-      </Card>
+        </div>
+      </section>
 
       {/* 2FA */}
-      <Card variant="filled">
-        <Card.Header>
-          <h2 className="text-title-m text-on-surface">Two-factor authentication (TOTP)</h2>
-          <p className="text-body-m text-on-surface-variant">
-            {totpEnabled ? '2FA is enabled.' : '2FA is disabled.'}
-          </p>
-        </Card.Header>
-        <Card.Content>
+      <section className="mt-12">
+        <h2 className="text-title-l text-on-surface">Two-factor authentication</h2>
+        <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+          Require a 6-digit code from an authenticator app on every sign-in.
+        </p>
+        <div className="rounded-shape-md bg-surface-container-low p-6">
           <div className="flex flex-col gap-4">
-            {!totpEnabled ? (
-              <Button variant="tonal" onClick={() => void handleStartTotpSetup()}>
-                Enable 2FA
-              </Button>
-            ) : (
-              <>
-                <Button variant="outlined" onClick={() => setShowDisableDialog(true)}>
-                  Disable 2FA
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span
+                  className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                    totpEnabled
+                      ? 'bg-tertiary-container text-on-tertiary-container'
+                      : 'bg-surface-container-high text-on-surface-variant'
+                  }`}
+                >
+                  <span className="material-symbols-outlined">
+                    {totpEnabled ? 'verified_user' : 'shield'}
+                  </span>
+                </span>
+                <div>
+                  <p className="text-title-m text-on-surface">
+                    {totpEnabled ? '2FA is enabled' : '2FA is disabled'}
+                  </p>
+                  <p className="text-body-s text-on-surface-variant">
+                    {totpEnabled ? 'Your account is protected.' : 'Add an extra layer of security.'}
+                  </p>
+                </div>
+              </div>
+              {!totpEnabled ? (
+                <Button variant="tonal" onClick={() => void handleStartTotpSetup()}>
+                  Enable 2FA
                 </Button>
-                {backupCodes.length > 0 && (
-                  <div className="flex flex-col gap-2">
-                    <p className="text-label-m text-on-surface">
-                      Backup codes (save these now):
-                    </p>
-                    <div className="grid grid-cols-2 gap-1 rounded-shape-xs bg-surface-container-highest p-3">
-                      {backupCodes.map((c) => (
-                        <span key={c} className="font-mono text-body-s text-on-surface">
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+              ) : (
+                <Button variant="outlined" onClick={() => setShowDisableDialog(true)}>
+                  Disable
+                </Button>
+              )}
+            </div>
+
+            {backupCodes.length > 0 && (
+              <div className="mt-2 rounded-shape-sm border border-outline-variant bg-surface p-4">
+                <p className="text-label-l text-on-surface">
+                  Backup codes — save these now:
+                </p>
+                <p className="mb-3 mt-1 text-body-s text-on-surface-variant">
+                  Each code can be used once if you lose access to your authenticator.
+                </p>
+                <div className="grid grid-cols-2 gap-1 rounded-shape-xs bg-surface-container-low p-3 font-mono text-body-s text-on-surface">
+                  {backupCodes.map((c) => (
+                    <span key={c}>{c}</span>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
-        </Card.Content>
-      </Card>
+        </div>
+      </section>
 
       {/* Sessions */}
-      <Card variant="filled">
-        <Card.Header>
-          <h2 className="text-title-m text-on-surface">Active sessions</h2>
-        </Card.Header>
-        <Card.Content>
-          <div className="flex flex-col gap-3">
-            {sessionsLoading ? (
-              <p className="text-body-m text-on-surface-variant">Loading...</p>
-            ) : (
-              <>
-                <ul className="flex flex-col gap-2">
-                  {sessions.map((s) => (
-                    <li key={s.fullId} className="flex items-center gap-2 text-body-s">
-                      <span className="font-mono text-on-surface">{s.id}</span>
-                      <span className="text-on-surface-variant">
-                        expires {new Date(s.expiresAt).toLocaleDateString()}
+      <section className="mt-12">
+        <h2 className="text-title-l text-on-surface">Active sessions</h2>
+        <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+          Devices currently signed in to your account.
+        </p>
+        <div className="overflow-hidden rounded-shape-md border border-outline-variant bg-surface">
+          {sessionsLoading ? (
+            <p className="p-6 text-body-m text-on-surface-variant">Loading…</p>
+          ) : sessions.length === 0 ? (
+            <p className="p-6 text-body-m text-on-surface-variant">No active sessions.</p>
+          ) : (
+            <ul>
+              {sessions.map((s, idx) => (
+                <li
+                  key={s.fullId}
+                  className={`flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${
+                    idx > 0 ? 'border-t border-outline-variant' : ''
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-container-low">
+                      <span className="material-symbols-outlined text-on-surface-variant">
+                        devices
                       </span>
-                      {s.isCurrent && (
-                        <span className="rounded-full bg-secondary-container px-2 text-label-s text-on-secondary-container">
-                          current
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                {sessions.filter((s) => !s.isCurrent).length > 0 && (
-                  <Button
-                    variant="outlined"
-                    onClick={() => void handleRevokeAllSessions()}
-                  >
-                    Sign out everywhere else
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        </Card.Content>
-      </Card>
+                    </span>
+                    <div className="flex flex-col">
+                      <span className="font-mono text-body-s text-on-surface">{s.id}</span>
+                      <span className="text-body-s text-on-surface-variant">
+                        Expires {new Date(s.expiresAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+                  {s.isCurrent && (
+                    <span className="self-start rounded-full bg-secondary-container px-3 py-1 text-label-m text-on-secondary-container sm:self-center">
+                      Current
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {otherSessions.length > 0 && (
+            <div className="flex justify-end border-t border-outline-variant px-5 py-3">
+              <Button variant="outlined" onClick={() => void handleRevokeAllSessions()}>
+                Sign out everywhere else
+              </Button>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* TOTP enable dialog */}
       <Dialog open={showEnableDialog} onOpenChange={setShowEnableDialog}>
@@ -278,15 +326,15 @@ export default function SecurityPage() {
             {totpSetupData && (
               <>
                 <p className="text-body-m text-on-surface-variant">
-                  Scan this QR code with your authenticator app, or enter the secret manually.
+                  Add this account to your authenticator, then enter the 6-digit code below.
                 </p>
-                <div className="rounded-shape-xs bg-surface-container-highest p-3">
-                  <p className="text-label-m text-on-surface-variant mb-1">Secret key:</p>
-                  <p className="font-mono text-body-s text-on-surface break-all">
+                <div className="rounded-shape-sm bg-surface-container-low p-3">
+                  <p className="text-label-m text-on-surface-variant">Secret key</p>
+                  <p className="mt-1 break-all font-mono text-body-s text-on-surface">
                     {totpSetupData.secret}
                   </p>
-                  <p className="text-label-m text-on-surface-variant mt-2 mb-1">URI:</p>
-                  <p className="font-mono text-body-xs text-on-surface-variant break-all">
+                  <p className="mt-3 text-label-m text-on-surface-variant">URI</p>
+                  <p className="mt-1 break-all font-mono text-body-s text-on-surface-variant">
                     {totpSetupData.uri}
                   </p>
                 </div>
@@ -318,7 +366,7 @@ export default function SecurityPage() {
           <Dialog.Title>Disable two-factor authentication</Dialog.Title>
           <div className="flex flex-col gap-4 pb-4">
             <p className="text-body-m text-on-surface-variant">
-              Enter your password to confirm disabling 2FA.
+              Enter your password to confirm.
             </p>
             <TextField
               label="Password"

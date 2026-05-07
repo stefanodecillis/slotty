@@ -3,7 +3,6 @@ import { DateTime } from 'luxon';
 
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { SnackbarProvider } from '@/components/ui/Snackbar';
 
@@ -34,10 +33,11 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
 
   const ownedEventTypes = await db.eventType.findMany({
     where: { userId: user.id },
-    select: { id: true, title: true, archived: true },
+    select: { id: true, title: true, color: true, archived: true },
     orderBy: { title: 'asc' },
   });
   const ownedIds = ownedEventTypes.map((e) => e.id);
+  const eventTypeColors = new Map(ownedEventTypes.map((e) => [e.id, e.color]));
 
   const status = searchParams.status ?? '';
   const eventTypeId = searchParams.eventTypeId ?? '';
@@ -72,11 +72,12 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
       orderBy: { startAt: 'desc' },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
-      include: { eventType: { select: { title: true, slug: true } } },
+      include: { eventType: { select: { id: true, title: true, slug: true } } },
     }),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasFilters = Boolean(status || eventTypeId || from || to || q);
 
   // Build the export URL with current filters preserved.
   const exportParams = new URLSearchParams();
@@ -91,17 +92,20 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
 
   return (
     <SnackbarProvider>
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="flex items-start justify-between">
-          <div className="flex flex-col gap-2">
-            <p className="text-label-l text-on-surface-variant">Bookings</p>
-            <h1 className="text-display-s text-on-background">All bookings</h1>
-            <p className="text-body-m text-on-surface-variant">
-              {total} total · page {page} of {totalPages}
+      <div className="mx-auto flex max-w-4xl flex-col">
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-display-s text-on-background">Bookings</h1>
+            <p className="mt-1 text-body-l text-on-surface-variant">
+              {total === 0
+                ? 'No bookings yet.'
+                : `${total} total booking${total === 1 ? '' : 's'}${
+                    totalPages > 1 ? ` · page ${page} of ${totalPages}` : ''
+                  }.`}
             </p>
           </div>
           <a href={exportUrl} download>
-            <Button variant="outlined" type="button">
+            <Button variant="outlined" type="button" leadingIcon={<span className="material-symbols-outlined">download</span>}>
               Export CSV
             </Button>
           </a>
@@ -116,64 +120,84 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
           eventTypes={ownedEventTypes}
         />
 
-        <Card variant="outlined">
-          <Card.Content className="overflow-x-auto p-0">
-            {rows.length === 0 ? (
-              <p className="px-4 py-8 text-center text-body-m text-on-surface-variant">
-                No bookings match your filters.
-              </p>
+        <section className="mt-6">
+          {rows.length === 0 ? (
+            hasFilters ? (
+              <EmptyState
+                icon="search_off"
+                title="No bookings match your filters"
+                description="Try widening the date range or clearing filters."
+              />
             ) : (
-              <table className="min-w-full text-body-s">
-                <thead className="bg-surface-container-low text-label-m text-on-surface-variant">
-                  <tr>
-                    <th className="px-4 py-3 text-left">When</th>
-                    <th className="px-4 py-3 text-left">Event Type</th>
-                    <th className="px-4 py-3 text-left">Booker</th>
-                    <th className="px-4 py-3 text-left">Status</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((b) => {
-                    const start = DateTime.fromJSDate(b.startAt);
-                    return (
-                      <tr key={b.id} className="border-t border-outline-variant">
-                        <td className="px-4 py-3 text-on-surface">
-                          {start.toLocaleString(DateTime.DATETIME_MED)}
-                          <br />
+              <EmptyState
+                icon="event_busy"
+                title="No bookings yet"
+                description="Once people book through your link, they'll show up here."
+              />
+            )
+          ) : (
+            <div className="overflow-hidden rounded-shape-md border border-outline-variant bg-surface">
+              {/* Header row — desktop only */}
+              <div className="hidden border-b border-outline-variant bg-surface-container-low px-5 py-3 text-label-m text-on-surface-variant md:grid md:grid-cols-[1.6fr_1.6fr_1.4fr_auto_40px] md:gap-4">
+                <span>When</span>
+                <span>Booker</span>
+                <span>Event type</span>
+                <span>Status</span>
+                <span aria-hidden="true" />
+              </div>
+              <ul className="flex flex-col">
+                {rows.map((b) => {
+                  const start = DateTime.fromJSDate(b.startAt);
+                  const color = eventTypeColors.get(b.eventType.id) ?? '#888';
+                  return (
+                    <li key={b.id} className="border-b border-outline-variant last:border-b-0">
+                      <Link
+                        href={`/admin/bookings/${b.id}`}
+                        className="grid grid-cols-1 gap-2 px-5 py-4 transition-colors hover:bg-surface-container-low md:grid-cols-[1.6fr_1.6fr_1.4fr_auto_40px] md:items-center md:gap-4"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-title-m text-on-surface">
+                            {start.toLocaleString(DateTime.DATETIME_MED)}
+                          </span>
                           <span className="text-body-s text-on-surface-variant">
                             {b.bookerTimezone}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-on-surface">{b.eventType.title}</td>
-                        <td className="px-4 py-3 text-on-surface">
-                          {b.bookerName}
-                          <br />
-                          <span className="text-body-s text-on-surface-variant">
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="truncate text-body-m text-on-surface">{b.bookerName}</span>
+                          <span className="truncate text-body-s text-on-surface-variant">
                             {b.bookerEmail}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-on-surface">
+                        </div>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="h-2.5 w-2.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: color }}
+                            aria-hidden="true"
+                          />
+                          <span className="truncate text-body-m text-on-surface">
+                            {b.eventType.title}
+                          </span>
+                        </div>
+                        <div>
                           <StatusPill status={b.status} noShow={b.noShow} needsSync={b.needsSync} />
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <Link href={`/admin/bookings/${b.id}`}>
-                            <Button variant="text" type="button">
-                              View
-                            </Button>
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </Card.Content>
-        </Card>
+                        </div>
+                        <div className="hidden md:flex md:justify-end">
+                          <span className="material-symbols-outlined text-on-surface-variant">
+                            chevron_right
+                          </span>
+                        </div>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+        </section>
 
         {totalPages > 1 && (
-          <nav className="flex items-center justify-center gap-2">
+          <nav className="mt-6 flex items-center justify-center gap-3">
             <PageLink
               label="Previous"
               page={page - 1}
@@ -206,11 +230,11 @@ function StatusPill({
   needsSync: boolean;
 }) {
   const tags: { label: string; tone: string }[] = [];
-  if (status === 'cancelled') tags.push({ label: 'cancelled', tone: 'bg-error-container text-on-error-container' });
-  else if (status === 'rescheduled') tags.push({ label: 'rescheduled', tone: 'bg-tertiary-container text-on-tertiary-container' });
-  else tags.push({ label: 'confirmed', tone: 'bg-secondary-container text-on-secondary-container' });
-  if (noShow) tags.push({ label: 'no-show', tone: 'bg-error-container text-on-error-container' });
-  if (needsSync) tags.push({ label: 'needs sync', tone: 'bg-tertiary-container text-on-tertiary-container' });
+  if (status === 'cancelled') tags.push({ label: 'Cancelled', tone: 'bg-error-container text-on-error-container' });
+  else if (status === 'rescheduled') tags.push({ label: 'Rescheduled', tone: 'bg-tertiary-container text-on-tertiary-container' });
+  else tags.push({ label: 'Confirmed', tone: 'bg-secondary-container text-on-secondary-container' });
+  if (noShow) tags.push({ label: 'No-show', tone: 'bg-error-container text-on-error-container' });
+  if (needsSync) tags.push({ label: 'Needs sync', tone: 'bg-tertiary-container text-on-tertiary-container' });
   return (
     <span className="flex flex-wrap gap-1">
       {tags.map((t) => (
@@ -222,6 +246,26 @@ function StatusPill({
         </span>
       ))}
     </span>
+  );
+}
+
+function EmptyState({
+  icon,
+  title,
+  description,
+}: {
+  icon: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-shape-md bg-surface-container-low px-6 py-16 text-center">
+      <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
+        {icon}
+      </span>
+      <h2 className="text-title-l text-on-surface">{title}</h2>
+      <p className="max-w-sm text-body-m text-on-surface-variant">{description}</p>
+    </div>
   );
 }
 

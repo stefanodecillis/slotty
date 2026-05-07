@@ -118,6 +118,7 @@ export default async function EditEventTypePage({ params }: PageProps) {
         <EventTypeForm
           mode="edit"
           eventTypeId={eventType.id}
+          username={user.username}
           initialValues={initialValues}
           accounts={accountOptions}
           allCalendars={calendarOptions}

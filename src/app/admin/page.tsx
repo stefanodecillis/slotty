@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { DateTime } from 'luxon';
-import { Card } from '@/components/ui/Card';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 
@@ -33,29 +32,20 @@ export default async function AdminDashboardPage() {
   const weekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86_400_000);
   const weekEnd = new Date(weekStart.getTime() + 7 * 86_400_000);
   const prevWeekStart = new Date(weekStart.getTime() - 7 * 86_400_000);
+  const next7End = new Date(todayStart.getTime() + 7 * 86_400_000);
 
   const ownedEventTypeIds = await db.eventType
     .findMany({ where: { userId: user.id }, select: { id: true } })
     .then((rows) => rows.map((r) => r.id));
 
   const [
-    todayBookings,
     todayCount,
     thisWeekCount,
     lastWeekCount,
+    next7Count,
     upcomingBookings,
     connectedAccounts,
   ] = await Promise.all([
-    db.booking.findMany({
-      where: {
-        eventTypeId: { in: ownedEventTypeIds },
-        startAt: { gte: now, lt: todayEnd },
-        status: { not: 'cancelled' },
-      },
-      orderBy: { startAt: 'asc' },
-      take: 3,
-      include: { eventType: { select: { title: true } } },
-    }),
     db.booking.count({
       where: {
         eventTypeId: { in: ownedEventTypeIds },
@@ -77,15 +67,22 @@ export default async function AdminDashboardPage() {
         status: { not: 'cancelled' },
       },
     }),
+    db.booking.count({
+      where: {
+        eventTypeId: { in: ownedEventTypeIds },
+        startAt: { gte: now, lt: next7End },
+        status: { not: 'cancelled' },
+      },
+    }),
     db.booking.findMany({
       where: {
         eventTypeId: { in: ownedEventTypeIds },
-        startAt: { gte: todayEnd },
+        startAt: { gte: now },
         status: { not: 'cancelled' },
       },
       orderBy: { startAt: 'asc' },
       take: 5,
-      include: { eventType: { select: { title: true } } },
+      include: { eventType: { select: { title: true, color: true } } },
     }),
     db.connectedAccount.findMany({
       select: { id: true, googleUserEmail: true, status: true, lastSyncedAt: true },
@@ -99,141 +96,251 @@ export default async function AdminDashboardPage() {
         : 0
       : Math.round(((thisWeekCount - lastWeekCount) / lastWeekCount) * 100);
 
+  // Aggregate sync health: worst color wins.
+  const syncStatus = (() => {
+    if (connectedAccounts.length === 0) {
+      return { tone: 'yellow' as const, label: 'No calendars connected' };
+    }
+    const colors = connectedAccounts.map(syncHealthColor);
+    if (colors.includes('red')) return { tone: 'red' as const, label: 'Needs attention' };
+    if (colors.includes('yellow')) return { tone: 'yellow' as const, label: 'Stale sync' };
+    return { tone: 'green' as const, label: 'All systems go' };
+  })();
+
+  const firstName = user.displayName.split(' ')[0] ?? user.username;
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-display-s text-on-surface">Welcome, {user.displayName}</h1>
-        <p className="text-body-m text-on-surface-variant">
+    <div className="mx-auto flex max-w-4xl flex-col">
+      <header className="mb-10">
+        <p className="text-label-l text-on-surface-variant">
           {DateTime.now().toLocaleString(DateTime.DATE_FULL)}
         </p>
+        <h1 className="mt-1 text-display-s text-on-background">
+          Welcome back, {firstName}
+        </h1>
       </header>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {/* Today's bookings */}
-        <Card variant="filled" className="flex flex-col gap-2 p-4">
-          <p className="text-label-l text-on-surface-variant">Today's bookings</p>
-          <p className="text-display-s text-on-surface">{todayCount}</p>
-          {todayBookings.length === 0 ? (
-            <p className="text-body-s text-on-surface-variant">No upcoming bookings today.</p>
-          ) : (
-            <ul className="flex flex-col gap-2 pt-1">
-              {todayBookings.map((b) => (
-                <li key={b.id} className="flex flex-col gap-0.5 rounded-shape-xs bg-surface-container p-2 text-body-s">
-                  <span className="text-label-m text-on-surface">
-                    {DateTime.fromJSDate(b.startAt).toLocaleString(DateTime.TIME_SIMPLE)} — {b.bookerName}
-                  </span>
-                  <span className="text-on-surface-variant">{b.eventType.title}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+      {/* Stat tiles */}
+      <section className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+        <StatTile label="Today" value={todayCount} hint={todayCount === 0 ? 'No bookings' : `Across ${ownedEventTypeIds.length} event type${ownedEventTypeIds.length === 1 ? '' : 's'}`} />
+        <StatTile
+          label="This week"
+          value={thisWeekCount}
+          delta={
+            weekChangePct === 0
+              ? null
+              : { pct: weekChangePct, positive: weekChangePct >= 0 }
+          }
+          hint={`vs ${lastWeekCount} last week`}
+        />
+        <StatTile label="Next 7 days" value={next7Count} hint="Confirmed bookings" />
+        <SyncTile tone={syncStatus.tone} label={syncStatus.label} />
+      </section>
 
-        {/* This week */}
-        <Card variant="filled" className="flex flex-col gap-2 p-4">
-          <p className="text-label-l text-on-surface-variant">This week</p>
-          <p className="text-display-s text-on-surface">{thisWeekCount}</p>
-          <p className="text-body-s text-on-surface-variant">
-            {weekChangePct >= 0 ? '+' : ''}{weekChangePct}% vs last week ({lastWeekCount})
-          </p>
-        </Card>
-
-        {/* Upcoming */}
-        <Card variant="filled" className="flex flex-col gap-2 p-4">
-          <p className="text-label-l text-on-surface-variant">Upcoming</p>
-          {upcomingBookings.length === 0 ? (
-            <p className="text-body-s text-on-surface-variant">No upcoming bookings.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {upcomingBookings.map((b) => (
-                <li key={b.id} className="flex flex-col gap-0.5 rounded-shape-xs bg-surface-container p-2 text-body-s">
-                  <span className="text-label-m text-on-surface">
-                    {DateTime.fromJSDate(b.startAt).toLocaleString(DateTime.DATETIME_MED_WITH_WEEKDAY)}
-                  </span>
-                  <span className="text-on-surface-variant">
-                    {b.bookerName} — {b.eventType.title}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-        {/* Sync health */}
-        <Card variant="filled" className="flex flex-col gap-2 p-4">
-          <p className="text-label-l text-on-surface-variant">Calendar sync</p>
-          {connectedAccounts.length === 0 ? (
-            <p className="text-body-s text-on-surface-variant">
-              No calendars connected.{' '}
-              <Link href="/admin/calendars" className="underline">
-                Connect one
-              </Link>
+      {/* Upcoming bookings */}
+      <section className="mt-12">
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <h2 className="text-title-l text-on-surface">Upcoming bookings</h2>
+            <p className="mt-1 text-body-m text-on-surface-variant">
+              The next five confirmed bookings on your calendar.
             </p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {connectedAccounts.map((acct) => {
-                const color = syncHealthColor(acct);
-                const dot =
-                  color === 'green'
-                    ? 'bg-green-500'
-                    : color === 'yellow'
-                      ? 'bg-yellow-500'
-                      : 'bg-error';
-                const label =
-                  color === 'green'
-                    ? 'Synced'
-                    : color === 'yellow'
-                      ? 'Synced (stale)'
-                      : acct.status === 'needs_reauth'
-                        ? 'Needs re-auth'
-                        : 'Not synced';
-                return (
-                  <li key={acct.id} className="flex items-center gap-2 text-body-s">
-                    <span className={`h-2 w-2 rounded-full ${dot}`} />
-                    <span className="text-on-surface">{acct.googleUserEmail}</span>
-                    <span className="text-on-surface-variant">— {label}</span>
-                    {acct.lastSyncedAt && (
-                      <span className="text-on-surface-variant text-body-xs ml-auto">
-                        {DateTime.fromJSDate(acct.lastSyncedAt).toRelative()}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      {/* Quick actions */}
-      <Card variant="filled" className="p-4">
-        <p className="text-label-l text-on-surface-variant mb-3">Quick actions</p>
-        <div className="flex flex-wrap gap-3">
+          </div>
           <Link
-            href="/admin/calendars"
-            className="inline-flex items-center gap-2 rounded-shape-m bg-secondary-container px-4 py-2 text-label-l text-on-secondary-container transition-opacity hover:opacity-80"
+            href="/admin/bookings"
+            className="text-label-l text-primary hover:underline"
           >
-            <span className="material-symbols-outlined text-base">calendar_today</span>
-            Connect calendar
-          </Link>
-          <Link
-            href="/admin/event-types"
-            className="inline-flex items-center gap-2 rounded-shape-m bg-secondary-container px-4 py-2 text-label-l text-on-secondary-container transition-opacity hover:opacity-80"
-          >
-            <span className="material-symbols-outlined text-base">add</span>
-            Create event type
-          </Link>
-          <Link
-            href={`/${user.username}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-shape-m bg-secondary-container px-4 py-2 text-label-l text-on-secondary-container transition-opacity hover:opacity-80"
-          >
-            <span className="material-symbols-outlined text-base">open_in_new</span>
-            View public profile
+            View all
           </Link>
         </div>
-      </Card>
+
+        {upcomingBookings.length === 0 ? (
+          <EmptyState
+            icon="event_available"
+            title="No upcoming bookings"
+            description="Once people book through your link, they'll show up here."
+            cta={{ label: 'Share your booking page', href: `/${user.username}` }}
+          />
+        ) : (
+          <div className="rounded-shape-md border border-outline-variant bg-surface">
+            {upcomingBookings.map((b, idx) => {
+              const dt = DateTime.fromJSDate(b.startAt);
+              return (
+                <Link
+                  key={b.id}
+                  href={`/admin/bookings/${b.id}`}
+                  className={`flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-container-low ${
+                    idx > 0 ? 'border-t border-outline-variant' : ''
+                  }`}
+                >
+                  <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-shape-sm bg-surface-container-low text-on-surface">
+                    <span className="text-label-m uppercase text-on-surface-variant">
+                      {dt.toFormat('MMM')}
+                    </span>
+                    <span className="text-title-m">{dt.toFormat('d')}</span>
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-title-m text-on-surface">
+                      {b.bookerName}
+                    </span>
+                    <span className="flex items-center gap-2 truncate text-body-s text-on-surface-variant">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: b.eventType.color }}
+                      />
+                      <span className="truncate">{b.eventType.title}</span>
+                    </span>
+                  </div>
+                  <div className="hidden text-right text-body-s text-on-surface-variant sm:block">
+                    {dt.toFormat('h:mm a')}
+                  </div>
+                  <span className="material-symbols-outlined text-on-surface-variant">
+                    chevron_right
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Quick actions */}
+      <section className="mt-12">
+        <h2 className="mb-4 text-title-l text-on-surface">Quick actions</h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <QuickLink
+            icon="calendar_today"
+            title="Connect a calendar"
+            description="Sync Google Calendar"
+            href="/admin/calendars"
+          />
+          <QuickLink
+            icon="add_circle"
+            title="New event type"
+            description="Define a bookable offering"
+            href="/admin/event-types/new"
+          />
+          <QuickLink
+            icon="open_in_new"
+            title="Public profile"
+            description={`/${user.username}`}
+            href={`/${user.username}`}
+            external
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+interface StatTileProps {
+  label: string;
+  value: number;
+  hint?: string;
+  delta?: { pct: number; positive: boolean } | null;
+}
+
+function StatTile({ label, value, hint, delta }: StatTileProps) {
+  return (
+    <div className="flex flex-col gap-1 rounded-shape-md bg-surface-container-high p-5">
+      <p className="text-label-l text-on-surface-variant">{label}</p>
+      <div className="flex items-baseline gap-2">
+        <p className="text-display-m leading-none text-on-surface">{value}</p>
+        {delta && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-label-s ${
+              delta.positive
+                ? 'bg-tertiary-container text-on-tertiary-container'
+                : 'bg-error-container text-on-error-container'
+            }`}
+          >
+            {delta.positive ? '+' : ''}
+            {delta.pct}%
+          </span>
+        )}
+      </div>
+      {hint && <p className="mt-1 text-body-s text-on-surface-variant">{hint}</p>}
+    </div>
+  );
+}
+
+function SyncTile({ tone, label }: { tone: 'green' | 'yellow' | 'red'; label: string }) {
+  const dot =
+    tone === 'green' ? 'bg-tertiary' : tone === 'yellow' ? 'bg-yellow-500' : 'bg-error';
+  return (
+    <div className="flex flex-col gap-1 rounded-shape-md bg-surface-container-high p-5">
+      <p className="text-label-l text-on-surface-variant">Sync health</p>
+      <div className="flex items-center gap-2 pt-3">
+        <span className={`h-3 w-3 shrink-0 rounded-full ${dot}`} />
+        <p className="text-title-m text-on-surface">{label}</p>
+      </div>
+      <Link
+        href="/admin/calendars"
+        className="mt-2 self-start text-label-m text-primary hover:underline"
+      >
+        Manage calendars
+      </Link>
+    </div>
+  );
+}
+
+interface QuickLinkProps {
+  icon: string;
+  title: string;
+  description: string;
+  href: string;
+  external?: boolean;
+}
+
+function QuickLink({ icon, title, description, href, external }: QuickLinkProps) {
+  return (
+    <Link
+      href={href}
+      target={external ? '_blank' : undefined}
+      rel={external ? 'noopener noreferrer' : undefined}
+      className="group flex items-start gap-3 rounded-shape-md bg-surface-container-low p-5 transition-colors hover:bg-surface-container"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-container text-on-primary-container">
+        <span className="material-symbols-outlined text-[22px]">{icon}</span>
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1 text-title-m text-on-surface">
+          {title}
+          {external && (
+            <span className="material-symbols-outlined text-[16px] text-on-surface-variant transition-transform group-hover:translate-x-0.5">
+              arrow_outward
+            </span>
+          )}
+        </p>
+        <p className="mt-0.5 truncate text-body-s text-on-surface-variant">{description}</p>
+      </div>
+    </Link>
+  );
+}
+
+interface EmptyStateProps {
+  icon: string;
+  title: string;
+  description: string;
+  cta?: { label: string; href: string };
+}
+
+function EmptyState({ icon, title, description, cta }: EmptyStateProps) {
+  return (
+    <div className="flex flex-col items-center gap-3 rounded-shape-md bg-surface-container-low py-16 px-6 text-center">
+      <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
+        {icon}
+      </span>
+      <h3 className="text-title-l text-on-surface">{title}</h3>
+      <p className="max-w-sm text-body-m text-on-surface-variant">{description}</p>
+      {cta && (
+        <Link
+          href={cta.href}
+          className="mt-2 inline-flex items-center gap-1 rounded-full bg-primary px-5 py-2 text-label-l text-on-primary transition-opacity hover:opacity-90"
+        >
+          {cta.label}
+        </Link>
+      )}
     </div>
   );
 }

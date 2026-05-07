@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import { useSnackbar } from '@/components/ui/Snackbar';
 import type { SlotResult } from '@/lib/scheduling/compute-types';
 
@@ -18,20 +17,15 @@ interface Props {
 }
 
 /**
- * Trimmed-down version of the public booking flow's date/time picker, scoped
- * to picking a new start instant. We re-use the existing slots API. On submit
- * we POST to the reschedule endpoint and route to the booking page on success.
+ * Date/time picker for the reschedule flow. Mirrors the booking flow's
+ * DateGrid/TimeGrid with a "Confirm new time" button at the bottom.
  */
 export function ReschedulePicker({
   bookingId,
   token,
   slug,
-  durationMinutes,
-  currentStartUtc,
   currentBookerTz,
 }: Props) {
-  void durationMinutes; // displayed contextually elsewhere
-  void currentStartUtc;
   const router = useRouter();
   const { show } = useSnackbar();
 
@@ -42,7 +36,9 @@ export function ReschedulePicker({
   );
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<{ startUtc: string; label: string } | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<{ startUtc: string; label: string } | null>(
+    null,
+  );
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -87,11 +83,14 @@ export function ReschedulePicker({
     if (!selectedSlot) return;
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/public/bookings/${bookingId}/reschedule?t=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startAt: selectedSlot.startUtc }),
-      });
+      const res = await fetch(
+        `/api/public/bookings/${bookingId}/reschedule?t=${encodeURIComponent(token)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startAt: selectedSlot.startUtc }),
+        },
+      );
       if (res.status === 409) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         show({ message: data.error ?? 'That slot is no longer available.' });
@@ -111,11 +110,9 @@ export function ReschedulePicker({
   }
 
   return (
-    <Card variant="outlined">
-      <Card.Header>
-        <h2 className="text-title-m text-on-surface">Pick a new time</h2>
-      </Card.Header>
-      <Card.Content className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
+      {/* Calendar */}
+      <div className="rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
         <DateGrid
           monthAnchor={monthAnchor}
           grid={monthGrid}
@@ -128,36 +125,62 @@ export function ReschedulePicker({
             setSelectedSlot(null);
           }}
         />
+      </div>
 
-        {selectedDate && (
-          <div>
-            <p className="mb-2 text-body-s text-on-surface-variant">Times on {selectedDate}</p>
-            <TimeGrid
-              slots={slotsByDay.get(selectedDate) ?? []}
-              selectedStartUtc={selectedSlot?.startUtc ?? null}
-              onPick={(s) => setSelectedSlot({ startUtc: s.startUtc, label: s.startInBookerTz })}
-            />
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <Button variant="text" type="button" onClick={() => router.back()} disabled={submitting}>
-            Back
-          </Button>
-          <Button
-            variant="filled"
-            type="button"
-            disabled={!selectedSlot || submitting}
-            loading={submitting}
-            onClick={handleSubmit}
-          >
-            Confirm new time
-          </Button>
+      {/* Time slots */}
+      {selectedDate && (
+        <div className="rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
+          <p className="mb-3 text-body-s text-on-surface-variant">
+            Times on {formatHumanDate(selectedDate, bookerTz)}
+          </p>
+          <TimeGrid
+            slots={slotsByDay.get(selectedDate) ?? []}
+            selectedStartUtc={selectedSlot?.startUtc ?? null}
+            onPick={(s) => setSelectedSlot({ startUtc: s.startUtc, label: s.startInBookerTz })}
+          />
         </div>
-      </Card.Content>
-    </Card>
+      )}
+
+      {/* Selected time chip */}
+      {selectedSlot && (
+        <div className="rounded-shape-sm bg-primary-container px-4 py-3">
+          <p className="text-body-m font-medium text-on-primary-container">
+            New time: {selectedSlot.label}
+          </p>
+          {selectedDate && (
+            <p className="mt-0.5 text-body-s text-on-primary-container">
+              {formatHumanDate(selectedDate, bookerTz)}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex justify-between gap-2">
+        <Button
+          variant="text"
+          type="button"
+          onClick={() => router.back()}
+          disabled={submitting}
+        >
+          Back
+        </Button>
+        <Button
+          variant="filled"
+          type="button"
+          size="lg"
+          disabled={!selectedSlot || submitting}
+          loading={submitting}
+          onClick={handleSubmit}
+        >
+          Confirm new time
+        </Button>
+      </div>
+    </div>
   );
 }
+
+// ───────── helpers ─────────
 
 function startOfMonthLocal(d: Date): Date {
   const x = new Date(d);
@@ -198,6 +221,20 @@ function buildMonthGrid(anchor: Date): { date: Date; key: string; inMonth: boole
   return cells;
 }
 
+function formatHumanDate(dateKey: string, _tz: string): string {
+  const [y, m, d] = dateKey.split('-').map((s) => Number(s));
+  if (!y || !m || !d) return dateKey;
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+// ───────── DateGrid ─────────
+
 function DateGrid({
   monthAnchor,
   grid,
@@ -216,36 +253,50 @@ function DateGrid({
   onPick: (k: string) => void;
 }) {
   const monthLabel = monthAnchor.toLocaleString(undefined, { month: 'long', year: 'numeric' });
-  const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const weekdayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   const today = isoDateLocal(new Date());
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
-        <Button variant="text" type="button" onClick={onPrev} aria-label="Previous month">
-          {'‹'}
-        </Button>
+        <button
+          type="button"
+          onClick={onPrev}
+          aria-label="Previous month"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <span className="material-symbols-outlined text-[20px]" aria-hidden>chevron_left</span>
+        </button>
         <span className="text-title-m text-on-surface" aria-live="polite">
           {monthLabel}
         </span>
-        <Button variant="text" type="button" onClick={onNext} aria-label="Next month">
-          {'›'}
-        </Button>
+        <button
+          type="button"
+          onClick={onNext}
+          aria-label="Next month"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <span className="material-symbols-outlined text-[20px]" aria-hidden>chevron_right</span>
+        </button>
       </div>
-      <div className="grid grid-cols-7 gap-1 text-center text-body-s text-on-surface-variant">
+
+      <div className="grid grid-cols-7 text-center">
         {weekdayLabels.map((w) => (
-          <div key={w} className="py-1">
+          <div key={w} className="py-1 text-label-m text-on-surface-variant">
             {w}
           </div>
         ))}
       </div>
-      <div className={`grid grid-cols-7 gap-1 ${loading ? 'opacity-60' : ''}`}>
+
+      <div className={`grid grid-cols-7 gap-1 transition-opacity ${loading ? 'opacity-50' : ''}`}>
         {grid.map(({ date, key, inMonth }) => {
           const slots = slotsByDay.get(key) ?? [];
           const available = slots.length > 0;
           const isPast = key < today;
+          const isToday = key === today;
           const dim = !inMonth || isPast;
           const enabled = available && !isPast;
+
           return (
             <button
               key={key}
@@ -253,13 +304,13 @@ function DateGrid({
               disabled={!enabled}
               onClick={() => enabled && onPick(key)}
               className={[
-                'aspect-square rounded-shape-xs text-body-m transition-colors',
+                'relative mx-auto flex h-9 w-9 items-center justify-center rounded-full text-body-m transition-colors',
                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 enabled
-                  ? 'bg-primary-container text-on-primary-container font-medium hover:bg-primary hover:text-on-primary'
-                  : 'text-on-surface-variant',
-                dim && 'opacity-40',
-                key === today && 'ring-1 ring-primary',
+                  ? 'cursor-pointer bg-primary-container text-on-primary-container font-medium hover:bg-primary hover:text-on-primary'
+                  : 'cursor-default text-on-surface-variant',
+                dim ? 'opacity-30' : '',
+                isToday ? 'ring-1 ring-inset ring-primary' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -269,10 +320,17 @@ function DateGrid({
           );
         })}
       </div>
-      {loading && <p className="text-body-s text-on-surface-variant">Loading availability...</p>}
+
+      {loading && (
+        <p className="text-center text-body-s text-on-surface-variant" aria-live="polite">
+          Loading availability...
+        </p>
+      )}
     </div>
   );
 }
+
+// ───────── TimeGrid ─────────
 
 function TimeGrid({
   slots,
@@ -291,7 +349,7 @@ function TimeGrid({
     );
   }
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+    <div className="flex flex-col gap-2">
       {slots.map((s) => {
         const isSel = s.startUtc === selectedStartUtc;
         return (
@@ -300,11 +358,11 @@ function TimeGrid({
             type="button"
             onClick={() => onPick(s)}
             className={[
-              'rounded-full border px-4 py-2 text-body-m transition-colors',
-              'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              'w-full rounded-shape-md border px-4 py-3 text-left text-body-l transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:text-center',
               isSel
                 ? 'border-primary bg-primary text-on-primary'
-                : 'border-outline text-on-surface hover:border-primary hover:bg-primary-container hover:text-on-primary-container',
+                : 'border-outline text-on-surface hover:border-primary hover:bg-primary-container/50',
             ].join(' ')}
           >
             {s.startInBookerTz}

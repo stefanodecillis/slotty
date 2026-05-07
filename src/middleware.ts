@@ -70,7 +70,13 @@ function turnstileEnabled(): boolean {
 function buildCsp(opts: { isAdmin: boolean }): string {
   const turnstile = turnstileEnabled();
 
-  const scriptSrc = ["'self'", "'unsafe-inline'"];
+  // Next.js Fast Refresh in development executes its hot-reload runtime via
+  // `eval()`, so we relax script-src to allow it in dev only. Production
+  // builds never need this and keep the stricter policy.
+  const scriptSrc =
+    process.env.NODE_ENV === 'development'
+      ? ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
+      : ["'self'", "'unsafe-inline'"];
   const frameSrc = [];
   const connectSrc = ["'self'"];
 

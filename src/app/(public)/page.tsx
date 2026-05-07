@@ -2,7 +2,6 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { db } from '@/lib/db';
-import { Card } from '@/components/ui/Card';
 import { renderMarkdown } from '@/lib/markdown';
 
 export const dynamic = 'force-dynamic';
@@ -40,69 +39,79 @@ export default async function PublicHomePage() {
   const bioHtml = renderMarkdown(user.bio);
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-12 sm:py-20">
-      <header className="flex flex-col items-center gap-3 text-center">
+    <div className="mx-auto flex max-w-[640px] flex-col items-center gap-10 px-6 py-16 sm:py-24">
+      {/* Hero */}
+      <header className="flex flex-col items-center gap-4 text-center">
         {user.avatarPath ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={`/avatars/${user.avatarPath}`}
+            src={user.avatarPath}
             alt={user.displayName}
-            className="h-20 w-20 rounded-full border border-outline-variant object-cover"
+            className="h-24 w-24 rounded-full border-2 border-outline-variant object-cover shadow-sm"
           />
         ) : (
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-secondary-container text-on-secondary-container">
-            <span className="text-headline-m">{user.displayName.slice(0, 1).toUpperCase()}</span>
+          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-secondary-container text-on-secondary-container shadow-sm">
+            <span className="text-display-s select-none">
+              {user.displayName.slice(0, 1).toUpperCase()}
+            </span>
           </div>
         )}
-        <h1 className="text-headline-m text-on-background">{user.displayName}</h1>
+        <h1 className="text-display-s text-on-background">{user.displayName}</h1>
         {bioHtml && (
           <div
-            className="text-body-m text-on-surface-variant [&_a]:text-primary"
+            className="max-w-prose text-body-l text-on-surface-variant [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2"
             // eslint-disable-next-line react/no-danger
             dangerouslySetInnerHTML={{ __html: bioHtml }}
           />
         )}
       </header>
 
-      <section className="flex flex-col gap-3" aria-label="Available event types">
+      {/* Event type list */}
+      <section className="w-full" aria-label="Available event types">
         {eventTypes.length === 0 ? (
-          <Card variant="outlined">
-            <Card.Content className="py-12 text-center text-body-m text-on-surface-variant">
-              No bookable event types yet.
-            </Card.Content>
-          </Card>
-        ) : (
-          eventTypes.map((et) => (
-            <Link
-              key={et.id}
-              href={`/${et.slug}`}
-              className="block rounded-shape-md transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          <div className="flex flex-col items-center gap-3 rounded-shape-lg border border-outline-variant bg-surface-container-low px-6 py-14 text-center">
+            <span
+              className="material-symbols-outlined text-[40px] text-on-surface-variant"
+              aria-hidden
             >
-              <Card variant="elevated">
-                <Card.Header>
-                  <div className="flex items-start gap-3">
-                    <span
-                      aria-hidden
-                      className="mt-1 inline-block h-3 w-3 flex-shrink-0 rounded-full"
-                      style={{ backgroundColor: et.color }}
-                    />
-                    <div className="flex-1">
-                      <h2 className="text-title-l text-on-surface">{et.title}</h2>
-                      <p className="mt-0.5 text-body-s text-on-surface-variant">
-                        {durationLabel(et.durationMinutes)}
-                      </p>
-                    </div>
-                    <span
-                      className="material-symbols-outlined text-on-surface-variant"
-                      aria-hidden
-                    >
-                      chevron_right
-                    </span>
+              calendar_today
+            </span>
+            <p className="text-body-l text-on-surface-variant">No bookable events yet.</p>
+          </div>
+        ) : (
+          <ul className="flex flex-col divide-y divide-outline-variant/40">
+            {eventTypes.map((et) => (
+              <li key={et.id}>
+                <Link
+                  href={`/${et.slug}`}
+                  className="group flex items-center gap-4 rounded-shape-sm px-3 py-4 transition-colors hover:bg-surface-container-low focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  {/* Color dot */}
+                  <span
+                    aria-hidden
+                    className="mt-0.5 inline-block h-3 w-3 flex-shrink-0 rounded-full"
+                    style={{ backgroundColor: et.color }}
+                  />
+
+                  {/* Title + duration */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-title-l text-on-surface">{et.title}</p>
+                    <p className="mt-0.5 text-body-m text-on-surface-variant">
+                      {durationLabel(et.durationMinutes)}
+                    </p>
                   </div>
-                </Card.Header>
-              </Card>
-            </Link>
-          ))
+
+                  {/* Chevron — slides right on hover */}
+                  <span
+                    aria-hidden
+                    className="material-symbols-outlined flex-shrink-0 text-[20px] text-on-surface-variant transition-transform duration-150 group-hover:translate-x-0.5"
+                  >
+                    chevron_right
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </div>

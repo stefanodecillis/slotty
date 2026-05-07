@@ -15,15 +15,14 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col bg-background text-on-background">
       <main className="flex-1">{children}</main>
-      <footer className="px-6 py-4 text-center text-body-s text-on-surface-variant">
-        Powered by{' '}
+      <footer className="mt-8 px-6 py-6 text-center">
         <Link
           href={BRAND.github}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-primary underline-offset-2 hover:underline"
+          className="text-label-m text-on-surface-variant/60 underline-offset-2 transition-colors hover:text-on-surface-variant hover:underline"
         >
-          {BRAND.name}
+          Powered by {BRAND.name}
         </Link>
       </footer>
     </div>

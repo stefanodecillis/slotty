@@ -1,6 +1,5 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { SnackbarProvider } from '@/components/ui/Snackbar';
 import { EventTypesList } from './_components/event-types-list';
@@ -48,42 +47,38 @@ export default async function EventTypesPage() {
 
   return (
     <SnackbarProvider>
-      <div className="mx-auto flex max-w-3xl flex-col gap-8">
-        <header className="flex items-start justify-between">
-          <div className="flex flex-col gap-2">
-            <p className="text-label-l text-on-surface-variant">Event Types</p>
-            <h1 className="text-display-s text-on-background">Manage Event Types</h1>
-            <p className="text-body-m text-on-surface-variant">
-              Create and manage your bookable offerings.
+      <div className="mx-auto flex max-w-4xl flex-col">
+        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-display-s text-on-background">Event types</h1>
+            <p className="mt-1 text-body-l text-on-surface-variant">
+              Bookable offerings on your public profile.
             </p>
           </div>
           <Link href="/admin/event-types/new">
-            <Button variant="filled">
-              <span className="material-symbols-outlined mr-1 text-[18px]">add</span>
+            <Button
+              variant="filled"
+              leadingIcon={<span className="material-symbols-outlined">add</span>}
+            >
               New event type
             </Button>
           </Link>
         </header>
 
         {active.length === 0 && archived.length === 0 ? (
-          <Card variant="outlined">
-            <Card.Content>
-              <div className="flex flex-col items-center gap-4 py-12 text-center">
-                <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
-                  calendar_add_on
-                </span>
-                <div>
-                  <p className="text-headline-s text-on-surface">No event types yet</p>
-                  <p className="text-body-m text-on-surface-variant mt-1">
-                    Create your first bookable offering to get started.
-                  </p>
-                </div>
-                <Link href="/admin/event-types/new">
-                  <Button variant="filled">Create event type</Button>
-                </Link>
-              </div>
-            </Card.Content>
-          </Card>
+          <div className="flex flex-col items-center gap-3 rounded-shape-md bg-surface-container-low px-6 py-16 text-center">
+            <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
+              calendar_add_on
+            </span>
+            <h2 className="text-title-l text-on-surface">No event types yet</h2>
+            <p className="max-w-sm text-body-m text-on-surface-variant">
+              Create your first bookable offering — a 30-minute intro call, a coaching session,
+              whatever you offer.
+            </p>
+            <Link href="/admin/event-types/new" className="mt-2">
+              <Button variant="filled">Create event type</Button>
+            </Link>
+          </div>
         ) : (
           <EventTypesList active={active} archived={archived} />
         )}

@@ -1,7 +1,6 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { ensureDefaultSchedule } from '@/lib/availability/schedule';
 import { listDateOverrides } from '@/lib/availability/overrides';
-import { Card } from '@/components/ui/Card';
 import { SnackbarProvider } from '@/components/ui/Snackbar';
 import { WeeklyGrid } from './_components/weekly-grid';
 import { OverridesCalendar } from './_components/overrides-calendar';
@@ -39,59 +38,63 @@ export default async function AvailabilityPage() {
 
   return (
     <SnackbarProvider>
-      <div className="mx-auto flex max-w-3xl flex-col gap-8">
-        <header className="flex flex-col gap-2">
-          <p className="text-label-l text-on-surface-variant">Availability</p>
-          <h1 className="text-display-s text-on-background">Manage Availability</h1>
-          <p className="text-body-m text-on-surface-variant">
-            Schedule: <span className="font-medium text-on-surface">{schedule.name}</span>
-            {' '}&middot;{' '}
-            Timezone: <span className="font-medium text-on-surface">{schedule.timezone}</span>
+      <div className="mx-auto flex max-w-4xl flex-col">
+        <header className="mb-8">
+          <h1 className="text-display-s text-on-background">Availability</h1>
+          <p className="mt-1 text-body-l text-on-surface-variant">
+            Set the hours when people can book time with you.
           </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-body-s text-on-surface-variant">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[16px]">tune</span>
+              Schedule:{' '}
+              <span className="font-medium text-on-surface">{schedule.name}</span>
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-[16px]">public</span>
+              Timezone:{' '}
+              <span className="font-medium text-on-surface">{schedule.timezone}</span>
+            </span>
+          </div>
         </header>
 
         {/* Weekly schedule */}
-        <Card variant="outlined">
-          <Card.Header>
-            <h2 className="text-headline-s text-on-surface">Weekly Hours</h2>
-            <p className="text-body-m text-on-surface-variant">
-              Set your default available hours for each day of the week.
-            </p>
-          </Card.Header>
-          <Card.Content>
+        <section>
+          <h2 className="text-title-l text-on-surface">Weekly hours</h2>
+          <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+            Set your default available hours for each day of the week.
+          </p>
+          <div className="rounded-shape-md bg-surface-container-low p-6">
             <WeeklyGrid scheduleId={schedule.id} initialRules={rulesForClient} />
-          </Card.Content>
-        </Card>
+          </div>
+        </section>
 
         {/* Date overrides */}
-        <Card variant="outlined">
-          <Card.Header>
-            <h2 className="text-headline-s text-on-surface">Date Overrides</h2>
-            <p className="text-body-m text-on-surface-variant">
-              Block specific dates or set custom hours that differ from your weekly schedule.
-            </p>
-          </Card.Header>
-          <Card.Content>
+        <section className="mt-12">
+          <h2 className="text-title-l text-on-surface">Date overrides</h2>
+          <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+            Block specific dates or set custom hours that differ from your weekly schedule.
+          </p>
+          <div className="rounded-shape-md bg-surface-container-low p-6">
             <OverridesCalendar
               scheduleId={schedule.id}
               initialOverrides={overridesForClient}
               timezone={schedule.timezone}
             />
-          </Card.Content>
-        </Card>
+          </div>
+        </section>
 
         {/* Holiday import */}
-        <Card variant="outlined">
-          <Card.Header>
-            <h2 className="text-headline-s text-on-surface">Import Holidays</h2>
-            <p className="text-body-m text-on-surface-variant">
-              Import public holidays from an iCal feed to automatically block those dates.
-            </p>
-          </Card.Header>
-          <Card.Content>
+        <section className="mt-12">
+          <h2 className="text-title-l text-on-surface">Import holidays</h2>
+          <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+            Import public holidays from an iCal feed to automatically block those dates.
+          </p>
+          <div className="rounded-shape-md bg-surface-container-low p-6">
             <HolidayImport scheduleId={schedule.id} />
-          </Card.Content>
-        </Card>
+          </div>
+        </section>
       </div>
     </SnackbarProvider>
   );

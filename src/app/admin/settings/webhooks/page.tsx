@@ -1,11 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
-import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Switch } from '@/components/ui/Switch';
 import { Dialog } from '@/components/ui/Dialog';
 import { TextField } from '@/components/ui/TextField';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 const VALID_EVENTS = [
   { value: 'booking.created', label: 'Booking created' },
@@ -115,73 +116,123 @@ export default function WebhooksPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <header className="flex items-start justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-headline-m text-on-surface">Webhooks</h1>
-          <p className="text-body-m text-on-surface-variant">
-            Receive real-time notifications when bookings change.
+    <div className="mx-auto flex max-w-4xl flex-col">
+      <Link
+        href="/admin/settings"
+        className="mb-4 inline-flex w-fit items-center gap-1 text-label-l text-on-surface-variant transition-colors hover:text-on-surface"
+      >
+        <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+        Back to settings
+      </Link>
+
+      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-display-s text-on-background">Webhooks</h1>
+          <p className="mt-1 text-body-l text-on-surface-variant">
+            Get notified when bookings are created, cancelled, or rescheduled.
           </p>
         </div>
-        <Button variant="filled" onClick={() => setShowCreate(true)}>
+        <Button
+          variant="filled"
+          onClick={() => setShowCreate(true)}
+          leadingIcon={<span className="material-symbols-outlined">add</span>}
+        >
           Add endpoint
         </Button>
       </header>
 
       {successMsg && (
-        <div className="rounded-shape-s bg-secondary-container px-4 py-2 text-body-m text-on-secondary-container">
+        <div className="mb-6 flex items-center gap-2 rounded-shape-md bg-secondary-container px-4 py-3 text-body-m text-on-secondary-container">
+          <span className="material-symbols-outlined text-[20px]">check_circle</span>
           {successMsg}
         </div>
       )}
 
       {loading ? (
-        <p className="text-body-m text-on-surface-variant">Loading...</p>
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-24 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
       ) : endpoints.length === 0 ? (
-        <Card variant="outlined">
-          <Card.Content>
-            <p className="py-6 text-center text-body-m text-on-surface-variant">
-              No webhook endpoints configured.
-            </p>
-          </Card.Content>
-        </Card>
+        <div className="flex flex-col items-center gap-3 rounded-shape-md bg-surface-container-low px-6 py-16 text-center">
+          <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
+            webhook
+          </span>
+          <h2 className="text-title-l text-on-surface">No endpoints yet</h2>
+          <p className="max-w-sm text-body-m text-on-surface-variant">
+            Add an HTTPS endpoint and we'll POST a signed JSON payload there for every event.
+          </p>
+          <Button
+            variant="filled"
+            onClick={() => setShowCreate(true)}
+            className="mt-2"
+          >
+            Add endpoint
+          </Button>
+        </div>
       ) : (
         <div className="flex flex-col gap-4">
           {endpoints.map((ep) => {
             let events: string[] = [];
             try { events = JSON.parse(ep.eventTypesJson) as string[]; } catch { /* ignore */ }
             const lastDelivery = ep.deliveries[0];
+            const lastOk =
+              lastDelivery?.status === 'success' || (lastDelivery?.responseCode ?? 500) < 400;
             return (
-              <Card key={ep.id} variant="filled" className="p-4">
+              <article
+                key={ep.id}
+                className="rounded-shape-md border border-outline-variant bg-surface p-5"
+              >
                 <div className="flex items-start justify-between gap-4">
-                  <div className="flex flex-col gap-1 flex-1 min-w-0">
-                    <p className="text-label-l text-on-surface truncate">{ep.url}</p>
-                    <p className="text-body-s text-on-surface-variant">
-                      Events: {events.join(', ')}
-                    </p>
+                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`flex h-2 w-2 shrink-0 rounded-full ${
+                          ep.active ? 'bg-tertiary' : 'bg-on-surface-variant/50'
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <p className="truncate font-mono text-title-m text-on-surface">{ep.url}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {events.map((e) => (
+                        <span
+                          key={e}
+                          className="rounded-full bg-surface-container-low px-2 py-0.5 text-label-s text-on-surface-variant"
+                        >
+                          {e}
+                        </span>
+                      ))}
+                    </div>
                     {lastDelivery && (
                       <p className="text-body-s text-on-surface-variant">
-                        Last delivery: {lastDelivery.status}
-                        {lastDelivery.responseCode ? ` (HTTP ${lastDelivery.responseCode})` : ''}
-                        {' — '}
-                        {new Date(lastDelivery.createdAt).toLocaleDateString()}
+                        Last delivery:{' '}
+                        <span className={lastOk ? 'text-tertiary' : 'text-error'}>
+                          {lastDelivery.status}
+                          {lastDelivery.responseCode ? ` (${lastDelivery.responseCode})` : ''}
+                        </span>
+                        {' · '}
+                        {new Date(lastDelivery.createdAt).toLocaleString()}
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex shrink-0 flex-col items-end gap-2">
                     <Switch
                       checked={ep.active}
                       onCheckedChange={(v) => void handleToggle(ep.id, v)}
                       aria-label="Active"
                     />
-                    <Button variant="text" onClick={() => void handleTest(ep.id)}>
-                      Test
-                    </Button>
-                    <Button variant="text" onClick={() => void handleDelete(ep.id)}>
-                      Delete
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="text" size="sm" onClick={() => void handleTest(ep.id)}>
+                        Test
+                      </Button>
+                      <Button variant="text" size="sm" onClick={() => void handleDelete(ep.id)}>
+                        Delete
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </Card>
+              </article>
             );
           })}
         </div>
@@ -199,15 +250,15 @@ export default function WebhooksPage() {
               onChange={(v) => setCreateUrl(v)}
               placeholder="https://example.com/webhook"
             />
-            <div className="flex flex-col gap-1">
-              <label className="text-label-m text-on-surface-variant">Secret</label>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-label-l text-on-surface-variant">Signing secret</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={createSecret}
                   onChange={(e) => setCreateSecret(e.target.value)}
-                  placeholder="Signing secret..."
-                  className="flex-1 rounded-shape-xs border border-outline-variant bg-surface px-3 py-2 text-body-m text-on-surface font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="Signing secret…"
+                  className="flex-1 rounded-shape-sm border border-outline-variant bg-surface px-3 py-2 font-mono text-body-s text-on-surface outline-none transition-colors focus:border-primary"
                 />
                 <Button
                   variant="outlined"
@@ -218,22 +269,27 @@ export default function WebhooksPage() {
                 </Button>
               </div>
               <p className="text-body-s text-on-surface-variant">
-                Copy and save this secret now — it won't be shown again.
+                Save this now — it won't be shown again.
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <p className="text-label-m text-on-surface-variant">Subscribe to events</p>
-              {VALID_EVENTS.map((ev) => (
-                <label key={ev.value} className="flex items-center gap-2 text-body-m text-on-surface cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={createEvents.includes(ev.value)}
-                    onChange={() => toggleEvent(ev.value)}
-                    className="h-4 w-4 rounded"
-                  />
-                  {ev.label}
-                </label>
-              ))}
+              <p className="text-label-l text-on-surface-variant">Subscribe to events</p>
+              <div className="flex flex-col gap-1 rounded-shape-sm bg-surface-container-low p-3">
+                {VALID_EVENTS.map((ev) => (
+                  <label
+                    key={ev.value}
+                    className="flex cursor-pointer items-center gap-2 rounded-shape-xs px-2 py-1.5 text-body-m text-on-surface transition-colors hover:bg-surface-container"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={createEvents.includes(ev.value)}
+                      onChange={() => toggleEvent(ev.value)}
+                      className="h-4 w-4 rounded accent-primary"
+                    />
+                    {ev.label}
+                  </label>
+                ))}
+              </div>
             </div>
             {createError && (
               <p className="text-body-s text-error">{createError}</p>
@@ -243,8 +299,8 @@ export default function WebhooksPage() {
             <Button variant="text" onClick={() => setShowCreate(false)}>
               Cancel
             </Button>
-            <Button variant="filled" onClick={() => void handleCreate()} disabled={saving}>
-              {saving ? 'Saving...' : 'Add endpoint'}
+            <Button variant="filled" onClick={() => void handleCreate()} loading={saving} disabled={saving}>
+              Add endpoint
             </Button>
           </Dialog.Actions>
         </Dialog.Content>

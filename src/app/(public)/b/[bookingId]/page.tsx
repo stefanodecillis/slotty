@@ -3,8 +3,6 @@ import { notFound } from 'next/navigation';
 import { DateTime } from 'luxon';
 
 import { db } from '@/lib/db';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { verifyBookingToken } from '@/lib/booking/tokens';
 
 import { BookingActions } from './_components/booking-actions';
@@ -55,31 +53,44 @@ function safeParseArray(s: string | null | undefined): unknown[] {
   }
 }
 
-function formatRange(start: Date, end: Date, tz: string): { line: string; tzLabel: string; utc: string } {
+function formatRange(
+  start: Date,
+  end: Date,
+  tz: string,
+): { date: string; time: string; tzLabel: string } {
   const tzStart = DateTime.fromJSDate(start, { zone: 'utc' }).setZone(tz);
   const tzEnd = DateTime.fromJSDate(end, { zone: 'utc' }).setZone(tz);
-  const date = tzStart.toLocaleString({ weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const startLabel = tzStart.toFormat('HH:mm');
-  const endLabel = tzEnd.toFormat('HH:mm');
-  const utc = `${DateTime.fromJSDate(start, { zone: 'utc' }).toFormat('HH:mm')}–${DateTime.fromJSDate(end, { zone: 'utc' }).toFormat('HH:mm')} UTC`;
-  return { line: `${date} · ${startLabel}–${endLabel}`, tzLabel: tz, utc };
+  const date = tzStart.toLocaleString({
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const time = `${tzStart.toFormat('HH:mm')} – ${tzEnd.toFormat('HH:mm')}`;
+  return { date, time, tzLabel: tz.replace(/_/g, ' ') };
 }
 
 /**
  * Public booking confirmation/management page.
  *
- * If `?t=<token>` is provided and matches one of the stored token hashes, the
- * full management view is rendered (cancel + reschedule + ICS download with
- * token-protected URLs). Otherwise we render a read-only summary so a stale
- * email link still tells the booker what they signed up for.
- *
- * Hidden fields (booker email, additional guests) are still shown — this URL
- * is hard to guess (cuid + token) and was presented to the booker themselves.
+ * Token-gated: ?t=<token> grants manage rights (cancel + reschedule + ICS).
+ * Without a token, renders a read-only summary.
  */
 export default async function BookingPage({ params, searchParams }: PageProps) {
   const booking = await db.booking.findUnique({
     where: { id: params.bookingId },
-    include: { eventType: { select: { title: true, slug: true, questions: { orderBy: { position: 'asc' }, select: { id: true, label: true } } } } },
+    include: {
+      eventType: {
+        select: {
+          title: true,
+          slug: true,
+          questions: {
+            orderBy: { position: 'asc' },
+            select: { id: true, label: true },
+          },
+        },
+      },
+    },
   });
 
   if (!booking) notFound();
@@ -105,7 +116,10 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
     cancelReason: booking.cancelReason,
     questions: booking.eventType.questions,
     answers: Object.fromEntries(
-      Object.entries(safeParseObject(booking.answersJson)).map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)]),
+      Object.entries(safeParseObject(booking.answersJson)).map(([k, v]) => [
+        k,
+        typeof v === 'string' ? v : JSON.stringify(v),
+      ]),
     ),
   };
 
@@ -113,85 +127,127 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
   const isCancelled = vm.status === 'cancelled';
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-12">
-      <header className="flex flex-col gap-2">
-        <p className="text-label-l text-on-surface-variant">
-          {isCancelled ? 'Booking cancelled' : 'Booking confirmed'}
-        </p>
-        <h1 className="text-headline-l text-on-background">{vm.eventTitle}</h1>
-        {isCancelled && vm.cancelledAt && (
-          <p className="text-body-m text-on-surface-variant">
-            Cancelled on {DateTime.fromJSDate(vm.cancelledAt).toLocaleString(DateTime.DATETIME_MED)}.
+    <div className="mx-auto flex max-w-[480px] flex-col gap-6 px-4 py-12 sm:py-16">
+      {/* Status icon + headline */}
+      <div className="flex flex-col items-center gap-4 text-center">
+        <div
+          className={[
+            'flex h-16 w-16 items-center justify-center rounded-full',
+            isCancelled ? 'bg-surface-container-high' : 'bg-tertiary-container',
+          ].join(' ')}
+        >
+          <span
+            className={[
+              'material-symbols-outlined text-[32px]',
+              isCancelled ? 'text-on-surface-variant' : 'text-tertiary',
+            ].join(' ')}
+            aria-hidden
+          >
+            {isCancelled ? 'event_busy' : 'check_circle'}
+          </span>
+        </div>
+        <div>
+          <h1 className="text-headline-s text-on-background">
+            {isCancelled ? 'Booking cancelled' : 'Booking confirmed'}
+          </h1>
+          <p className="mt-1 text-body-m text-on-surface-variant">{vm.eventTitle}</p>
+        </div>
+      </div>
+
+      {/* Cancelled note */}
+      {isCancelled && vm.cancelledAt && (
+        <div className="rounded-shape-md border border-outline-variant bg-surface-container px-4 py-3">
+          <p className="text-body-s text-on-surface-variant">
+            Cancelled on{' '}
+            {DateTime.fromJSDate(vm.cancelledAt).toLocaleString(DateTime.DATETIME_MED)}.
             {vm.cancelReason ? ` Reason: ${vm.cancelReason}` : ''}
           </p>
-        )}
-        {vm.needsSync && !isCancelled && (
-          <p className="rounded-shape-xs bg-tertiary-container px-3 py-2 text-body-s text-on-tertiary-container">
-            This booking is awaiting sync to Google Calendar. The owner will follow up.
-          </p>
-        )}
-      </header>
-
-      <Card variant="filled">
-        <Card.Header>
-          <h2 className="text-title-m text-on-surface">When</h2>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-1">
-          <p className="text-body-l text-on-surface">{range.line}</p>
-          <p className="text-body-s text-on-surface-variant">
-            {range.tzLabel} · {range.utc}
-          </p>
-        </Card.Content>
-      </Card>
-
-      {(vm.meetingUrl || vm.bookerEmail) && (
-        <Card variant="outlined">
-          <Card.Header>
-            <h2 className="text-title-m text-on-surface">Details</h2>
-          </Card.Header>
-          <Card.Content className="flex flex-col gap-2">
-            {vm.meetingUrl && !isCancelled && (
-              <p className="text-body-m text-on-surface">
-                <span className="text-on-surface-variant">Where: </span>
-                <a className="text-primary underline" href={vm.meetingUrl} target="_blank" rel="noreferrer">
-                  {vm.meetingUrl}
-                </a>
-              </p>
-            )}
-            <p className="text-body-m text-on-surface">
-              <span className="text-on-surface-variant">Booker: </span>
-              {vm.bookerName} &lt;{vm.bookerEmail}&gt;
-            </p>
-            {vm.additionalGuests.length > 0 && (
-              <p className="text-body-m text-on-surface">
-                <span className="text-on-surface-variant">Guests: </span>
-                {vm.additionalGuests.join(', ')}
-              </p>
-            )}
-            {vm.notes && (
-              <p className="whitespace-pre-wrap text-body-m text-on-surface">
-                <span className="text-on-surface-variant">Notes: </span>
-                {vm.notes}
-              </p>
-            )}
-            {vm.questions.length > 0 && (
-              <div className="flex flex-col gap-1">
-                {vm.questions.map((q) => {
-                  const a = vm.answers[q.id];
-                  if (!a) return null;
-                  return (
-                    <p key={q.id} className="text-body-m text-on-surface">
-                      <span className="text-on-surface-variant">{q.label}: </span>
-                      {a}
-                    </p>
-                  );
-                })}
-              </div>
-            )}
-          </Card.Content>
-        </Card>
+        </div>
       )}
 
+      {/* Needs sync notice */}
+      {vm.needsSync && !isCancelled && (
+        <div className="flex items-start gap-3 rounded-shape-md border border-outline-variant bg-surface-container px-4 py-3">
+          <span className="material-symbols-outlined mt-0.5 text-[18px] text-tertiary" aria-hidden>
+            sync
+          </span>
+          <p className="text-body-s text-on-surface-variant">
+            This booking is awaiting sync to Google Calendar. The owner will follow up.
+          </p>
+        </div>
+      )}
+
+      {/* When */}
+      <div className="flex flex-col gap-3 rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
+        <div className="flex items-start gap-3">
+          <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
+            calendar_today
+          </span>
+          <div>
+            <p className="text-body-l text-on-surface">{range.date}</p>
+            <p className="mt-0.5 text-body-m text-on-surface-variant">
+              {range.time} &middot; {range.tzLabel}
+            </p>
+          </div>
+        </div>
+
+        {vm.meetingUrl && !isCancelled && (
+          <div className="flex items-start gap-3 border-t border-outline-variant/40 pt-3">
+            <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
+              videocam
+            </span>
+            <a
+              href={vm.meetingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-body-m text-primary underline underline-offset-2 hover:text-primary/80"
+            >
+              {vm.meetingUrl}
+            </a>
+          </div>
+        )}
+
+        <div className="flex items-start gap-3 border-t border-outline-variant/40 pt-3">
+          <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
+            person
+          </span>
+          <div className="flex flex-col gap-0.5">
+            <p className="text-body-m text-on-surface">{vm.bookerName}</p>
+            <p className="text-body-s text-on-surface-variant">{vm.bookerEmail}</p>
+            {vm.additionalGuests.length > 0 && (
+              <p className="mt-1 text-body-s text-on-surface-variant">
+                Also: {vm.additionalGuests.join(', ')}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {vm.notes && (
+          <div className="flex items-start gap-3 border-t border-outline-variant/40 pt-3">
+            <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
+              sticky_note_2
+            </span>
+            <p className="whitespace-pre-wrap text-body-m text-on-surface-variant">{vm.notes}</p>
+          </div>
+        )}
+
+        {vm.questions.length > 0 && vm.questions.some((q) => vm.answers[q.id]) && (
+          <div className="flex flex-col gap-2 border-t border-outline-variant/40 pt-3">
+            {vm.questions.map((q) => {
+              const a = vm.answers[q.id];
+              if (!a) return null;
+              return (
+                <div key={q.id}>
+                  <p className="text-body-s text-on-surface-variant">{q.label}</p>
+                  <p className="text-body-m text-on-surface">{a}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
       {canManage && !isCancelled && (
         <BookingActions
           bookingId={vm.id}
@@ -201,16 +257,20 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
       )}
 
       {!canManage && (
-        <Card variant="outlined">
-          <Card.Content className="flex flex-col gap-3">
-            <p className="text-body-s text-on-surface-variant">
-              This is a read-only view. Use the management link emailed to you for cancel or reschedule.
-            </p>
-            <Link href="/" className="text-body-s text-primary underline">
-              Back to home
-            </Link>
-          </Card.Content>
-        </Card>
+        <p className="text-center text-body-s text-on-surface-variant">
+          Use the management link emailed to you to cancel or reschedule.{' '}
+          <Link href="/" className="text-primary underline underline-offset-2">
+            Back to home
+          </Link>
+        </p>
+      )}
+
+      {isCancelled && (
+        <div className="text-center">
+          <Link href="/" className="text-body-s text-primary underline underline-offset-2">
+            Back to home
+          </Link>
+        </div>
       )}
     </div>
   );

@@ -58,21 +58,15 @@ export function HolidayImport({ scheduleId }: HolidayImportProps) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-body-m text-on-surface-variant">
-        Import public holidays from an iCal feed. Existing manual overrides will not be
-        replaced. Re-running the import is safe (idempotent).
-      </p>
-
-      <TextField
-        label="iCal URL"
-        value={icalUrl}
-        onChange={(v) => setIcalUrl(v)}
-        placeholder={GOOGLE_HOLIDAYS_PLACEHOLDER}
-        helperText="Must be an https:// or http:// URL to a public .ics feed"
-        type="url"
-      />
-
-      <div className="max-w-[160px]">
+      <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+        <TextField
+          label="iCal URL"
+          value={icalUrl}
+          onChange={(v) => setIcalUrl(v)}
+          placeholder={GOOGLE_HOLIDAYS_PLACEHOLDER}
+          helperText="https:// link to a public .ics feed"
+          type="url"
+        />
         <Select
           label="Year"
           value={year}
@@ -80,6 +74,10 @@ export function HolidayImport({ scheduleId }: HolidayImportProps) {
           options={YEAR_OPTIONS}
         />
       </div>
+
+      <p className="text-body-s text-on-surface-variant">
+        Existing manual overrides will not be replaced. Re-running the import is safe (idempotent).
+      </p>
 
       <div className="flex justify-end">
         <Button onClick={handleImport} loading={loading} variant="tonal">

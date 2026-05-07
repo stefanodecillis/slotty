@@ -4,6 +4,22 @@ import * as React from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { cn } from '@/lib/utils/cn';
 
+/**
+ * Internal sentinel for "no selection".
+ *
+ * Radix Select forbids empty-string values on both the root and on
+ * individual SelectItems — passing `""` makes the component silently
+ * become unclickable. To support "Default schedule" / "Any" / "None"
+ * options that semantically map to an empty string in our forms, we
+ * translate `""` <-> this sentinel at the component boundary so callers
+ * never have to know about it.
+ */
+const NULL_VALUE = '__none__';
+
+const toRadix = (v: string | undefined): string | undefined =>
+  v === '' ? NULL_VALUE : v;
+const fromRadix = (v: string): string => (v === NULL_VALUE ? '' : v);
+
 // ───────────────────────────────────────────────────────────────────────────
 // Canonical Radix-shadcn primitives — named exports.
 // ───────────────────────────────────────────────────────────────────────────
@@ -19,7 +35,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      'flex w-full items-center justify-between',
+      'flex w-full items-center justify-between gap-2',
       'h-14 rounded-shape-xs px-4 text-left',
       'text-body-l text-on-surface bg-transparent',
       'border border-outline transition-colors duration-200 ease-standard outline-none',
@@ -73,9 +89,10 @@ SelectContent.displayName = 'SelectContent';
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, value, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
+    value={value === '' ? NULL_VALUE : value}
     className={cn(
       'relative flex cursor-pointer select-none items-center',
       'rounded-shape-xs px-3 py-2 text-body-m text-on-surface outline-none',
@@ -144,17 +161,9 @@ export interface SelectProps {
   name?: string;
   required?: boolean;
   placeholder?: string;
+  error?: boolean;
 }
 
-/**
- * High-level wrapper that mirrors `<TextField>`'s floating-label semantics.
- * For finer control, use the named `<SelectRoot>` / `<SelectTrigger>` /
- * `<SelectContent>` / `<SelectItem>` exports directly.
- *
- * Floating-label rule (matches TextField):
- *  - Empty value AND closed → label is centered (resting).
- *  - Open OR non-empty value → label floats (chip on the border).
- */
 function Select({
   label,
   value,
@@ -167,6 +176,7 @@ function Select({
   name,
   required = false,
   placeholder,
+  error = false,
 }: SelectProps) {
   const id = React.useId();
   const helperId = `${id}-helper`;
@@ -179,13 +189,10 @@ function Select({
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, search, searchable]);
 
-  const selectedLabel = React.useMemo(() => {
-    const currentVal = value ?? defaultValue;
-    if (!currentVal) return placeholder ?? '';
-    return options.find((o) => o.value === currentVal)?.label ?? currentVal;
-  }, [value, defaultValue, options, placeholder]);
-
-  const hasValue = Boolean(value ?? defaultValue);
+  const currentVal = value ?? defaultValue ?? '';
+  const selectedLabel =
+    options.find((o) => o.value === currentVal)?.label ?? '';
+  const hasValue = currentVal !== '';
   const labelFloating = hasValue || open;
 
   const handleOpenChange = (isOpen: boolean) => {
@@ -193,12 +200,16 @@ function Select({
     if (!isOpen) setSearch('');
   };
 
+  const handleValueChange = (radixValue: string) => {
+    onValueChange?.(fromRadix(radixValue));
+  };
+
   return (
     <div className="relative flex flex-col gap-1">
       <SelectRoot
-        value={value}
-        defaultValue={defaultValue}
-        onValueChange={onValueChange}
+        value={value !== undefined ? toRadix(value) : undefined}
+        defaultValue={defaultValue !== undefined ? toRadix(defaultValue) : undefined}
+        onValueChange={handleValueChange}
         open={open}
         onOpenChange={handleOpenChange}
         disabled={disabled}
@@ -206,8 +217,6 @@ function Select({
         required={required}
       >
         <div className="relative">
-          {/* Floating label — uses an explicit boolean rather than peer
-              tricks because Radix's trigger does not expose a placeholder. */}
           <label
             htmlFor={id}
             className={cn(
@@ -215,10 +224,10 @@ function Select({
               labelFloating
                 ? 'top-0 left-4 -translate-y-1/2 px-1 text-label-m bg-surface-container-low'
                 : 'top-1/2 left-4 -translate-y-1/2 text-body-l',
-              open
-                ? 'text-primary'
-                : labelFloating
-                  ? 'text-on-surface-variant'
+              error
+                ? 'text-error'
+                : open
+                  ? 'text-primary'
                   : 'text-on-surface-variant',
               disabled && 'opacity-38',
             )}
@@ -229,12 +238,11 @@ function Select({
 
           <SelectTrigger
             id={id}
+            aria-invalid={error}
             aria-describedby={helperText ? helperId : undefined}
           >
-            <SelectValue aria-label={selectedLabel}>
-              <span className={cn(!hasValue && 'text-on-surface-variant/60')}>
-                {hasValue ? selectedLabel : (placeholder ?? '')}
-              </span>
+            <SelectValue placeholder={placeholder ?? ''}>
+              {hasValue ? selectedLabel : <span className="text-on-surface-variant/60">{placeholder ?? ''}</span>}
             </SelectValue>
           </SelectTrigger>
         </div>
@@ -264,7 +272,7 @@ function Select({
             </div>
           ) : (
             filteredOptions.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
+              <SelectItem key={option.value || NULL_VALUE} value={option.value}>
                 {option.label}
               </SelectItem>
             ))
@@ -273,7 +281,10 @@ function Select({
       </SelectRoot>
 
       {helperText && (
-        <p id={helperId} className="px-4 text-body-s text-on-surface-variant">
+        <p
+          id={helperId}
+          className={cn('px-4 text-body-s', error ? 'text-error' : 'text-on-surface-variant')}
+        >
           {helperText}
         </p>
       )}

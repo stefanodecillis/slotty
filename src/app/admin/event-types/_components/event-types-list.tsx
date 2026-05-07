@@ -42,6 +42,9 @@ interface SortableItemProps {
   onDuplicate: (id: string) => void;
   onArchive: (id: string, archive: boolean) => void;
   onDelete: (id: string) => void;
+  draggable: boolean;
+  isFirst: boolean;
+  isLast: boolean;
 }
 
 interface EventTypesListProps {
@@ -53,10 +56,12 @@ interface EventTypesListProps {
 // Sortable row
 // ─────────────────────────────────────────────────────────────
 
-function SortableItem({ eventType, onDuplicate, onArchive, onDelete }: SortableItemProps) {
+function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, isFirst, isLast }: SortableItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: eventType.id,
+    disabled: !draggable,
   });
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -64,125 +69,208 @@ function SortableItem({ eventType, onDuplicate, onArchive, onDelete }: SortableI
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const radius = `${isFirst ? 'rounded-t-shape-md' : ''} ${isLast ? 'rounded-b-shape-md' : ''}`;
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-4 rounded-shape-sm border border-outline-variant bg-surface p-4"
+      className={`flex items-center gap-3 px-4 py-4 transition-colors hover:bg-surface-container-low ${
+        isFirst ? '' : 'border-t border-outline-variant'
+      } ${radius}`}
     >
       {/* Drag handle */}
-      <button
-        {...listeners}
-        {...attributes}
-        type="button"
-        className="cursor-grab text-on-surface-variant hover:text-on-surface"
-        aria-label="Drag to reorder"
-      >
-        <span className="material-symbols-outlined text-[20px]">drag_indicator</span>
-      </button>
+      {draggable ? (
+        <button
+          {...listeners}
+          {...attributes}
+          type="button"
+          className="cursor-grab text-on-surface-variant transition-colors hover:text-on-surface"
+          aria-label="Drag to reorder"
+        >
+          <span className="material-symbols-outlined text-[20px]">drag_indicator</span>
+        </button>
+      ) : (
+        <span className="w-5" aria-hidden="true" />
+      )}
 
       {/* Color dot */}
-      <div
-        className="h-4 w-4 shrink-0 rounded-full"
+      <span
+        className="h-3 w-3 shrink-0 rounded-full"
         style={{ backgroundColor: eventType.color }}
+        aria-hidden="true"
       />
 
       {/* Info */}
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2">
-          <span className="text-body-l font-medium text-on-surface truncate">{eventType.title}</span>
+          <a
+            href={`/admin/event-types/${eventType.id}`}
+            className="truncate text-title-m text-on-surface hover:underline"
+          >
+            {eventType.title}
+          </a>
           {eventType.hidden && (
-            <span className="rounded bg-surface-container-high px-1.5 py-0.5 text-label-s text-on-surface-variant">
+            <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-label-s text-on-surface-variant">
               Hidden
+            </span>
+          )}
+          {eventType.archived && (
+            <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-label-s text-on-surface-variant">
+              Archived
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 text-body-s text-on-surface-variant">
-          <span>/{eventType.slug}</span>
-          <span>&middot;</span>
+          <span className="truncate">/{eventType.slug}</span>
+          <span aria-hidden="true">·</span>
           <span>{eventType.durationMinutes} min</span>
           {eventType.destinationCalendar && (
-            <>
-              <span>&middot;</span>
-              <span>{eventType.destinationCalendar.name}</span>
-            </>
+            <span className="truncate hidden items-center gap-2 sm:inline-flex">
+              <span aria-hidden="true">·</span>
+              {eventType.destinationCalendar.name}
+            </span>
           )}
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1">
         <a
           href={`/admin/event-types/${eventType.id}`}
-          className="text-label-m text-primary hover:underline"
+          className="hidden rounded-full px-3 py-1.5 text-label-l text-primary transition-colors hover:bg-primary/[0.08] sm:inline-block"
         >
           Edit
         </a>
-        <button
-          type="button"
-          onClick={() => onDuplicate(eventType.id)}
-          className="text-label-m text-on-surface-variant hover:text-on-surface"
-        >
-          Duplicate
-        </button>
-        <button
-          type="button"
-          onClick={() => onArchive(eventType.id, !eventType.archived)}
-          className="text-label-m text-on-surface-variant hover:text-on-surface"
-        >
-          {eventType.archived ? 'Unarchive' : 'Archive'}
-        </button>
-        <DeleteButton eventType={eventType} onDelete={onDelete} />
+        <ActionMenu
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          eventType={eventType}
+          onDuplicate={() => {
+            setMenuOpen(false);
+            onDuplicate(eventType.id);
+          }}
+          onArchive={() => {
+            setMenuOpen(false);
+            onArchive(eventType.id, !eventType.archived);
+          }}
+          onDelete={() => onDelete(eventType.id)}
+        />
       </div>
     </div>
   );
 }
 
-function DeleteButton({
-  eventType,
-  onDelete,
-}: {
+interface ActionMenuProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
   eventType: EventTypeRow;
-  onDelete: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
+  onDuplicate: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
+}
+
+function ActionMenu({ open, onOpenChange, eventType, onDuplicate, onArchive, onDelete }: ActionMenuProps) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
-    <>
+    <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        className="text-label-m text-error hover:underline"
+        aria-label="Actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+        className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-on-surface-variant/[0.08]"
       >
-        Delete
+        <span className="material-symbols-outlined text-[20px]">more_vert</span>
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      {open && (
+        <>
+          {/* Backdrop to close on outside click */}
+          <button
+            type="button"
+            className="fixed inset-0 z-20 cursor-default"
+            aria-hidden="true"
+            tabIndex={-1}
+            onClick={() => onOpenChange(false)}
+          />
+          <div
+            role="menu"
+            className="absolute right-0 top-full z-30 mt-1 w-48 overflow-hidden rounded-shape-md border border-outline-variant bg-surface shadow-lg"
+          >
+            <a
+              href={`/admin/event-types/${eventType.id}`}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-body-m text-on-surface transition-colors hover:bg-surface-container-low sm:hidden"
+              role="menuitem"
+            >
+              <span className="material-symbols-outlined text-[18px]">edit</span>
+              Edit
+            </a>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onDuplicate}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-body-m text-on-surface transition-colors hover:bg-surface-container-low"
+            >
+              <span className="material-symbols-outlined text-[18px]">content_copy</span>
+              Duplicate
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onArchive}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-body-m text-on-surface transition-colors hover:bg-surface-container-low"
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                {eventType.archived ? 'unarchive' : 'archive'}
+              </span>
+              {eventType.archived ? 'Unarchive' : 'Archive'}
+            </button>
+            <div className="border-t border-outline-variant" />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onOpenChange(false);
+                setConfirmOpen(true);
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-body-m text-error transition-colors hover:bg-error/[0.08]"
+            >
+              <span className="material-symbols-outlined text-[18px]">delete</span>
+              Delete
+            </button>
+          </div>
+        </>
+      )}
+
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <Dialog.Content>
-          <DialogPrimitive.Title className="text-headline-s text-on-surface mb-2">
+          <DialogPrimitive.Title className="text-title-l text-on-surface mb-2">
             Delete event type?
           </DialogPrimitive.Title>
           <DialogPrimitive.Description className="text-body-m text-on-surface-variant mb-6">
             Permanently delete <strong>{eventType.title}</strong>? This cannot be undone.
           </DialogPrimitive.Description>
           <div className="flex justify-end gap-3">
-            <Button variant="outlined" onClick={() => setOpen(false)}>
+            <Button variant="text" onClick={() => setConfirmOpen(false)}>
               Cancel
             </Button>
             <Button
               variant="filled"
               onClick={() => {
-                onDelete(eventType.id);
-                setOpen(false);
+                onDelete();
+                setConfirmOpen(false);
               }}
-              className="bg-error text-on-error"
+              className="bg-error text-on-error hover:bg-error/90"
             >
               Delete
             </Button>
           </div>
         </Dialog.Content>
       </Dialog>
-    </>
+    </div>
   );
 }
 
@@ -289,54 +377,63 @@ export function EventTypesList({ active: initialActive, archived: initialArchive
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-8">
       {/* Active list */}
-      {active.length === 0 ? null : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={active.map((e) => e.id)} strategy={verticalListSortingStrategy}>
-            <div className="flex flex-col gap-2">
-              {active.map((eventType) => (
-                <SortableItem
-                  key={eventType.id}
-                  eventType={eventType}
-                  onDuplicate={handleDuplicate}
-                  onArchive={handleArchive}
-                  onDelete={handleDelete}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+      {active.length > 0 && (
+        <section>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={active.map((e) => e.id)} strategy={verticalListSortingStrategy}>
+              <div className="overflow-hidden rounded-shape-md border border-outline-variant bg-surface">
+                {active.map((eventType, idx) => (
+                  <SortableItem
+                    key={eventType.id}
+                    eventType={eventType}
+                    onDuplicate={handleDuplicate}
+                    onArchive={handleArchive}
+                    onDelete={handleDelete}
+                    draggable={active.length > 1}
+                    isFirst={idx === 0}
+                    isLast={idx === active.length - 1}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </section>
       )}
 
       {/* Archived section */}
       {archived.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <section>
           <button
             type="button"
             onClick={() => setShowArchived((v) => !v)}
-            className="flex items-center gap-2 text-label-m text-on-surface-variant hover:text-on-surface"
+            aria-expanded={showArchived}
+            className="mb-3 flex items-center gap-2 text-label-l text-on-surface-variant transition-colors hover:text-on-surface"
           >
             <span className="material-symbols-outlined text-[18px]">
-              {showArchived ? 'expand_less' : 'expand_more'}
+              {showArchived ? 'expand_more' : 'chevron_right'}
             </span>
             {archived.length} archived
           </button>
 
           {showArchived && (
-            <div className="flex flex-col gap-2 opacity-60">
-              {archived.map((eventType) => (
+            <div className="overflow-hidden rounded-shape-md border border-outline-variant bg-surface opacity-70">
+              {archived.map((eventType, idx) => (
                 <SortableItem
                   key={eventType.id}
                   eventType={eventType}
                   onDuplicate={handleDuplicate}
                   onArchive={handleArchive}
                   onDelete={handleDelete}
+                  draggable={false}
+                  isFirst={idx === 0}
+                  isLast={idx === archived.length - 1}
                 />
               ))}
             </div>
           )}
-        </div>
+        </section>
       )}
     </div>
   );

@@ -63,6 +63,7 @@ export default async function NewEventTypePage() {
 
         <EventTypeForm
           mode="create"
+          username={user.username}
           accounts={accountOptions}
           allCalendars={calendarOptions}
           schedules={scheduleOptions}

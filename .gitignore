@@ -41,3 +41,5 @@ playwright/.cache/
 *.tsbuildinfo
 next-env.d.ts
 .turbo/
+screenshots/
+.playwright-mcp/

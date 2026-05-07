@@ -28,7 +28,7 @@ export function CalendarToggle({ calendarId, field, initialValue, label }: Props
           body: JSON.stringify({ calendarId, field, value: next }),
         });
         if (!res.ok) throw new Error(`http ${res.status}`);
-      } catch (err) {
+      } catch {
         setChecked(previous);
         setError('save failed');
       }
@@ -36,10 +36,10 @@ export function CalendarToggle({ calendarId, field, initialValue, label }: Props
   };
 
   return (
-    <label className="flex items-center gap-3">
-      <Switch checked={checked} onCheckedChange={onChange} label={label} />
-      <span className="text-body-m text-on-surface">{label}</span>
+    <div className="flex items-center gap-3 sm:flex-col-reverse sm:items-center sm:gap-1">
+      <span className="text-label-m text-on-surface-variant sm:text-label-s">{label}</span>
+      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
       {error ? <span className="text-label-s text-error">{error}</span> : null}
-    </label>
+    </div>
   );
 }

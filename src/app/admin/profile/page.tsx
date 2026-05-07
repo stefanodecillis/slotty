@@ -1,5 +1,4 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
-import { Card } from '@/components/ui/Card';
 import { ProfileForm } from './profile-form';
 import { AvatarForm } from './avatar-form';
 
@@ -15,34 +14,32 @@ export default async function ProfilePage() {
     .supportedValuesOf?.('timeZone') ?? ['UTC'];
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-headline-m text-on-surface">Profile</h1>
-        <p className="text-body-m text-on-surface-variant">
-          Update your personal details and preferences.
+    <div className="mx-auto flex max-w-4xl flex-col">
+      <header className="mb-8">
+        <h1 className="text-display-s text-on-background">Profile</h1>
+        <p className="mt-1 text-body-l text-on-surface-variant">
+          Update how you appear on your public booking page.
         </p>
       </header>
 
-      <Card variant="filled">
-        <Card.Header>
-          <h2 className="text-title-m text-on-surface">Avatar</h2>
-        </Card.Header>
-        <Card.Content>
-          <AvatarForm
-            currentAvatarPath={user.avatarPath}
-            userId={user.id}
-          />
-        </Card.Content>
-      </Card>
+      <div className="grid gap-8 md:grid-cols-[280px_1fr] md:gap-10">
+        {/* Left column — avatar */}
+        <section className="md:sticky md:top-24 md:self-start">
+          <h2 className="mb-3 text-title-l text-on-surface">Avatar</h2>
+          <AvatarForm currentAvatarPath={user.avatarPath} userId={user.id} />
+        </section>
 
-      <Card variant="filled">
-        <Card.Header>
-          <h2 className="text-title-m text-on-surface">Personal information</h2>
-        </Card.Header>
-        <Card.Content>
-          <ProfileForm user={user} timezones={timezones} />
-        </Card.Content>
-      </Card>
+        {/* Right column — form */}
+        <section>
+          <h2 className="mb-3 text-title-l text-on-surface">Personal information</h2>
+          <p className="mb-4 text-body-m text-on-surface-variant">
+            Your name, email, bio, and timezone preference.
+          </p>
+          <div className="rounded-shape-md bg-surface-container-low p-6">
+            <ProfileForm user={user} timezones={timezones} />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

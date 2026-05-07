@@ -73,8 +73,8 @@ export function BookingAdminActions({ bookingId, noShow }: Props) {
   }
 
   return (
-    <div className="flex flex-col items-end gap-2">
-      <label className="flex items-center gap-2 text-body-s text-on-surface">
+    <div className="flex flex-wrap items-center gap-3">
+      <label className="flex items-center gap-2 text-label-l text-on-surface">
         <Switch
           checked={localNoShow}
           onCheckedChange={(v) => toggleNoShow(v)}

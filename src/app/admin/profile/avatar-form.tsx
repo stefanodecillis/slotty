@@ -87,7 +87,7 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
     : null;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col items-stretch gap-4">
       <div
         role="button"
         tabIndex={0}
@@ -103,7 +103,7 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
           if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click();
         }}
         className={[
-          'flex cursor-pointer flex-col items-center justify-center gap-3',
+          'flex cursor-pointer flex-col items-center justify-center gap-4',
           'rounded-shape-md border-2 border-dashed px-6 py-8',
           'transition-colors duration-200 ease-standard',
           isDragging
@@ -116,37 +116,36 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
           <img
             src={cacheBustedSrc}
             alt={`Avatar for user ${userId}`}
-            width={96}
-            height={96}
-            className="h-24 w-24 rounded-full object-cover"
+            width={140}
+            height={140}
+            className="h-32 w-32 rounded-full object-cover shadow-sm"
           />
         ) : (
-          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-secondary-container">
-            <span className="material-symbols-outlined text-[40px] text-on-secondary-container">
+          <div className="flex h-32 w-32 items-center justify-center rounded-full bg-secondary-container">
+            <span className="material-symbols-outlined text-[56px] text-on-secondary-container">
               person
             </span>
           </div>
         )}
         <div className="flex flex-col items-center gap-1 text-center">
           <p className="text-label-l text-on-surface">
-            {isUploading ? 'Uploading...' : 'Click or drag to upload'}
+            {isUploading ? 'Uploading…' : 'Click or drag to upload'}
           </p>
           <p className="text-body-s text-on-surface-variant">
-            JPEG, PNG, WebP or GIF. Max 1 MB.
+            JPEG, PNG, WebP or GIF · max 1 MB
           </p>
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outlined"
-          disabled={isUploading}
-          onClick={() => inputRef.current?.click()}
-        >
-          Choose file
-        </Button>
-      </div>
+      <Button
+        type="button"
+        variant="outlined"
+        disabled={isUploading}
+        onClick={() => inputRef.current?.click()}
+        fullWidth
+      >
+        Choose file
+      </Button>
 
       <input
         ref={inputRef}

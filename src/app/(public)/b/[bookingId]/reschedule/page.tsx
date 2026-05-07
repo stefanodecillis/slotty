@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
+import { DateTime } from 'luxon';
 
 import { db } from '@/lib/db';
-import { Card } from '@/components/ui/Card';
 import { verifyBookingToken } from '@/lib/booking/tokens';
 
 import { ReschedulePicker } from './_components/reschedule-picker';
@@ -14,8 +14,7 @@ interface PageProps {
 }
 
 /**
- * Reschedule page. Token-gated; without a valid reschedule token we 404 to
- * avoid leaking the booking's existence.
+ * Reschedule page. Token-gated; without a valid reschedule token we 404.
  */
 export default async function ReschedulePage({ params, searchParams }: PageProps) {
   const booking = await db.booking.findUnique({
@@ -34,29 +33,34 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
     redirect(`/b/${booking.id}`);
   }
 
-  return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-12">
-      <header className="flex flex-col gap-2">
-        <p className="text-label-l text-on-surface-variant">Reschedule</p>
-        <h1 className="text-headline-l text-on-background">{booking.eventType.title}</h1>
-        <p className="text-body-m text-on-surface-variant">
-          Pick a new time. The original Google Meet link (if any) will stay the same.
-        </p>
-      </header>
+  const tz = booking.bookerTimezone;
+  const originalStart = DateTime.fromJSDate(booking.startAt, { zone: 'utc' }).setZone(tz);
+  const originalEnd = DateTime.fromJSDate(booking.endAt, { zone: 'utc' }).setZone(tz);
+  const originalLabel = `${originalStart.toLocaleString({ weekday: 'long', month: 'long', day: 'numeric' })} · ${originalStart.toFormat('HH:mm')}–${originalEnd.toFormat('HH:mm')} ${tz.replace(/_/g, ' ')}`;
 
-      <Card variant="filled">
-        <Card.Header>
-          <h2 className="text-title-m text-on-surface">Current time</h2>
-        </Card.Header>
-        <Card.Content>
-          <p className="text-body-m text-on-surface">
-            {booking.startAt.toISOString()} – {booking.endAt.toISOString()}
+  return (
+    <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8 sm:py-12">
+      {/* Top banner */}
+      <div className="flex items-start gap-3 rounded-shape-md border border-outline-variant bg-surface-container px-4 py-3">
+        <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
+          update
+        </span>
+        <div>
+          <p className="text-body-s font-medium text-on-surface">
+            Rescheduling: {booking.eventType.title}
           </p>
-          <p className="text-body-s text-on-surface-variant">
-            Booker timezone: {booking.bookerTimezone}
+          <p className="mt-0.5 text-body-s text-on-surface-variant">
+            Originally: {originalLabel}
           </p>
-        </Card.Content>
-      </Card>
+        </div>
+      </div>
+
+      <div>
+        <h1 className="text-headline-s text-on-background">Pick a new time</h1>
+        <p className="mt-1 text-body-m text-on-surface-variant">
+          The original meeting link (if any) will stay the same.
+        </p>
+      </div>
 
       <ReschedulePicker
         bookingId={booking.id}

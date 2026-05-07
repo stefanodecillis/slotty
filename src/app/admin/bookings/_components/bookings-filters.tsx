@@ -1,10 +1,9 @@
 'use client';
 
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import { TextField } from '@/components/ui/TextField';
 import { Select } from '@/components/ui/Select';
 
@@ -23,7 +22,6 @@ interface Props {
  */
 export function BookingsFilters(props: Props) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [status, setStatus] = useState(props.status);
   const [eventTypeId, setEventTypeId] = useState(props.eventTypeId);
   const [from, setFrom] = useState(props.from);
@@ -37,7 +35,6 @@ export function BookingsFilters(props: Props) {
     if (from) next.set('from', from);
     if (to) next.set('to', to);
     if (q) next.set('q', q);
-    void searchParams; // referenced to keep filter state intentional
     router.push(`/admin/bookings${next.toString() ? `?${next}` : ''}`);
   }
 
@@ -50,56 +47,56 @@ export function BookingsFilters(props: Props) {
     router.push('/admin/bookings');
   }
 
+  const hasFilters = Boolean(status || eventTypeId || from || to || q);
+
   return (
-    <Card variant="outlined">
-      <Card.Content className="grid gap-3 md:grid-cols-5">
-        <Select
-          label="Status"
-          value={status}
-          onValueChange={setStatus}
-          options={[
-            { value: '', label: 'All' },
-            { value: 'confirmed', label: 'Confirmed' },
-            { value: 'rescheduled', label: 'Rescheduled' },
-            { value: 'cancelled', label: 'Cancelled' },
-          ]}
-        />
-        <Select
-          label="Event type"
-          value={eventTypeId}
-          onValueChange={setEventTypeId}
-          options={[
-            { value: '', label: 'All' },
-            ...props.eventTypes.map((e) => ({ value: e.id, label: e.title })),
-          ]}
-        />
-        <TextField
-          label="From"
-          value={from}
-          onChange={setFrom}
-          type="date"
-        />
-        <TextField
-          label="To"
-          value={to}
-          onChange={setTo}
-          type="date"
-        />
-        <TextField
-          label="Search"
-          value={q}
-          onChange={setQ}
-          placeholder="name or email"
-        />
-        <div className="flex gap-2 md:col-span-5">
-          <Button variant="filled" type="button" onClick={apply}>
-            Apply
-          </Button>
+    <div className="rounded-shape-md bg-surface-container-low p-4">
+      <div className="grid gap-3 md:grid-cols-12">
+        <div className="md:col-span-3">
+          <Select
+            label="Status"
+            value={status}
+            onValueChange={setStatus}
+            options={[
+              { value: '', label: 'All statuses' },
+              { value: 'confirmed', label: 'Confirmed' },
+              { value: 'rescheduled', label: 'Rescheduled' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+          />
+        </div>
+        <div className="md:col-span-3">
+          <Select
+            label="Event type"
+            value={eventTypeId}
+            onValueChange={setEventTypeId}
+            options={[
+              { value: '', label: 'All types' },
+              ...props.eventTypes.map((e) => ({ value: e.id, label: e.title })),
+            ]}
+          />
+        </div>
+        <div className="md:col-span-2">
+          <TextField label="From" value={from} onChange={setFrom} type="date" />
+        </div>
+        <div className="md:col-span-2">
+          <TextField label="To" value={to} onChange={setTo} type="date" />
+        </div>
+        <div className="md:col-span-2">
+          <TextField label="Search" value={q} onChange={setQ} placeholder="Name or email" />
+        </div>
+      </div>
+
+      <div className="mt-3 flex justify-end gap-2">
+        {hasFilters && (
           <Button variant="text" type="button" onClick={clear}>
             Clear
           </Button>
-        </div>
-      </Card.Content>
-    </Card>
+        )}
+        <Button variant="filled" type="button" onClick={apply}>
+          Apply filters
+        </Button>
+      </div>
+    </div>
   );
 }
