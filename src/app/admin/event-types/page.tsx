@@ -2,7 +2,7 @@ import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Snackbar } from '@/components/ui/Snackbar';
+import { SnackbarProvider } from '@/components/ui/Snackbar';
 import { EventTypesList } from './_components/event-types-list';
 import type { EventTypeRow } from './_components/event-types-list';
 import Link from 'next/link';
@@ -47,7 +47,7 @@ export default async function EventTypesPage() {
     }));
 
   return (
-    <Snackbar.Provider>
+    <SnackbarProvider>
       <div className="mx-auto flex max-w-3xl flex-col gap-8">
         <header className="flex items-start justify-between">
           <div className="flex flex-col gap-2">
@@ -88,6 +88,6 @@ export default async function EventTypesPage() {
           <EventTypesList active={active} archived={archived} />
         )}
       </div>
-    </Snackbar.Provider>
+    </SnackbarProvider>
   );
 }

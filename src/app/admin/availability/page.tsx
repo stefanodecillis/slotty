@@ -2,7 +2,7 @@ import { requireUserOrRedirect } from '@/lib/auth/session';
 import { ensureDefaultSchedule } from '@/lib/availability/schedule';
 import { listDateOverrides } from '@/lib/availability/overrides';
 import { Card } from '@/components/ui/Card';
-import { Snackbar } from '@/components/ui/Snackbar';
+import { SnackbarProvider } from '@/components/ui/Snackbar';
 import { WeeklyGrid } from './_components/weekly-grid';
 import { OverridesCalendar } from './_components/overrides-calendar';
 import { HolidayImport } from './_components/holiday-import';
@@ -38,7 +38,7 @@ export default async function AvailabilityPage() {
   }));
 
   return (
-    <Snackbar.Provider>
+    <SnackbarProvider>
       <div className="mx-auto flex max-w-3xl flex-col gap-8">
         <header className="flex flex-col gap-2">
           <p className="text-label-l text-on-surface-variant">Availability</p>
@@ -93,6 +93,6 @@ export default async function AvailabilityPage() {
           </Card.Content>
         </Card>
       </div>
-    </Snackbar.Provider>
+    </SnackbarProvider>
   );
 }

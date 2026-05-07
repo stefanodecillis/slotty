@@ -6,7 +6,7 @@ import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Snackbar } from '@/components/ui/Snackbar';
+import { SnackbarProvider } from '@/components/ui/Snackbar';
 
 import { BookingAdminActions } from '../_components/booking-admin-actions';
 
@@ -56,7 +56,7 @@ export default async function AdminBookingDetailPage({ params }: PageProps) {
   const isCancelled = booking.status === 'cancelled';
 
   return (
-    <Snackbar.Provider>
+    <SnackbarProvider>
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
         <header className="flex items-start justify-between gap-4">
           <div className="flex flex-col gap-2">
@@ -213,6 +213,6 @@ export default async function AdminBookingDetailPage({ params }: PageProps) {
           </Link>
         </div>
       </div>
-    </Snackbar.Provider>
+    </SnackbarProvider>
   );
 }

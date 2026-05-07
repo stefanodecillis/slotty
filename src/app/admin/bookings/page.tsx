@@ -5,7 +5,7 @@ import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Snackbar } from '@/components/ui/Snackbar';
+import { SnackbarProvider } from '@/components/ui/Snackbar';
 
 import { BookingsFilters } from './_components/bookings-filters';
 
@@ -90,7 +90,7 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
   }`;
 
   return (
-    <Snackbar.Provider>
+    <SnackbarProvider>
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex items-start justify-between">
           <div className="flex flex-col gap-2">
@@ -192,7 +192,7 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
           </nav>
         )}
       </div>
-    </Snackbar.Provider>
+    </SnackbarProvider>
   );
 }
 

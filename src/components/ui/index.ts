@@ -43,8 +43,9 @@ export {
 } from './Dialog';
 
 // Snackbar / Toaster
+// NOTE: do NOT add a `Snackbar` namespace export here — see comment in
+// `./Snackbar.tsx` about RSC bundler limitations.
 export {
-  Snackbar,
   SnackbarProvider,
   SnackbarAction,
   Toaster,

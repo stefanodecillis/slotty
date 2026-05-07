@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const PAGE_SIZE = 100;
 
 export async function GET(req: NextRequest): Promise<Response> {
-  await requireUser();
+  const user = await requireUser();
 
   const { searchParams } = req.nextUrl;
   const action = searchParams.get('action') ?? '';
@@ -21,7 +21,11 @@ export async function GET(req: NextRequest): Promise<Response> {
   const page = Math.max(1, Number(searchParams.get('page') ?? 1) || 1);
 
   type AuditWhere = NonNullable<Parameters<typeof db.auditLog.findMany>[0]>['where'];
-  const where: AuditWhere = {};
+  // Owner-scope: show entries owned by the current user, plus system events
+  // (which carry `userId = null`).
+  const where: AuditWhere = {
+    OR: [{ userId: user.id }, { userId: null }],
+  };
 
   if (action) where.action = { contains: action };
   if (from || to) {

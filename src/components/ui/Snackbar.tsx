@@ -204,14 +204,11 @@ SnackbarAction.displayName = 'SnackbarAction';
 /** shadcn-style alias for `<SnackbarProvider>`. */
 export const Toaster = SnackbarProvider;
 
-/**
- * Backwards-compatible namespace — `<Snackbar.Provider>` continues to work.
- * New code should prefer the named exports (`SnackbarProvider`, `useSnackbar`).
- */
-export const Snackbar = {
-  Provider: SnackbarProvider,
-  Action: SnackbarAction,
-};
+// NOTE: Do NOT re-export `Snackbar` as a namespace object containing
+// `Provider`/`Action` — Next.js's React Server Components bundler cannot
+// trace `<Snackbar.Provider>` references back to the underlying client
+// component (it looks up `Snackbar.tsx#Snackbar#Provider` and fails). Always
+// import the named exports directly: `import { SnackbarProvider } from ...`.
 
 export { snackbarVariants };
 export type { SnackbarVariant };

@@ -18,7 +18,7 @@ interface PageProps {
 const PAGE_SIZE = 100;
 
 export default async function AuditLogPage({ searchParams }: PageProps) {
-  await requireUserOrRedirect('/admin/login?next=%2Fadmin%2Faudit');
+  const user = await requireUserOrRedirect('/admin/login?next=%2Fadmin%2Faudit');
 
   const action = searchParams.action ?? '';
   const from = searchParams.from ?? '';
@@ -26,7 +26,12 @@ export default async function AuditLogPage({ searchParams }: PageProps) {
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
 
   type AuditWhere = NonNullable<Parameters<typeof db.auditLog.findMany>[0]>['where'];
-  const where: AuditWhere = {};
+  // Owner-scope: show entries owned by the current user, plus system events
+  // (which carry `userId = null`). This keeps the boundary correct if we
+  // ever go multi-user without changing the data model.
+  const where: AuditWhere = {
+    OR: [{ userId: user.id }, { userId: null }],
+  };
   if (action) where.action = { contains: action };
   if (from || to) {
     where.createdAt = {};

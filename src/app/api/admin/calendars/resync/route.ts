@@ -10,22 +10,20 @@ import { requireUser } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { enqueueJob } from '@/lib/jobs/scheduler';
+import { readJsonOrForm } from '@/lib/http/body';
 
 export const dynamic = 'force-dynamic';
 
 async function handler(req: NextRequest): Promise<Response> {
   await requireUser();
 
-  let body: { calendarId?: string };
-  try {
-    body = await req.json();
-  } catch {
-    body = Object.fromEntries(new URLSearchParams(await req.text())) as { calendarId?: string };
-  }
+  const body = (await readJsonOrForm(req)) ?? {};
+  const calendarId =
+    typeof body.calendarId === 'string' && body.calendarId ? body.calendarId : undefined;
 
   const ids: string[] = [];
-  if (body.calendarId) {
-    const cal = await db.calendar.findUnique({ where: { id: body.calendarId } });
+  if (calendarId) {
+    const cal = await db.calendar.findUnique({ where: { id: calendarId } });
     if (!cal) return NextResponse.json({ error: 'calendar not found' }, { status: 404 });
     ids.push(cal.id);
   } else {

@@ -6,20 +6,12 @@ import { TextField } from '@/components/ui/TextField';
 import { db } from '@/lib/db';
 import { BRAND } from '@/lib/brand';
 import { getCurrentSession } from '@/lib/auth/session';
+import { sanitizeNext } from '@/lib/auth/safe-next';
 
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
   searchParams?: { error?: string; next?: string };
-}
-
-const SAFE_NEXT_RE = /^\/[^\/].*$/u;
-
-function sanitizeNext(next: string | undefined): string {
-  if (!next) return '/admin';
-  if (!SAFE_NEXT_RE.test(next)) return '/admin';
-  if (next.startsWith('//')) return '/admin';
-  return next;
 }
 
 export default async function AdminLoginPage({ searchParams }: PageProps) {

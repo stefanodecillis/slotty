@@ -17,20 +17,15 @@ import { logger } from '@/lib/logger';
 import { revokeRefreshToken } from '@/lib/google/client';
 import { stopWatchForCalendar } from '@/lib/sync/watch';
 import { archiveEventTypesForAccount } from '@/lib/eventtype/service';
+import { readJsonOrForm } from '@/lib/http/body';
 
 export const dynamic = 'force-dynamic';
 
 async function handler(req: NextRequest): Promise<Response> {
   await requireUser();
 
-  let body: { accountId?: string };
-  try {
-    body = await req.json();
-  } catch {
-    body = Object.fromEntries(new URLSearchParams(await req.text())) as { accountId?: string };
-  }
-
-  const accountId = body?.accountId;
+  const body = (await readJsonOrForm(req)) ?? {};
+  const accountId = typeof body.accountId === 'string' ? body.accountId : '';
   if (!accountId) {
     return NextResponse.json({ error: 'accountId required' }, { status: 400 });
   }

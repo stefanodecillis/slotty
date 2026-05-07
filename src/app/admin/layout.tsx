@@ -1,4 +1,5 @@
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { NavigationRail } from '@/components/ui/NavigationRail';
 import { NavigationBar } from '@/components/ui/NavigationBar';
@@ -6,6 +7,10 @@ import { BRAND } from '@/lib/brand';
 import { getCurrentSession } from '@/lib/auth/session';
 
 export const dynamic = 'force-dynamic';
+
+// Pages under /admin that the layout is allowed to render without an auth
+// gate. Every other path forces a redirect to /admin/login.
+const PUBLIC_ADMIN_PATHS = new Set<string>(['/admin/login']);
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: 'dashboard' },
@@ -26,13 +31,20 @@ const NAV_ITEMS = [
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user } = await getCurrentSession();
 
-  if (!user) {
-    return <>{children}</>;
-  }
-
   // Determine active path from request headers.
   const headersList = headers();
   const pathname = headersList.get('x-pathname') ?? '';
+
+  if (!user) {
+    // The login page renders standalone. Every other /admin/* path requires
+    // a session — redirect with the original path captured in `next` so the
+    // user lands back where they tried to go after signing in.
+    if (PUBLIC_ADMIN_PATHS.has(pathname)) {
+      return <>{children}</>;
+    }
+    const next = pathname && pathname.startsWith('/admin') ? pathname : '/admin';
+    redirect(`/admin/login?next=${encodeURIComponent(next)}`);
+  }
 
   const navItems = NAV_ITEMS.map((item) => ({
     ...item,

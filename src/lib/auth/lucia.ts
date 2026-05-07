@@ -4,20 +4,24 @@ import { PrismaAdapter } from '@lucia-auth/adapter-prisma';
 import { db } from '@/lib/db';
 
 /**
- * Database-row shape that the adapter returns. We strip secrets in
- * `getUserAttributes` so they never reach userland.
+ * Database-row shape that the adapter returns. Prisma maps `@map("snake")`
+ * columns back to camelCase TS field names — so the adapter passes us
+ * camelCase keys here, NOT the underlying SQL column names.
+ *
+ * Strip secrets (passwordHash, totpSecretEnc) in `getUserAttributes` so
+ * they never reach userland.
  */
 type DatabaseUserAttributes = {
   username: string;
   email: string;
-  display_name: string;
-  avatar_path: string | null;
+  displayName: string;
+  avatarPath: string | null;
   bio: string | null;
   timezone: string;
   locale: string;
   theme: string;
-  seed_color: string;
-  week_start: number;
+  seedColor: string;
+  weekStart: number;
 };
 
 const adapter = new PrismaAdapter(db.session, db.user);
@@ -35,14 +39,14 @@ export const lucia = new Lucia(adapter, {
   getUserAttributes: (attributes) => ({
     username: attributes.username,
     email: attributes.email,
-    displayName: attributes.display_name,
-    avatarPath: attributes.avatar_path,
+    displayName: attributes.displayName,
+    avatarPath: attributes.avatarPath,
     bio: attributes.bio,
     timezone: attributes.timezone,
     locale: attributes.locale,
     theme: attributes.theme,
-    seedColor: attributes.seed_color,
-    weekStart: attributes.week_start,
+    seedColor: attributes.seedColor,
+    weekStart: attributes.weekStart,
   }),
 });
 

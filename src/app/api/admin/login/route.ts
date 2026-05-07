@@ -8,6 +8,7 @@ import { logger } from '@/lib/logger';
 import { lucia } from '@/lib/auth/lucia';
 import { verifyPassword } from '@/lib/auth/password';
 import { csrf } from '@/lib/auth/csrf';
+import { sanitizeNext } from '@/lib/auth/safe-next';
 import { getClientIp } from '@/lib/http/client-ip';
 import {
   checkLoginRateLimit,
@@ -35,14 +36,6 @@ const loginSchema = z.object({
   password: z.string().min(1).max(1024),
   next: z.string().optional(),
 });
-
-const SAFE_NEXT_RE = /^\/[^\/].*$/u;
-function sanitizeNext(next: string | undefined): string {
-  if (!next) return '/admin';
-  if (!SAFE_NEXT_RE.test(next)) return '/admin';
-  if (next.startsWith('//')) return '/admin';
-  return next;
-}
 
 /**
  * Pre-computed argon2id hash of a fixed throwaway string. We always run a

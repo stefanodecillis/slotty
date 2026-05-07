@@ -1,7 +1,7 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { Card } from '@/components/ui/Card';
-import { Snackbar } from '@/components/ui/Snackbar';
+import { SnackbarProvider } from '@/components/ui/Snackbar';
 import { EventTypeForm } from '../_components/event-type-form';
 import type { ConnectedAccountOption, CalendarOption, ScheduleOption } from '../_components/event-type-form';
 import Link from 'next/link';
@@ -49,7 +49,7 @@ export default async function NewEventTypePage() {
   }));
 
   return (
-    <Snackbar.Provider>
+    <SnackbarProvider>
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         <header className="flex flex-col gap-2">
           <nav className="text-body-s text-on-surface-variant">
@@ -68,6 +68,6 @@ export default async function NewEventTypePage() {
           schedules={scheduleOptions}
         />
       </div>
-    </Snackbar.Provider>
+    </SnackbarProvider>
   );
 }
