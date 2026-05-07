@@ -32,8 +32,9 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  sessions  Session[]
-  schedules Schedule[]
+  sessions    Session[]
+  schedules   Schedule[]
+  eventTypes  EventType[]
 
   @@map("users")
 }
@@ -82,9 +83,10 @@ model Schedule {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rules     ScheduleRule[]
-  overrides DateOverride[]
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rules      ScheduleRule[]
+  overrides  DateOverride[]
+  eventTypes EventType[]
 
   @@index([userId])
   @@map("schedules")
@@ -161,7 +163,8 @@ model ConnectedAccount {
   lastSyncError    String?   @map("last_sync_error")
   createdAt        DateTime  @default(now()) @map("created_at")
 
-  calendars Calendar[]
+  calendars        Calendar[]
+  destinationFor   EventType[]
 
   @@unique([provider, googleUserEmail])
   @@map("connected_accounts")
@@ -188,6 +191,7 @@ model Calendar {
 
   connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
   busyEvents       BusyEvent[]
+  destinationFor   EventType[]
 
   @@unique([connectedAccountId, googleCalendarId])
   @@map("calendars")
@@ -211,4 +215,65 @@ model BusyEvent {
   @@index([startAt, endAt])
   @@index([calendarId, startAt])
   @@map("busy_events")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 5 — Event Types.
+// Each EventType is a bookable offering the owner publishes.
+// ─────────────────────────────────────────────────────────────
+model EventType {
+  id                    String  @id @default(cuid())
+  userId                String  @map("user_id")
+  title                 String
+  slug                  String  @unique
+  descriptionMd         String? @map("description_md")
+  color                 String  @default("#4F6CFF")
+  hidden                Boolean @default(false)
+  durationMinutes       Int     @map("duration_minutes")
+  destinationAccountId  String  @map("destination_account_id")
+  destinationCalendarId String  @map("destination_calendar_id")
+  locationKind          String  @map("location_kind") // google_meet | phone | in_person | custom_link
+  locationValue         String? @map("location_value")
+  bufferBeforeMin       Int     @default(0) @map("buffer_before_min")
+  bufferAfterMin        Int     @default(0) @map("buffer_after_min")
+  minNoticeMin          Int     @default(60) @map("min_notice_min")
+  bookingWindowDays     Int     @default(60) @map("booking_window_days")
+  maxPerDay             Int?    @map("max_per_day")
+  maxPerWeek            Int?    @map("max_per_week")
+  slotIntervalMin       Int     @default(15) @map("slot_interval_min")
+  scheduleId            String? @map("schedule_id")
+  passwordHash          String? @map("password_hash")
+  confirmationMd        String? @map("confirmation_md")
+  redirectUrl           String? @map("redirect_url")
+  sendReminders         Boolean @default(true) @map("send_reminders")
+  position              Int     @default(0)
+  archived              Boolean @default(false)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  destinationAccount ConnectedAccount  @relation(fields: [destinationAccountId], references: [id], onDelete: Restrict)
+  destinationCalendar Calendar         @relation(fields: [destinationCalendarId], references: [id], onDelete: Restrict)
+  schedule           Schedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  questions          EventTypeQuestion[]
+
+  @@index([userId, archived, hidden])
+  @@index([slug])
+  @@map("event_types")
+}
+
+model EventTypeQuestion {
+  id          String  @id @default(cuid())
+  eventTypeId String  @map("event_type_id")
+  label       String
+  helperText  String? @map("helper_text")
+  kind        String  // text | textarea | select | checkbox | radio
+  required    Boolean @default(false)
+  optionsJson String? @map("options_json") // JSON array for select/radio: ["a","b"]
+  position    Int     @default(0)
+
+  eventType EventType @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
+
+  @@index([eventTypeId, position])
+  @@map("event_type_questions")
 }

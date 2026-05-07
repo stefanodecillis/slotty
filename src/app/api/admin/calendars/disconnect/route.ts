@@ -5,7 +5,7 @@
  *   1. Stop watch channels for every calendar on the account.
  *   2. Best-effort revoke the refresh token at Google.
  *   3. Mark `status = 'disconnected'`.
- *   4. EventType cleanup is deferred to Phase 5 (model doesn't exist yet).
+ *   4. Archive any EventType rows that use this account as destination.
  */
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
@@ -16,6 +16,7 @@ import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { revokeRefreshToken } from '@/lib/google/client';
 import { stopWatchForCalendar } from '@/lib/sync/watch';
+import { archiveEventTypesForAccount } from '@/lib/eventtype/service';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,8 +63,13 @@ async function handler(req: NextRequest): Promise<Response> {
     data: { status: 'disconnected' },
   });
 
-  // Phase 5 will mark dependent EventTypes as needing reconfiguration.
-  // No-op until that model exists.
+  // Archive any EventType rows that use this account as destination.
+  await archiveEventTypesForAccount(accountId).catch((err: unknown) => {
+    logger.error(
+      { event: 'disconnect.archive_event_types_failed', accountId, err },
+      'failed to archive event types for disconnected account',
+    );
+  });
 
   logger.info({ event: 'oauth.disconnect', accountId }, 'account disconnected');
 

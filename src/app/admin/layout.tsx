@@ -30,6 +30,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </a>
         <nav className="flex items-center gap-2">
           <Link
+            href="/admin/event-types"
+            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
+          >
+            Event Types
+          </Link>
+          <Link
             href="/admin/profile"
             className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
           >
