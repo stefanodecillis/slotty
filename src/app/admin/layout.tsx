@@ -1,19 +1,27 @@
+import { headers } from 'next/headers';
 import { Button } from '@/components/ui/Button';
+import { NavigationRail } from '@/components/ui/NavigationRail';
+import { NavigationBar } from '@/components/ui/NavigationBar';
 import { BRAND } from '@/lib/brand';
 import { getCurrentSession } from '@/lib/auth/session';
-import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
+const NAV_ITEMS = [
+  { href: '/admin', label: 'Dashboard', icon: 'dashboard' },
+  { href: '/admin/bookings', label: 'Bookings', icon: 'event_note' },
+  { href: '/admin/event-types', label: 'Event Types', icon: 'category' },
+  { href: '/admin/calendars', label: 'Calendars', icon: 'calendar_today' },
+  { href: '/admin/availability', label: 'Availability', icon: 'schedule' },
+  { href: '/admin/profile', label: 'Profile', icon: 'person' },
+  { href: '/admin/settings', label: 'Settings', icon: 'settings' },
+  { href: '/admin/audit', label: 'Audit Log', icon: 'history' },
+];
+
 /**
- * Admin shell. Renders chrome (top bar + sign-out) only when there is an
- * active session. The login page lives under /admin/login and renders via
- * this layout too — when there's no session we strip the chrome so the
- * login page sits centered on a clean background.
- *
- * Per-page guards: every protected page calls `requireUserOrRedirect()` to
- * enforce auth. This avoids fragile header sniffing in the layout for the
- * login route exception.
+ * Admin shell. Renders Navigation Rail (desktop) and Navigation Bar (mobile)
+ * when there is an active session. The login page sits centered on a clean
+ * background when there's no session.
  */
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user } = await getCurrentSession();
@@ -22,45 +30,59 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     return <>{children}</>;
   }
 
+  // Determine active path from request headers.
+  const headersList = headers();
+  const pathname = headersList.get('x-pathname') ?? '';
+
+  const navItems = NAV_ITEMS.map((item) => ({
+    ...item,
+    active:
+      item.href === '/admin'
+        ? pathname === '/admin' || pathname === ''
+        : pathname.startsWith(item.href),
+  }));
+
+  const initials = user.displayName
+    .split(' ')
+    .map((n) => n[0] ?? '')
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="flex items-center justify-between border-b border-outline-variant bg-surface px-6 py-3">
+      {/* Top bar */}
+      <header className="flex items-center justify-between border-b border-outline-variant bg-surface px-4 py-3 md:px-6">
         <a href="/admin" className="text-title-l text-on-surface">
           {BRAND.name}
         </a>
-        <nav className="flex items-center gap-2">
-          <Link
-            href="/admin/event-types"
-            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
-          >
-            Event Types
-          </Link>
-          <Link
-            href="/admin/bookings"
-            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
-          >
-            Bookings
-          </Link>
-          <Link
-            href="/admin/profile"
-            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
-          >
-            Profile
-          </Link>
-          <Link
-            href="/admin/settings"
-            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
-          >
-            Settings
-          </Link>
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-label-m text-on-primary">
+            {initials}
+          </div>
+          <span className="hidden text-label-l text-on-surface-variant md:block">
+            {user.displayName}
+          </span>
           <form method="POST" action="/api/admin/logout">
             <Button type="submit" variant="text" size="default">
               Sign out
             </Button>
           </form>
-        </nav>
+        </div>
       </header>
-      <main className="flex-1 px-6 py-8">{children}</main>
+
+      <div className="flex flex-1">
+        {/* Navigation Rail — desktop */}
+        <div className="hidden md:flex sticky top-0 h-[calc(100dvh-57px)] overflow-y-auto border-r border-outline-variant bg-surface">
+          <NavigationRail items={navItems} />
+        </div>
+
+        {/* Main content */}
+        <main className="flex-1 px-4 pb-24 pt-6 md:px-6 md:pb-8">{children}</main>
+      </div>
+
+      {/* Navigation Bar — mobile */}
+      <NavigationBar items={navItems.slice(0, 5)} />
     </div>
   );
 }

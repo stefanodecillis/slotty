@@ -23,6 +23,7 @@ import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { deleteEvent } from '@/lib/google/calendar';
 import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
+import { emit } from '@/lib/webhooks/emit';
 
 export interface CancelBookingArgs {
   bookingId: string;
@@ -110,6 +111,18 @@ export async function cancelBooking(args: CancelBookingArgs): Promise<CancelResu
   }
 
   invalidateSlotCache(existing.eventTypeId);
+
+  // Emit webhook event (best-effort, fire and forget).
+  const eventType = await db.eventType.findUnique({ where: { id: existing.eventTypeId } });
+  if (eventType) {
+    void emit(eventType.userId, 'booking.cancelled', {
+      bookingId: bookingId,
+      bookerName: existing.bookerName,
+      bookerEmail: existing.bookerEmail,
+      startAt: existing.startAt.toISOString(),
+      reason: reason ?? null,
+    });
+  }
 
   return { booking: updated, alreadyCancelled: false };
 }

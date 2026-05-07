@@ -63,6 +63,81 @@ jobs:
           SLOTTY_DATABASE_URL: "file:./test.db"
 
   # ─────────────────────────────────────────────────────────────────────────
+  # Static security audit — runs the grep-based checks in
+  # scripts/audit-security.ts. Catches obvious regressions: admin routes
+  # without csrf()/requireUser(), public POSTs without rate limits, raw
+  # console.* in production code, etc.
+  # ─────────────────────────────────────────────────────────────────────────
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    needs: lint-typecheck-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven/setup-bun@v2
+        with:
+          bun-version: "1.3.x"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run security audit
+        run: bun run audit:security
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Playwright E2E tests. Boots a production build of the app, seeds a
+  # disposable SQLite DB, and runs the booking + admin auth flows.
+  # ─────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: lint-typecheck-build
+    env:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      SLOTTY_PUBLIC_URL: "http://127.0.0.1:3010"
+      SLOTTY_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      SLOTTY_SESSION_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven/setup-bun@v2
+        with:
+          bun-version: "1.3.x"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bunx prisma generate
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: bun run test:e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: tests/e2e/.report
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────────────
   # Verify the Docker image builds cleanly (no push — just a smoke test).
   # Only runs on direct pushes to main, not on pull requests, to avoid
   # burning runner minutes on every PR while still catching Dockerfile issues

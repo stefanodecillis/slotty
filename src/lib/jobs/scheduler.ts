@@ -295,16 +295,18 @@ export async function startJobScheduler(): Promise<void> {
     logger.error({ event: 'scheduler.init_error', err }, 'failed to ensure initial jobs');
   }
 
-  // Phase 3 — Google Calendar sync jobs (incremental_sync, poll_calendars,
-  // renew_watch_channels). Loaded at runtime only, not statically analyzed,
-  // to prevent webpack from bundling googleapis (which uses Node.js core modules).
-  // The variable-path trick breaks webpack's static import analysis.
   try {
-    const syncJobsPath = '@/lib/sync/jobs';
-    const mod = await import(/* webpackIgnore: true */ syncJobsPath as string);
-    (mod as { registerSyncJobs?: () => void }).registerSyncJobs?.();
+    const { registerSyncJobs } = await import('@/lib/sync/jobs');
+    registerSyncJobs();
   } catch (err) {
     logger.error({ event: 'scheduler.sync_jobs_init_error', err }, 'failed to register sync jobs');
+  }
+
+  try {
+    const { registerWebhookDeliveryHandler } = await import('@/lib/webhooks/deliver');
+    registerWebhookDeliveryHandler();
+  } catch (err) {
+    logger.error({ event: 'scheduler.webhook_handler_init_error', err }, 'failed to register webhook handler');
   }
 
   runScheduler(5_000);

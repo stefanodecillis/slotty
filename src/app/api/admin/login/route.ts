@@ -13,6 +13,20 @@ import {
   checkLoginRateLimit,
   recordLoginAttempt,
 } from '@/lib/auth/rate-limit';
+import { recordAudit } from '@/lib/audit';
+import { hmac } from '@/lib/crypto';
+import { env } from '@/lib/env';
+
+const TOTP_PENDING_COOKIE = 'slotty_totp_pending';
+const TOTP_PENDING_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function createPendingToken(userId: string): string {
+  const expiresAt = Date.now() + TOTP_PENDING_TTL_MS;
+  const payload = JSON.stringify({ userId, expiresAt });
+  const payloadB64 = Buffer.from(payload).toString('base64url');
+  const sig = hmac(env.SLOTTY_SESSION_SECRET, payload);
+  return `${payloadB64}.${sig}`;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -110,15 +124,47 @@ async function handler(req: NextRequest): Promise<Response> {
       { event: 'auth.login_failed', ip, username: parsed.data.username },
       'login failed',
     );
+    await recordAudit({
+      actor: 'owner',
+      action: 'login.failed',
+      ip,
+      userAgent: req.headers.get('user-agent') ?? undefined,
+      metadata: { username: parsed.data.username },
+    });
     return loginRedirect(req, 'Invalid credentials', formNext);
+  }
+
+  await recordLoginAttempt(ip, true);
+
+  // Check if TOTP is required.
+  if (user.totpEnabled) {
+    const pendingToken = createPendingToken(user.id);
+    cookies().set(TOTP_PENDING_COOKIE, pendingToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: TOTP_PENDING_TTL_MS / 1000,
+    });
+    logger.info({ event: 'auth.totp_required', userId: user.id, ip }, 'TOTP required');
+    const url = new URL('/admin/login', req.url);
+    url.searchParams.set('step', 'totp');
+    if (formNext !== '/admin') url.searchParams.set('next', formNext);
+    return NextResponse.redirect(url, { status: 303 });
   }
 
   const session = await lucia.createSession(user.id, {});
   const sessionCookie = lucia.createSessionCookie(session.id);
   cookies().set(sessionCookie.name, sessionCookie.value, sessionCookie.attributes);
 
-  await recordLoginAttempt(ip, true);
   logger.info({ event: 'auth.login_success', userId: user.id, ip }, 'login success');
+  await recordAudit({
+    userId: user.id,
+    actor: 'owner',
+    action: 'login',
+    ip,
+    userAgent: req.headers.get('user-agent') ?? undefined,
+  });
 
   return NextResponse.redirect(new URL(formNext, req.url), { status: 303 });
 }

@@ -23,9 +23,39 @@ const nextConfig = {
     ],
   },
   webpack: (config, { isServer }) => {
-    if (!isServer) {
-      // On the client bundle, stub out Node.js built-in modules that may be
-      // referenced transitively (e.g. from server-only modules webpack traces).
+    if (isServer) {
+      // serverComponentsExternalPackages only externalizes for Server Components.
+      // Our instrumentation hook + in-process scheduler also need these as externals
+      // so googleapis (which transitively imports node:http2/stream) isn't bundled.
+      const extraExternals = [
+        'googleapis',
+        'googleapis-common',
+        'google-auth-library',
+        'gaxios',
+        'gcp-metadata',
+        'https-proxy-agent',
+        'agent-base',
+        'sharp',
+        'argon2',
+      ];
+      const existing = Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean);
+      config.externals = [
+        ...existing,
+        ({ request }, callback) => {
+          if (!request) return callback();
+          // Node.js built-ins via node: protocol — externalize as commonjs
+          // so they're require()'d at runtime instead of bundled.
+          if (request.startsWith('node:')) {
+            return callback(null, `commonjs ${request}`);
+          }
+          if (extraExternals.some((p) => request === p || request.startsWith(`${p}/`))) {
+            return callback(null, `commonjs ${request}`);
+          }
+          callback();
+        },
+      ];
+    } else {
+      // Client bundle: stub Node built-ins that may be referenced transitively.
       config.resolve = config.resolve ?? {};
       config.resolve.fallback = {
         ...(config.resolve.fallback ?? {}),

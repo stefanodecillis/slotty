@@ -25,6 +25,7 @@ import { logger } from '@/lib/logger';
 import { computeSlots } from '@/lib/scheduling/compute';
 import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
 import { patchEvent } from '@/lib/google/calendar';
+import { emit } from '@/lib/webhooks/emit';
 
 export interface RescheduleBookingArgs {
   bookingId: string;
@@ -197,6 +198,15 @@ export async function rescheduleBooking(
   }
 
   invalidateSlotCache(booking.eventTypeId);
+
+  // Emit webhook event (best-effort).
+  void emit(booking.eventType.userId, 'booking.rescheduled', {
+    bookingId: bookingId,
+    bookerName: booking.bookerName,
+    bookerEmail: booking.bookerEmail,
+    previousStartAt: previousStart.toISOString(),
+    newStartAt: newStart.toISOString(),
+  });
 
   return { booking: final, previousStart, previousEnd };
 }

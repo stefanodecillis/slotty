@@ -35,6 +35,7 @@ import { computeSlots } from '@/lib/scheduling/compute';
 import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
 import { insertEvent, extractMeetingUrl } from '@/lib/google/calendar';
 import { env } from '@/lib/env';
+import { emit } from '@/lib/webhooks/emit';
 
 export type EventTypeWithQuestions = EventType & { questions: EventTypeQuestion[] };
 
@@ -440,6 +441,16 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
       }),
       actor: 'booker',
     },
+  });
+
+  // Emit webhook event.
+  void emit(owner.id, 'booking.created', {
+    bookingId: updated.id,
+    eventTypeSlug: input.eventTypeSlug,
+    bookerName: input.bookerName,
+    bookerEmail: input.bookerEmail,
+    startAt: startAt.toISOString(),
+    endAt: endAt.toISOString(),
   });
 
   return {

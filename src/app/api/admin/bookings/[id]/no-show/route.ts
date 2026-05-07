@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { csrf } from '@/lib/auth/csrf';
 import { requireUser } from '@/lib/auth/session';
 import { db } from '@/lib/db';
+import { emit } from '@/lib/webhooks/emit';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +65,15 @@ async function handler(req: NextRequest, { params }: RouteParams): Promise<Respo
     });
     return next;
   });
+
+  if (parsed.data.noShow) {
+    void emit(user.id, 'booking.no_show', {
+      bookingId: booking.id,
+      bookerName: booking.bookerName,
+      bookerEmail: booking.bookerEmail,
+      startAt: booking.startAt.toISOString(),
+    });
+  }
 
   return NextResponse.json({ id: updated.id, noShow: updated.noShow });
 }

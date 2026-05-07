@@ -11,6 +11,8 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { generateIcs } from '@/lib/ics';
 import { verifyBookingToken } from '@/lib/booking/tokens';
+import { getClientIp } from '@/lib/http/client-ip';
+import { consume } from '@/lib/ratelimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,11 +20,30 @@ interface RouteParams {
   params: { id: string };
 }
 
+/** Default rate limit for public GETs (120 req/min/IP). */
+const RATE_LIMIT = { capacity: 120, windowMs: 60_000 };
+
 function safeFilename(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'booking';
 }
 
 export async function GET(req: NextRequest, { params }: RouteParams): Promise<Response> {
+  const ip = getClientIp(req.headers);
+  const decision = consume('public-booking-ics', ip, RATE_LIMIT);
+  if (!decision.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil(decision.retryAfterMs / 1000)),
+          'X-RateLimit-Limit': String(decision.limit),
+          'X-RateLimit-Remaining': '0',
+        },
+      },
+    );
+  }
+
   const url = new URL(req.url);
   const token = url.searchParams.get('t') ?? '';
 

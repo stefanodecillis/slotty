@@ -10,7 +10,7 @@ Connect multiple Google Workspace calendars, share a public booking link, and le
 - Never double-books across multiple Google accounts
 - Designed to sit behind a reverse proxy (Caddy / Nginx / Traefik)
 
-> **Status:** Phase 0 (skeleton). The data model and design system are scaffolded; subsequent phases add auth, Google integration, public booking flow, and notifications.
+> **Status:** All ten phases shipped. The MVP is feature-complete: setup wizard, password + 2FA admin auth, Google Calendar integration with multi-account sync, availability rules + holidays, event types with custom questions and password-gated links, public booking flow with reschedule/cancel, ICS attachments, audit log, outgoing webhooks, security middleware, and end-to-end tests.
 
 ---
 
@@ -24,10 +24,14 @@ Connect multiple Google Workspace calendars, share a public booking link, and le
 6. [SMTP / email](#smtp--email)
 7. [Reverse proxy](#reverse-proxy)
 8. [First-run setup](#first-run-setup)
-9. [Backups](#backups)
-10. [Architecture](#architecture)
-11. [Troubleshooting](#troubleshooting)
-12. [License](#license)
+9. [Production deployment](#production-deployment)
+10. [Security model](#security-model)
+11. [Performance](#performance)
+12. [Backup & restore](#backup--restore)
+13. [Migration from Calendly / Cal.com](#migration-from-calendly--calcom)
+14. [Architecture](#architecture)
+15. [Troubleshooting](#troubleshooting)
+16. [License](#license)
 
 ---
 
@@ -109,6 +113,9 @@ Then visit <http://localhost:3000/setup> to create the admin account.
 | `bun run lint` | ESLint |
 | `bun run typecheck` | `tsc --noEmit` with strict + `noUncheckedIndexedAccess` |
 | `bun test` | Unit + integration tests via Bun's test runner |
+| `bun run test:e2e` | Build + Playwright end-to-end tests (Chromium, requires `bunx playwright install chromium` first) |
+| `bun run test:load` | Hit the slot endpoint with 100 concurrent connections via autocannon and assert p95 latency budget |
+| `bun run audit:security` | Static security audit (admin-CSRF / requireUser, public POST rate limits, raw `console.*`, unsafe inline-HTML insertion) |
 | `bun run db:migrate` | Create + apply a new Prisma migration |
 | `bun run db:studio` | Open Prisma Studio (GUI for the DB) |
 | `bun run key:generate` | Print fresh `SLOTTY_ENCRYPTION_KEY` + `SLOTTY_SESSION_SECRET`. Add `--write` to append to `.env` |
@@ -285,44 +292,272 @@ docker exec -it slotty bun run cli reset-password <username>
 
 ---
 
-## Backups
+## Production deployment
 
-Daily SQLite snapshots are written to `backups/` inside the volume (kept: 7 daily + 4 weekly). You can also:
+A complete walkthrough for putting Slotty on a single host behind Caddy on Ubuntu / Debian. Adjust paths to taste.
 
-- Click **Admin → Settings → Backup → Download snapshot** (single SQLite file).
-- Click **Admin → Settings → Backup → Export all data** (ZIP with JSON tables + per-booking ICS files).
+### 1. Prerequisites
 
-For off-host backups, just `cp` (or `rclone copy`) the `data/` and `backups/` directories from your volume to wherever you keep durable storage.
+- A small VPS with a public IP and a DNS A-record pointing at it.
+- Docker + Docker Compose v2 (`docker compose version`).
+- Caddy 2 installed natively on the host (`apt install caddy`) **or** as a sibling container.
+- A Google Cloud project with Calendar API enabled and OAuth credentials issued for `https://book.example.com/api/admin/calendars/callback`.
+
+### 2. Install
+
+```bash
+# Pick a deploy directory.
+sudo mkdir -p /opt/slotty
+cd /opt/slotty
+
+# Pull the example configs.
+sudo curl -fsSL -o docker-compose.yml \
+  https://raw.githubusercontent.com/slotty/slotty/main/docker-compose.example.yml
+sudo curl -fsSL -o .env.example \
+  https://raw.githubusercontent.com/slotty/slotty/main/.env.example
+sudo cp .env.example .env
+
+# Generate secrets directly into .env.
+docker run --rm -v "$PWD":/app -w /app oven/bun:1 \
+  bun run scripts/generate-encryption-key.ts --write
+```
+
+Edit `/opt/slotty/.env`:
+
+```ini
+SLOTTY_PUBLIC_URL=https://book.example.com
+SLOTTY_GOOGLE_CLIENT_ID=…apps.googleusercontent.com
+SLOTTY_GOOGLE_CLIENT_SECRET=GOCSPX-…
+SLOTTY_SMTP_HOST=smtp.example.com
+SLOTTY_SMTP_PORT=587
+SLOTTY_SMTP_USER=postmaster@example.com
+SLOTTY_SMTP_PASS=…
+SLOTTY_SMTP_FROM=Slotty <bookings@example.com>
+SLOTTY_TRUST_PROXY=true
+SLOTTY_LOG_LEVEL=info
+```
+
+### 3. Caddy configuration
+
+Drop in `/etc/caddy/Caddyfile` (or `Caddyfile.d/slotty.caddy` if you use `import`):
+
+```caddy
+book.example.com {
+    encode zstd gzip
+    log {
+        output file /var/log/caddy/slotty.log
+        format json
+    }
+
+    # /admin is single-user — restrict it to your home / Tailscale ranges.
+    @admin {
+        path /admin* /api/admin/*
+        not remote_ip 192.168.0.0/16 100.64.0.0/10
+    }
+    handle @admin {
+        respond "Forbidden" 403
+    }
+
+    # Everything else is public; Google's webhook lives at /api/webhooks/google
+    # and must remain publicly reachable.
+    reverse_proxy 127.0.0.1:3000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Proto https
+    }
+}
+```
+
+```bash
+sudo systemctl reload caddy
+```
+
+### 4. systemd service for Docker Compose
+
+If you prefer systemd over `docker compose up -d`, drop this in `/etc/systemd/system/slotty.service`:
+
+```ini
+[Unit]
+Description=Slotty (self-hosted scheduling)
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/slotty
+ExecStart=/usr/bin/docker compose up -d --remove-orphans
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now slotty
+journalctl -u slotty -f
+```
+
+### 5. First-run + smoke test
+
+```bash
+# Health check (Caddy strips no headers, so this is reachable from anywhere):
+curl -fsSL https://book.example.com/api/health
+# {"status":"ok",...}
+```
+
+Visit `https://book.example.com/setup` from an allow-listed IP, create the admin account, then connect Google + configure availability.
+
+### 6. Updates
+
+```bash
+cd /opt/slotty
+docker compose pull && docker compose up -d --remove-orphans
+docker image prune -f
+```
+
+The schema migrates automatically on container start (`prisma migrate deploy`).
+
+---
+
+## Security model
+
+Slotty is built around a "single owner, public booking surface" threat model.
+
+- **Single user, single deploy.** The `/setup` route accepts exactly one User row. After that it's permanently 410.
+- **/admin behind an IP allowlist.** The reverse proxy gates `/admin/*` and `/api/admin/*` to a CIDR you trust (LAN, VPN, Tailscale, etc.). This is defense in depth — even if there's a future auth bug, the random internet can't reach the panel.
+- **Argon2id for the admin password.** With the OWASP-recommended params (`m=19MiB, t=2, p=1`) and a per-IP exponential lockout (`60s × 2ⁿ` after 10 failed attempts).
+- **Optional TOTP 2FA + SHA-256-hashed single-use backup codes.** Configure under **Admin → Security**.
+- **AES-256-GCM at rest.** OAuth access/refresh tokens, SMTP password, TOTP secret, and webhook secrets are sealed with `SLOTTY_ENCRYPTION_KEY`. Ciphertext is `v1.<iv>.<tag>.<ct>`; rotating the key invalidates every encrypted blob (you can re-auth Google + re-enter SMTP from admin in a few minutes).
+- **CSRF: Origin/Referer match.** Every state-changing admin route runs through `csrf()` — the request is rejected unless `Origin` (or `Referer`) matches `SLOTTY_PUBLIC_URL`. When `SLOTTY_TRUST_PROXY=true`, `X-Forwarded-Host` is also accepted.
+- **Security middleware.** `src/middleware.ts` stamps the canonical defense-in-depth headers on every response: `Content-Security-Policy` (with `frame-ancestors 'none'`), `X-Frame-Options DENY` on admin / `SAMEORIGIN` elsewhere, `X-Content-Type-Options nosniff`, `Referrer-Policy strict-origin-when-cross-origin`, `Permissions-Policy camera=(), microphone=(), geolocation=()`. `Strict-Transport-Security` is added only when the request originated over HTTPS (the proxy sets `X-Forwarded-Proto https`).
+- **Rate limits.**
+  - `/api/admin/login`: 10 fails per IP, exponential lockout afterwards.
+  - `/api/public/bookings` (POST): 10/min/IP.
+  - `/api/public/event-types/[slug]/slots`: 60/min/IP.
+  - All other `/api/public/*` endpoints: 120/min/IP default.
+  - 429 responses always carry `Retry-After`.
+- **Idempotent booking writes.** Submit a booking with a `clientRequestId`; subsequent retries with the same id return the original booking instead of duplicating it.
+- **No Slotty-side email.** Confirmation, reschedule and cancel emails are sent by Google Calendar (`sendUpdates=all`) — Slotty never has its own message body that could leak booker PII through misconfiguration. SMTP is reserved for owner-side reminders.
+- **Booker tokens.** Cancel and reschedule URLs include a 32-byte random token; the DB stores a SHA-256 hash. Constant-time comparison; tokens are never returned a second time after the original confirmation response.
+- **Outgoing webhooks signed with HMAC-SHA256.** Deliveries retry with exponential backoff (up to 24 hours). Endpoint secrets are encrypted at rest.
+- **Audit log.** Every admin action lands in `audit_logs` (login, settings change, event-type create / archive, booking cancel, etc.) — viewable at **Admin → Audit log**.
+
+---
+
+## Performance
+
+- **Slot endpoint p95 ≤ 300 ms.** This is the hot path: `GET /api/public/event-types/<slug>/slots`. The endpoint reads from the `BusyEvent` mirror (no Google round-trip), caches results for 30 s keyed off the maximum `BusyEvent.updatedAt`, and snaps to the slot grid in the schedule's tz. Run the load test with `bun run test:load` (requires the server to be running and the slug to exist).
+- **In-process job worker.** No Redis, no broker. The worker polls every 5 s and handles watch-channel renewal, incremental Google sync, reminder emails, outgoing webhook delivery, and daily backups.
+- **Cold start.** A fresh container reaches `/api/health=200` within ~ 1 s on a 2-vCPU host.
+- **Resource footprint.** RAM in steady-state hovers around 80 – 120 MiB; SQLite + WAL keep IO local.
+
+---
+
+## Backup & restore
+
+### What's in `data/`
+
+| Path | Purpose | Safe to restore? |
+|---|---|---|
+| `data/slotty.db` | Primary SQLite database (everything: users, bookings, schedules, encrypted tokens). | Yes — atomic snapshot. |
+| `data/slotty.db-wal`, `data/slotty.db-shm` | SQLite WAL artefacts. | Don't copy these in isolation. Either copy all three together, or use `Admin → Backup → Download snapshot`, which performs a checkpoint first. |
+| `data/avatars/` | Owner profile picture (PNG). | Yes — copy whole tree. |
+| `backups/` | Auto-rotated daily snapshots produced by the in-process backup job (7 daily + 4 weekly). | Yes — but each file is a snapshot, not a delta. |
+
+### Routine backups
+
+Daily snapshots are written to `backups/` inside the volume by the job worker. You can also:
+
+- **Admin → Settings → Backup → Download snapshot** — single SQLite file (post-checkpoint, safe to restore).
+- **Admin → Settings → Backup → Export all data** — ZIP with JSON tables + per-booking ICS files. Useful for long-term archival or migrating to a different storage backend.
+
+### Off-host
+
+```bash
+# Append the date to keep a rolling history.
+rclone copy /var/lib/docker/volumes/slotty_data/_data \
+  remote:slotty-backups/$(date +%Y-%m-%d) \
+  --include "*.db" --include "avatars/**" --include "backups/**"
+```
+
+### Restore
+
+```bash
+docker compose down
+# Replace the SQLite file (whole-volume restore is also fine).
+cp /path/to/backup/slotty.db /var/lib/docker/volumes/slotty_data/_data/slotty.db
+docker compose up -d
+```
+
+If you restored from an export ZIP rather than a snapshot, the encrypted token blobs only decrypt with the same `SLOTTY_ENCRYPTION_KEY` that was active when the export was produced. Keep the key alongside your backups (in a secret manager — *not* in the same archive).
+
+---
+
+## Migration from Calendly / Cal.com
+
+Slotty doesn't ship an automated importer; the data shapes between products differ enough that a one-shot import would be more brittle than helpful. The recommended manual path:
+
+1. **Export your Cal.com / Calendly event types and availability** (both products offer a JSON export).
+2. **Re-create event types in Slotty** under **Admin → Event Types**. Copy titles, durations, location kinds, and custom questions over by hand.
+3. **Mirror your weekly availability** under **Admin → Availability**. Slotty's rules cover Mon–Sun with start/end minutes; date overrides handle holidays.
+4. **Update booking links you've shared.** Slotty's URLs are `https://<your-domain>/<slug>`. If you maintained a `book.example.com/<slug>` before, you can keep the same domain — just point DNS at your Slotty box.
+5. **Existing bookings on Calendly / Cal.com don't auto-migrate.** Let those run out their natural life on the legacy system; new bookings flow to Slotty.
+
+A scripted importer is on the roadmap. Until then, the manual path takes ~ 15 minutes for a typical setup.
 
 ---
 
 ## Architecture
 
-Single Next.js process. SQLite for storage. In-process job worker for reminders, watch-channel renewal, and webhook delivery — no Redis, no message broker.
+Single Next.js 14 process (App Router). SQLite for storage. In-process job worker for reminders, watch-channel renewal, outgoing webhooks and daily backups — no Redis, no message broker.
 
 ```
-Browser ──► Caddy ──► Next.js (App Router)
-                       │
-                       ├─ Public site (/, /<slug>, /b/<id>)
-                       ├─ /admin/* (auth-gated)
-                       ├─ /api/public/* (rate-limited)
-                       ├─ /api/admin/*  (session-gated)
-                       └─ /api/webhooks/google (Google → us)
-                       │
-                       ├─► Prisma → SQLite (./data/slotty.db)
-                       ├─► Job worker (in-process, 5s poll)
-                       │     • renew watch channels
-                       │     • incremental Google sync
-                       │     • send reminder emails
-                       │     • outgoing webhook delivery
-                       │     • daily backup
-                       │
-                       └─► googleapis (with token refresh wrapper)
+Browser ──► Caddy ──► Next.js (App Router) ──► middleware.ts (CSP/HSTS/CSRF)
+                        │
+                        ├─ Public site (/, /<slug>, /b/<id>, /b/<id>/reschedule)
+                        ├─ /admin/* (session-gated, IP-allowlisted at proxy)
+                        ├─ /setup (only when zero User rows exist)
+                        ├─ /api/public/* (rate-limited)
+                        ├─ /api/admin/*  (CSRF + requireUser)
+                        └─ /api/webhooks/google (Google push notifications)
+                        │
+                        ├─► Prisma → SQLite (./data/slotty.db)
+                        │     • users, sessions, audit_logs
+                        │     • schedules, schedule_rules, date_overrides
+                        │     • connected_accounts, calendars, busy_events
+                        │     • event_types, event_type_questions, bookings, booking_history
+                        │     • webhook_endpoints, webhook_deliveries, backup_codes, jobs
+                        │
+                        ├─► Job worker (in-process, 5 s poll)
+                        │     • renew Google watch channels (~7 days)
+                        │     • incremental Google sync (sync tokens)
+                        │     • reminder emails (T-24h, T-1h)
+                        │     • booking_sync_retry (Google insert retry)
+                        │     • webhook delivery with exponential backoff
+                        │     • daily SQLite snapshot (7 daily + 4 weekly)
+                        │
+                        └─► googleapis (with token refresh wrapper, encrypted at rest)
 ```
 
 **Material You** drives the visual language. The owner picks one seed color (default `#4F6CFF`, settable in **Admin → Branding**); `@material/material-color-utilities` generates the full M3 palette (~25 color roles) for both light and dark schemes. CSS variables are written under `:root` and `[data-theme="dark"]`, and Tailwind references them via `bg-primary`, `text-on-surface`, `rounded-shape-lg`, etc. There's no FOUC: theme is applied via inline `<script>` before hydration.
 
-For a deeper architectural overview, see the implementation plan in `.planning/` (or whichever path your fork keeps it in).
+### Phase shipping checklist
+
+| Phase | Scope |
+|---|---|
+| 0 | Project skeleton, design tokens, Prisma + SQLite |
+| 1 | Lucia v3 sessions, argon2id + per-IP login lockout, /setup wizard |
+| 2 | Material You theme generator, branding controls |
+| 3 | Google OAuth + multi-account calendar sync + watch channels |
+| 4 | Schedules, weekly rules, holidays, date overrides |
+| 5 | Event types with custom questions and password gate |
+| 6 | Slot computation engine (cached, p95 < 300 ms target) |
+| 7 | Public booking flow, reschedule, cancel, ICS, idempotency |
+| 8 | (out of scope — not used) |
+| 9 | Audit log, outgoing webhooks, TOTP 2FA, backup codes |
+| 10 | Security middleware, CSP/HSTS, full rate-limit coverage, Playwright E2E, load test, README pass |
 
 ---
 

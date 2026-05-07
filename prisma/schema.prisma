@@ -29,12 +29,15 @@ model User {
   seedColor     String   @default("#4F6CFF") @map("seed_color")
   weekStart     Int      @default(1) @map("week_start") // 0=Sunday, 1=Monday
   totpSecretEnc String?  @map("totp_secret_enc")
+  totpEnabled   Boolean  @default(false) @map("totp_enabled")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  sessions    Session[]
-  schedules   Schedule[]
-  eventTypes  EventType[]
+  sessions         Session[]
+  schedules        Schedule[]
+  eventTypes       EventType[]
+  webhookEndpoints WebhookEndpoint[]
+  backupCodes      BackupCode[]
 
   @@map("users")
 }
@@ -337,4 +340,84 @@ model BookingHistory {
 
   @@index([bookingId, createdAt])
   @@map("booking_history")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 9 — Audit log.
+// Best-effort log of owner actions for security auditing.
+// ─────────────────────────────────────────────────────────────
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?  @map("user_id")
+  actor        String   // "owner" | "system"
+  action       String   // login | logout | settings.update | event_type.create | etc.
+  targetType   String?  @map("target_type")
+  targetId     String?  @map("target_id")
+  metadataJson String   @default("{}") @map("metadata_json")
+  ip           String?
+  userAgent    String?  @map("user_agent")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 9 — Outgoing webhooks.
+// Endpoints register URLs and event subscriptions; deliveries
+// track each HTTP attempt with retry state.
+// ─────────────────────────────────────────────────────────────
+model WebhookEndpoint {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  url            String
+  secretEnc      String   @map("secret_enc")
+  eventTypesJson String   @map("event_types_json") // JSON array of event names
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([userId, active])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id           String    @id @default(cuid())
+  endpointId   String    @map("endpoint_id")
+  event        String
+  payloadJson  String    @map("payload_json")
+  status       String    @default("pending") // pending | delivered | failed
+  attempts     Int       @default(0)
+  lastError    String?   @map("last_error")
+  responseCode Int?      @map("response_code")
+  nextRetryAt  DateTime? @map("next_retry_at")
+  deliveredAt  DateTime? @map("delivered_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRetryAt])
+  @@index([endpointId, createdAt])
+  @@map("webhook_deliveries")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 9 — TOTP backup codes.
+// SHA256-hashed, single-use codes for 2FA recovery.
+// ─────────────────────────────────────────────────────────────
+model BackupCode {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  codeHash  String    @map("code_hash") // sha256
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@map("backup_codes")
 }
