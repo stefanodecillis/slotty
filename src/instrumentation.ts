@@ -1,10 +1,15 @@
 /**
  * Next.js instrumentation hook — runs once on server startup.
  *
- * In Phase 0 we just touch env validation so the process fails fast if
- * required vars are missing or weak. Later phases will start the in-process
- * job worker, hydrate the M3 token cache from User.seedColor, etc.
+ * Validates env on boot, then starts the in-process job scheduler.
+ * Uses a global flag to prevent double-start in dev hot-reload.
  */
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __slotty_scheduler_started__: boolean | undefined;
+}
+
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
@@ -15,4 +20,14 @@ export async function register() {
   void env.SLOTTY_PUBLIC_URL;
 
   logger.info({ url: env.SLOTTY_PUBLIC_URL, level: env.SLOTTY_LOG_LEVEL }, 'slotty starting');
+
+  // Guard against double-start in dev hot-reload.
+  if (globalThis.__slotty_scheduler_started__) {
+    logger.debug({ event: 'scheduler.skip_start' }, 'scheduler already started in this process');
+    return;
+  }
+  globalThis.__slotty_scheduler_started__ = true;
+
+  const { startJobScheduler } = await import('@/lib/jobs/scheduler');
+  await startJobScheduler();
 }

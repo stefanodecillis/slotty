@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/Button';
 import { BRAND } from '@/lib/brand';
 import { getCurrentSession } from '@/lib/auth/session';
+import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,11 +28,25 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <a href="/admin" className="text-title-l text-on-surface">
           {BRAND.name}
         </a>
-        <form method="POST" action="/api/admin/logout">
-          <Button type="submit" variant="text" size="default">
-            Sign out
-          </Button>
-        </form>
+        <nav className="flex items-center gap-2">
+          <Link
+            href="/admin/profile"
+            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
+          >
+            Profile
+          </Link>
+          <Link
+            href="/admin/settings"
+            className="text-label-l text-on-surface-variant hover:text-on-surface px-3 py-2 rounded-shape-xs transition-colors"
+          >
+            Settings
+          </Link>
+          <form method="POST" action="/api/admin/logout">
+            <Button type="submit" variant="text" size="default">
+              Sign out
+            </Button>
+          </form>
+        </nav>
       </header>
       <main className="flex-1 px-6 py-8">{children}</main>
     </div>

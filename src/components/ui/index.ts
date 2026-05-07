@@ -17,5 +17,8 @@ export type { StateLayerProps } from './StateLayer';
 export { Switch } from './Switch';
 export type { SwitchProps } from './Switch';
 
+export { Select } from './Select';
+export type { SelectProps, SelectOption } from './Select';
+
 export { TextField } from './TextField';
 export type { TextFieldProps } from './TextField';

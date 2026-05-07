@@ -17,6 +17,7 @@ type DatabaseUserAttributes = {
   locale: string;
   theme: string;
   seed_color: string;
+  week_start: number;
 };
 
 const adapter = new PrismaAdapter(db.session, db.user);
@@ -41,6 +42,7 @@ export const lucia = new Lucia(adapter, {
     locale: attributes.locale,
     theme: attributes.theme,
     seedColor: attributes.seed_color,
+    weekStart: attributes.week_start,
   }),
 });
 
@@ -62,4 +64,5 @@ export type AuthUser = {
   locale: string;
   theme: string;
   seedColor: string;
+  weekStart: number;
 };

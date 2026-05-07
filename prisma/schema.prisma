@@ -27,11 +27,13 @@ model User {
   locale        String   @default("en")
   theme         String   @default("system") // light | dark | system
   seedColor     String   @default("#4F6CFF") @map("seed_color")
+  weekStart     Int      @default(1) @map("week_start") // 0=Sunday, 1=Monday
   totpSecretEnc String?  @map("totp_secret_enc")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  sessions Session[]
+  sessions  Session[]
+  schedules Schedule[]
 
   @@map("users")
 }
@@ -66,6 +68,60 @@ model LoginAttempt {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Availability: schedules, rules, and date overrides.
+// Phase 4. Times are wall-clock minutes-from-midnight in the
+// schedule's timezone; slot conversion happens in Phase 6.
+// ─────────────────────────────────────────────────────────────
+
+model Schedule {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  name      String
+  isDefault Boolean  @default(false) @map("is_default")
+  timezone  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rules     ScheduleRule[]
+  overrides DateOverride[]
+
+  @@index([userId])
+  @@map("schedules")
+}
+
+model ScheduleRule {
+  id          String @id @default(cuid())
+  scheduleId  String @map("schedule_id")
+  weekday     Int    // 0 = Sunday, 6 = Saturday
+  startMinute Int    @map("start_minute") // minutes from midnight, 0-1439
+  endMinute   Int    @map("end_minute")   // exclusive
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([scheduleId, weekday])
+  @@map("schedule_rules")
+}
+
+model DateOverride {
+  id          String   @id @default(cuid())
+  scheduleId  String   @map("schedule_id")
+  date        DateTime // store as midnight UTC of the calendar date
+  isBlocked   Boolean  @default(false) @map("is_blocked")
+  startMinute Int?     @map("start_minute")
+  endMinute   Int?     @map("end_minute")
+  source      String   @default("manual") // "manual" | "holiday-import"
+  label       String?  // for holidays
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, date])
+  @@index([scheduleId, date])
+  @@map("date_overrides")
+}
+
+// ─────────────────────────────────────────────────────────────
 // Persistent job queue (no Redis). Polled every 5 s by the
 // in-process worker. See src/lib/jobs/.
 // ─────────────────────────────────────────────────────────────
@@ -83,4 +139,76 @@ model Job {
   @@index([status, runAt])
   @@index([kind, status])
   @@map("jobs")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 3 — Google Calendar integration.
+// A connected Google account (refresh + access tokens stored
+// encrypted at rest), the calendars it exposes, and a local
+// mirror of busy events so slot computation never hits Google
+// in the booking hot path.
+// ─────────────────────────────────────────────────────────────
+model ConnectedAccount {
+  id               String    @id @default(cuid())
+  provider         String    // "google"
+  googleUserEmail  String    @map("google_user_email")
+  accessTokenEnc   String    @map("access_token_enc")
+  refreshTokenEnc  String    @map("refresh_token_enc")
+  scopes           String    // space-delimited
+  expiresAt        DateTime  @map("expires_at")
+  status           String    @default("active") // active | needs_reauth | disconnected
+  lastSyncedAt     DateTime? @map("last_synced_at")
+  lastSyncError    String?   @map("last_sync_error")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  calendars Calendar[]
+
+  @@unique([provider, googleUserEmail])
+  @@map("connected_accounts")
+}
+
+model Calendar {
+  id                       String    @id @default(cuid())
+  connectedAccountId       String    @map("connected_account_id")
+  googleCalendarId         String    @map("google_calendar_id")
+  name                     String
+  description              String?
+  timezone                 String?
+  backgroundColor          String?   @map("background_color")
+  isPrimary                Boolean   @default(false) @map("is_primary")
+  isBusySource             Boolean   @default(true) @map("is_busy_source")
+  isDestinationEligible    Boolean   @default(false) @map("is_destination_eligible")
+  syncToken                String?   @map("sync_token")
+  watchChannelId           String?   @map("watch_channel_id")
+  watchResourceId          String?   @map("watch_resource_id")
+  watchExpiresAt           DateTime? @map("watch_expires_at")
+  lastIncrementalSyncAt    DateTime? @map("last_incremental_sync_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
+  busyEvents       BusyEvent[]
+
+  @@unique([connectedAccountId, googleCalendarId])
+  @@map("calendars")
+}
+
+model BusyEvent {
+  id                String   @id @default(cuid())
+  calendarId        String   @map("calendar_id")
+  googleEventId     String   @map("google_event_id")
+  startAt           DateTime @map("start_at")
+  endAt             DateTime @map("end_at")
+  status            String   // "confirmed" | "tentative" | "cancelled"
+  isAllDay          Boolean  @default(false) @map("is_all_day")
+  transparency      String   @default("opaque") // "opaque" | "transparent"
+  recurringEventId  String?  @map("recurring_event_id")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  calendar Calendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, googleEventId])
+  @@index([startAt, endAt])
+  @@index([calendarId, startAt])
+  @@map("busy_events")
 }
