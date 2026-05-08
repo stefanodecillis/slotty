@@ -4,6 +4,11 @@
 
 generator client {
   provider        = "prisma-client-js"
+  // "native" covers local dev (mac, linux). "linux-musl-openssl-3.0.x" is
+  // for the Alpine 3.x runtime image where OpenSSL 3 is the default — without
+  // it explicit, prisma generate produces only the "linux-musl" engine which
+  // fails at runtime with "could not locate the Query Engine".
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]
   previewFeatures = []
 }
 
