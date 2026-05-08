@@ -8,6 +8,7 @@ import { csrf } from '@/lib/auth/csrf';
 import { getCurrentSession } from '@/lib/auth/session';
 import { recordAudit } from '@/lib/audit';
 import { getClientIp } from '@/lib/http/client-ip';
+import { env } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +38,7 @@ async function handler(req: NextRequest): Promise<Response> {
     userAgent: req.headers.get('user-agent') ?? undefined,
   });
 
-  return NextResponse.redirect(new URL('/admin/login', req.url), { status: 303 });
+  return NextResponse.redirect(new URL('/admin/login', env.SLOTTY_PUBLIC_URL), { status: 303 });
 }
 
 export const POST = csrf(handler);

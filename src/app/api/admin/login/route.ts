@@ -55,7 +55,7 @@ async function getDummyHash(): Promise<string> {
 }
 
 function loginRedirect(req: NextRequest, message: string, next: string): Response {
-  const url = new URL('/admin/login', req.url);
+  const url = new URL('/admin/login', env.SLOTTY_PUBLIC_URL);
   url.searchParams.set('error', message);
   if (next !== '/admin') url.searchParams.set('next', next);
   return NextResponse.redirect(url, { status: 303 });
@@ -140,7 +140,7 @@ async function handler(req: NextRequest): Promise<Response> {
       maxAge: TOTP_PENDING_TTL_MS / 1000,
     });
     logger.info({ event: 'auth.totp_required', userId: user.id, ip }, 'TOTP required');
-    const url = new URL('/admin/login', req.url);
+    const url = new URL('/admin/login', env.SLOTTY_PUBLIC_URL);
     url.searchParams.set('step', 'totp');
     if (formNext !== '/admin') url.searchParams.set('next', formNext);
     return NextResponse.redirect(url, { status: 303 });
@@ -159,7 +159,7 @@ async function handler(req: NextRequest): Promise<Response> {
     userAgent: req.headers.get('user-agent') ?? undefined,
   });
 
-  return NextResponse.redirect(new URL(formNext, req.url), { status: 303 });
+  return NextResponse.redirect(new URL(formNext, env.SLOTTY_PUBLIC_URL), { status: 303 });
 }
 
 export const POST = csrf(handler);
