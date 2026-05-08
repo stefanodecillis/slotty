@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { AdminBottomNav } from '@/components/admin/bottom-nav';
-import { resolvePageLabel } from '@/components/admin/admin-nav-items';
+import { AdminPageTitle } from '@/components/admin/page-title';
 import { AdminSidebar } from '@/components/admin/sidebar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -31,15 +31,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .join('')
     .toUpperCase();
 
-  const pageLabel = resolvePageLabel(pathname);
-
   return (
     <div className="flex min-h-dvh">
       <AdminSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 md:px-6">
-          <h1 className="truncate text-base font-semibold md:text-lg">{pageLabel}</h1>
+          <AdminPageTitle />
           <div className="ml-auto flex items-center gap-2">
             <Link
               href="/admin/profile"
