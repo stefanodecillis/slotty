@@ -2,6 +2,7 @@ import { Lucia } from 'lucia';
 import { PrismaAdapter } from '@lucia-auth/adapter-prisma';
 
 import { db } from '@/lib/db';
+import { env } from '@/lib/env';
 
 /**
  * Database-row shape that the adapter returns. Prisma maps `@map("snake")`
@@ -32,7 +33,14 @@ export const lucia = new Lucia(adapter, {
     name: 'slotty_session',
     expires: false,
     attributes: {
-      secure: process.env.NODE_ENV === 'production',
+      // Derive `secure` from the deployment's public URL scheme rather than
+      // NODE_ENV. A self-hosted box reachable via plain HTTP (e.g. on a LAN
+      // before TLS is wired up) is still production from Node's perspective —
+      // but if we set Secure: true the browser silently drops the cookie and
+      // every login appears to "fail" while actually succeeding server-side.
+      // When the same deployment is later fronted by HTTPS, this flips
+      // automatically with no code change.
+      secure: env.SLOTTY_PUBLIC_URL.startsWith('https://'),
       sameSite: 'lax',
       path: '/',
     },

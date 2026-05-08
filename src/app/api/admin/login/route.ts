@@ -134,7 +134,7 @@ async function handler(req: NextRequest): Promise<Response> {
     const pendingToken = createPendingToken(user.id);
     cookies().set(TOTP_PENDING_COOKIE, pendingToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: env.SLOTTY_PUBLIC_URL.startsWith('https://'),
       sameSite: 'lax',
       path: '/',
       maxAge: TOTP_PENDING_TTL_MS / 1000,
