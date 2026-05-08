@@ -67,9 +67,19 @@ const config: Config = {
         'shape-xl': '28px',
       },
       fontFamily: {
-        // Driven by next/font in src/app/layout.tsx.
-        sans: ['var(--font-roboto-flex)', 'system-ui', 'sans-serif'],
-        symbols: ['var(--font-material-symbols)', 'sans-serif'],
+        // Inter loaded via plain <link> in src/app/layout.tsx, with a system
+        // font stack fallback so the page never renders unstyled.
+        sans: [
+          'Inter',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'Roboto',
+          'Helvetica Neue',
+          'Arial',
+          'sans-serif',
+        ],
+        symbols: ['Material Symbols Outlined', 'sans-serif'],
       },
       fontSize: {
         // ── M3 type scale ──

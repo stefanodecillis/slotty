@@ -78,25 +78,29 @@ const NavigationRailItem = React.forwardRef<HTMLAnchorElement, NavigationRailIte
         ref={ref as React.Ref<HTMLAnchorElement>}
         href={item.href}
         className={cn(
-          'flex flex-col items-center gap-1 w-full px-2 py-3 rounded-shape-l text-label-s transition-colors',
+          'group relative flex flex-col items-center gap-1 w-full px-2 py-3 text-label-s transition-colors',
           active
-            ? 'text-on-secondary-container'
+            ? 'text-on-surface font-semibold'
             : 'text-on-surface-variant hover:text-on-surface',
         )}
         aria-current={active ? 'page' : undefined}
       >
+        {/* Left-edge active indicator — a 3px vertical bar in primary. */}
+        {active && (
+          <span
+            aria-hidden
+            className="absolute left-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-r-full bg-primary"
+          />
+        )}
         <span
           className={cn(
             'flex h-8 w-14 items-center justify-center rounded-full transition-colors',
-            active ? 'bg-secondary-container' : 'hover:bg-surface-container',
+            active
+              ? 'bg-primary text-on-primary'
+              : 'text-on-surface-variant group-hover:bg-surface-container-high',
           )}
         >
-          <span
-            className="material-symbols-outlined text-[22px]"
-            style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}
-          >
-            {item.icon}
-          </span>
+          <span className="material-symbols-outlined text-[22px]">{item.icon}</span>
         </span>
         <span className="text-center leading-tight">{item.label}</span>
       </Comp>
