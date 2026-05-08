@@ -16,7 +16,7 @@ const nextConfig = {
       'https-proxy-agent',
       'agent-base',
       'sharp',
-      'argon2',
+      '@node-rs/argon2',
       // jsdom (pulled in via isomorphic-dompurify) uses a relative `require`
       // to find a hoisted `undici`, which webpack can't trace. Externalizing
       // skips the trace entirely so the runtime resolution works as intended.
@@ -44,7 +44,7 @@ const nextConfig = {
         'https-proxy-agent',
         'agent-base',
         'sharp',
-        'argon2',
+        '@node-rs/argon2',
         'isomorphic-dompurify',
         'jsdom',
       ];

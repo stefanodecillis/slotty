@@ -1,4 +1,4 @@
-import argon2 from 'argon2';
+import { Algorithm, hash as argon2Hash, verify as argon2Verify, type Options } from '@node-rs/argon2';
 
 /**
  * Argon2id parameters tuned for an interactive login on a modest VPS:
@@ -6,21 +6,26 @@ import argon2 from 'argon2';
  *   passes   3
  *   parallel 4
  * Roughly ~150 ms on commodity hardware. Tweak only with full re-hash.
+ *
+ * Implementation: @node-rs/argon2 (Rust + napi-rs). Output format is the
+ * standard PHC string ($argon2id$...) and is byte-compatible with hashes
+ * produced by the older `argon2` C-binding package, so existing stored
+ * hashes verify cleanly under the new library.
  */
-const ARGON2_OPTIONS: argon2.Options = {
-  type: argon2.argon2id,
+const ARGON2_OPTIONS: Options = {
+  algorithm: Algorithm.Argon2id,
   memoryCost: 65536,
   timeCost: 3,
   parallelism: 4,
 };
 
 export async function hashPassword(plain: string): Promise<string> {
-  return argon2.hash(plain, ARGON2_OPTIONS);
+  return argon2Hash(plain, ARGON2_OPTIONS);
 }
 
 export async function verifyPassword(hash: string, plain: string): Promise<boolean> {
   try {
-    return await argon2.verify(hash, plain);
+    return await argon2Verify(hash, plain);
   } catch {
     return false;
   }
