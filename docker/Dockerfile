@@ -8,6 +8,14 @@ FROM oven/bun:1.3.8-alpine AS deps
 
 WORKDIR /build
 
+# Native build tools for any postinstall scripts that need to compile from
+# source. argon2 ^0.41 ships prebuilds for linux-x64 (glibc) but NOT
+# linux-x64-musl, so on Alpine it has to compile from source — without these
+# tools the install silently produces a broken binary that throws
+# "No native build was found for ... abi=137 ... libc=musl" the first time
+# argon2.hash() is called (admin setup form, login, etc.).
+RUN apk add --no-cache python3 make g++
+
 # Copy manifests first so this layer is cached unless they change.
 COPY package.json bun.lock ./
 COPY prisma/schema.prisma ./prisma/schema.prisma
