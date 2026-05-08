@@ -114,9 +114,32 @@ export interface ClassifyInput {
  * value, and where to look — NPM "Custom locations" / "Forward Hostname",
  * docker-compose env, etc.).
  */
-export function classifyMismatch(_input: ClassifyInput): DiagnosticIssue[] {
-  // TODO: replace with your classification logic.
-  return [];
+export function classifyMismatch(input: ClassifyInput): DiagnosticIssue[] {
+  const { configured, observed, trustProxy, reachability } = input;
+  const issues: DiagnosticIssue[] = [];
+
+  // TODO(you): push DiagnosticIssue entries onto `issues` for the scenarios
+  // that matter to your deployment. See the JSDoc above for a list of five
+  // candidate cases. Aim for 5–10 lines total.
+  //
+  // Each issue should set:
+  //   severity: 'error' | 'warning' | 'info'
+  //   code:     short kebab/snake identifier ('reachability-failed', etc.)
+  //   message:  one-sentence summary an operator can read at a glance
+  //   hint:     (optional) a short, actionable next step ("check NPM
+  //             'Forward Hostname' or docker-compose SLOTTY_PUBLIC_URL")
+  //
+  // Variables already destructured for you:
+  //   configured.host / configured.protocol / configured.port
+  //   observed.host / observed.xForwardedHost / observed.xForwardedProto
+  //   trustProxy
+  //   reachability.ok / reachability.status / reachability.error
+  void configured;
+  void observed;
+  void trustProxy;
+  void reachability;
+
+  return issues;
 }
 
 export async function diagnoseSiteUrl(headers: Headers): Promise<SiteUrlDiagnostic> {
