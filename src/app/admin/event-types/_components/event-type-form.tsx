@@ -19,8 +19,16 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { QUESTION_KINDS } from '@/lib/eventtype/validator';
 import type { LocationKind, QuestionKind } from '@/lib/eventtype/validator';
+import {
+  createEventType,
+  eventTypeKeys,
+  updateEventType,
+  type EventTypeUpsertPayload,
+} from '@/lib/api/event-types';
+import { ApiError } from '@/lib/api/http';
 
 // ─────────────────────────────────────────────────────────────
 // Types (preserved from previous API)
@@ -347,6 +355,34 @@ export function EventTypeForm({
   schedules,
 }: EventTypeFormProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: EventTypeUpsertPayload) =>
+      mode === 'create'
+        ? createEventType(payload)
+        : updateEventType(eventTypeId as string, payload),
+    onSuccess: () => {
+      toast.success(mode === 'create' ? 'Event type created' : 'Event type saved');
+      void queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
+      router.push('/admin/event-types');
+    },
+    onError: (err) => {
+      if (err instanceof ApiError) {
+        const fieldErrors = err.body.issues?.fieldErrors;
+        if (fieldErrors) {
+          const next: Record<string, string> = {};
+          for (const [field, msgs] of Object.entries(fieldErrors)) {
+            next[field] = msgs?.[0] ?? 'Invalid value';
+          }
+          setErrors(next);
+        }
+        toast.error(err.message);
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : 'Network error — please try again');
+    },
+  });
 
   const [values, setValues] = useState<EventTypeFormValues>({
     ...DEFAULT_VALUES,
@@ -373,7 +409,7 @@ export function EventTypeForm({
       : values.minNoticeMin;
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+  const saving = saveMutation.isPending;
 
   // Derived option lists.
   const accountOptions = useMemo(
@@ -453,15 +489,14 @@ export function EventTypeForm({
 
   // ─── Submit ───
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
     setErrors({});
 
     const durationMinutes =
       durationMode === 'custom' ? Number(values.durationMinutes) : Number(durationMode);
 
-    const payload = {
+    const payload: EventTypeUpsertPayload = {
       title: values.title,
       slug: values.slug,
       descriptionMd: values.descriptionMd || null,
@@ -495,44 +530,7 @@ export function EventTypeForm({
       })),
     };
 
-    try {
-      const url =
-        mode === 'create'
-          ? '/api/admin/event-types'
-          : `/api/admin/event-types/${eventTypeId}`;
-      const method = mode === 'create' ? 'POST' : 'PUT';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data: unknown = await res.json();
-
-      if (!res.ok) {
-        const d = data as {
-          error?: string;
-          issues?: { fieldErrors?: Record<string, string[]> };
-        };
-        if (d.issues?.fieldErrors) {
-          const fieldErrors: Record<string, string> = {};
-          for (const [field, msgs] of Object.entries(d.issues.fieldErrors)) {
-            fieldErrors[field] = (msgs as string[])[0] ?? 'Invalid value';
-          }
-          setErrors(fieldErrors);
-        }
-        toast.error(d.error ?? 'Failed to save event type');
-        return;
-      }
-
-      toast.success(mode === 'create' ? 'Event type created' : 'Event type saved');
-      router.push('/admin/event-types');
-    } catch {
-      toast.error('Network error — please try again');
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate(payload);
   }
 
   // ─────────────────────────────────────────────────────────────

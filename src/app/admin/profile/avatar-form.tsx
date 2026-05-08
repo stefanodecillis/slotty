@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useCallback, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { uploadAvatar } from '@/lib/api/profile';
 
 interface AvatarFormProps {
   currentAvatarPath: string | null;
@@ -17,10 +19,26 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
     currentAvatarPath ?? null,
   );
   const [isDragging, setIsDragging] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+
+  // FormData uploads must NOT set Content-Type — the browser sets it with the
+  // multipart boundary. The shared `http()` helper detects FormData and
+  // skips Content-Type accordingly.
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadAvatar(file),
+    onSuccess: (data) => {
+      setAvatarUrl(data.avatarUrl ?? null);
+      setPreview(null);
+      toast.success('Avatar updated.');
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Upload failed.');
+      setPreview(null);
+    },
+  });
+  const isUploading = uploadMutation.isPending;
 
   const handleFile = useCallback(
-    async (file: File) => {
+    (file: File) => {
       if (!file.type.startsWith('image/')) {
         toast.error('Please select an image file.');
         return;
@@ -33,37 +51,11 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
       // Show immediate preview
       const objectUrl = URL.createObjectURL(file);
       setPreview(objectUrl);
-
-      const formData = new FormData();
-      formData.set('avatar', file);
-
-      setIsUploading(true);
-      try {
-        const res = await fetch('/api/admin/profile/avatar', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          toast.error(body.error ?? 'Upload failed.');
-          setPreview(null);
-          return;
-        }
-
-        const data = (await res.json()) as { avatarUrl?: string };
-        setAvatarUrl(data.avatarUrl ?? null);
-        setPreview(null);
-        toast.success('Avatar updated.');
-      } catch {
-        toast.error('Upload failed. Please try again.');
-        setPreview(null);
-      } finally {
-        setIsUploading(false);
-        URL.revokeObjectURL(objectUrl);
-      }
+      uploadMutation.mutate(file, {
+        onSettled: () => URL.revokeObjectURL(objectUrl),
+      });
     },
-    [],
+    [uploadMutation],
   );
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

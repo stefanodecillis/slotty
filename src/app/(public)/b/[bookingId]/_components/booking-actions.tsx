@@ -4,8 +4,10 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { CalendarPlus, RotateCcw } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
+import { cancelBookingPublic } from '@/lib/api/public';
 import {
   Dialog,
   DialogContent,
@@ -34,35 +36,31 @@ export function BookingActions({ bookingId, token, tokenKind }: Props) {
   const router = useRouter();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const icsUrl = `/api/public/bookings/${bookingId}/ics?t=${encodeURIComponent(token)}`;
   const rescheduleHref = `/b/${bookingId}/reschedule?t=${encodeURIComponent(token)}`;
 
-  async function handleCancel() {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/public/bookings/${bookingId}/cancel?t=${encodeURIComponent(token)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: reason.trim() || undefined }),
-        },
-      );
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${res.status}`);
-      }
+  const cancelMutation = useMutation({
+    mutationFn: () =>
+      cancelBookingPublic({
+        bookingId,
+        token,
+        reason: reason.trim() || undefined,
+      }),
+    onSuccess: () => {
       setCancelOpen(false);
       router.refresh();
-    } catch (err) {
+    },
+    onError: (err) => {
       setError(err instanceof Error ? err.message : 'Cancel failed');
-    } finally {
-      setSubmitting(false);
-    }
+    },
+  });
+  const submitting = cancelMutation.isPending;
+
+  function handleCancel() {
+    setError(null);
+    cancelMutation.mutate();
   }
 
   return (

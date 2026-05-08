@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   DndContext,
@@ -20,6 +20,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { MoreVertical, Pencil, Copy, Archive, ArchiveRestore, Trash2, GripVertical, ChevronRight, ChevronDown } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -37,6 +38,13 @@ import {
   DialogHeader,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import {
+  archiveEventType,
+  deleteEventType,
+  duplicateEventType,
+  eventTypeKeys,
+  reorderEventTypes,
+} from '@/lib/api/event-types';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -226,101 +234,107 @@ function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, 
 // ─────────────────────────────────────────────────────────────
 
 export function EventTypesList({ active: initialActive, archived: initialArchived }: EventTypesListProps) {
+  const queryClient = useQueryClient();
+
+  // Local state mirrors the props so we can do optimistic UI for reorder + archive.
+  // Server-Component-rendered props are the source of truth on full page reloads;
+  // mutations invalidate the eventTypes cache to trigger any on-page client queries.
   const [active, setActive] = useState(initialActive);
   const [archived, setArchived] = useState(initialArchived);
   const [showArchived, setShowArchived] = useState(false);
+
+  // Keep local state in sync with new server props (e.g. after router.refresh()).
+  useEffect(() => {
+    setActive(initialActive);
+  }, [initialActive]);
+  useEffect(() => {
+    setArchived(initialArchived);
+  }, [initialArchived]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      const { active: dragged, over } = event;
-      if (!over || dragged.id === over.id) return;
-
-      const oldIndex = active.findIndex((e) => e.id === dragged.id);
-      const newIndex = active.findIndex((e) => e.id === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      const reordered = arrayMove(active, oldIndex, newIndex);
-      setActive(reordered);
-
-      try {
-        const res = await fetch('/api/admin/event-types/reorder', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: reordered.map((e) => e.id) }),
-        });
-        if (!res.ok) throw new Error('Reorder failed');
-      } catch {
-        toast.error('Failed to save order');
-        setActive(initialActive);
-      }
+  const reorderMutation = useMutation({
+    mutationFn: (vars: { ids: string[]; previous: EventTypeRow[] }) =>
+      reorderEventTypes(vars.ids),
+    onError: (_err, vars) => {
+      toast.error('Failed to save order');
+      setActive(vars.previous);
     },
-    [active, initialActive],
-  );
-
-  const handleDuplicate = useCallback(
-    async (id: string) => {
-      try {
-        const res = await fetch(`/api/admin/event-types/${id}/duplicate`, { method: 'POST' });
-        if (!res.ok) throw new Error('Duplicate failed');
-        toast.success('Event type duplicated');
-        window.location.reload();
-      } catch {
-        toast.error('Failed to duplicate event type');
-      }
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
     },
-    [],
-  );
+  });
 
-  const handleArchive = useCallback(
-    async (id: string, archive: boolean) => {
-      try {
-        const res = await fetch(`/api/admin/event-types/${id}/archive`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ archived: archive }),
-        });
-        if (!res.ok) throw new Error('Archive failed');
-        toast.success(archive ? 'Event type archived' : 'Event type restored');
+  const duplicateMutation = useMutation({
+    mutationFn: (id: string) => duplicateEventType(id),
+    onSuccess: () => {
+      toast.success('Event type duplicated');
+      void queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to duplicate event type');
+    },
+  });
 
-        if (archive) {
-          const item = active.find((e) => e.id === id);
-          if (item) {
-            setActive((prev) => prev.filter((e) => e.id !== id));
-            setArchived((prev) => [{ ...item, archived: true }, ...prev]);
-          }
-        } else {
-          const item = archived.find((e) => e.id === id);
-          if (item) {
-            setArchived((prev) => prev.filter((e) => e.id !== id));
-            setActive((prev) => [{ ...item, archived: false }, ...prev]);
-          }
+  const archiveMutation = useMutation({
+    mutationFn: ({ id, archived: nextArchived }: { id: string; archived: boolean }) =>
+      archiveEventType(id, nextArchived),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.archived ? 'Event type archived' : 'Event type restored');
+      if (vars.archived) {
+        const item = active.find((e) => e.id === vars.id);
+        if (item) {
+          setActive((prev) => prev.filter((e) => e.id !== vars.id));
+          setArchived((prev) => [{ ...item, archived: true }, ...prev]);
         }
-      } catch {
-        toast.error('Failed to update event type');
+      } else {
+        const item = archived.find((e) => e.id === vars.id);
+        if (item) {
+          setArchived((prev) => prev.filter((e) => e.id !== vars.id));
+          setActive((prev) => [{ ...item, archived: false }, ...prev]);
+        }
       }
+      void queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
     },
-    [active, archived],
-  );
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to update event type');
+    },
+  });
 
-  const handleDelete = useCallback(
-    async (id: string) => {
-      try {
-        const res = await fetch(`/api/admin/event-types/${id}`, { method: 'DELETE' });
-        if (!res.ok) throw new Error('Delete failed');
-        toast.success('Event type deleted');
-        setActive((prev) => prev.filter((e) => e.id !== id));
-        setArchived((prev) => prev.filter((e) => e.id !== id));
-      } catch {
-        toast.error('Failed to delete event type');
-      }
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteEventType(id),
+    onSuccess: (_data, id) => {
+      toast.success('Event type deleted');
+      setActive((prev) => prev.filter((e) => e.id !== id));
+      setArchived((prev) => prev.filter((e) => e.id !== id));
+      void queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
     },
-    [],
-  );
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete event type');
+    },
+  });
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active: dragged, over } = event;
+    if (!over || dragged.id === over.id) return;
+
+    const oldIndex = active.findIndex((e) => e.id === dragged.id);
+    const newIndex = active.findIndex((e) => e.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const previous = active;
+    const reordered = arrayMove(active, oldIndex, newIndex);
+    setActive(reordered);
+    reorderMutation.mutate({ ids: reordered.map((e) => e.id), previous });
+  };
+
+  const handleDuplicate = (id: string) => duplicateMutation.mutate(id);
+  const handleArchive = (id: string, archive: boolean) =>
+    archiveMutation.mutate({ id, archived: archive });
+  const handleDelete = (id: string) => deleteMutation.mutate(id);
 
   return (
     <div className="flex flex-col gap-8">

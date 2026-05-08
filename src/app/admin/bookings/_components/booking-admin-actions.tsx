@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -15,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
+import { bookingKeys, cancelBookingAdmin, setBookingNoShow } from '@/lib/api/bookings';
 
 interface Props {
   bookingId: string;
@@ -28,54 +30,45 @@ interface Props {
  */
 export function BookingAdminActions({ bookingId, noShow }: Props) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [cancelling, setCancelling] = useState(false);
-  const [togglingNoShow, setTogglingNoShow] = useState(false);
   const [localNoShow, setLocalNoShow] = useState(noShow);
 
-  async function doCancel() {
-    setCancelling(true);
-    try {
-      const res = await fetch(`/api/admin/bookings/${bookingId}/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: reason.trim() || undefined }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${res.status}`);
-      }
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelBookingAdmin(bookingId, reason.trim() || undefined),
+    onSuccess: () => {
       toast.success('Booking cancelled.');
       setCancelOpen(false);
+      void queryClient.invalidateQueries({ queryKey: bookingKeys.all });
       router.refresh();
-    } catch (err) {
+    },
+    onError: (err) => {
       toast.error(err instanceof Error ? err.message : 'Cancel failed');
-    } finally {
-      setCancelling(false);
-    }
-  }
+    },
+  });
+  const cancelling = cancelMutation.isPending;
 
-  async function toggleNoShow(next: boolean) {
-    setTogglingNoShow(true);
-    try {
-      const res = await fetch(`/api/admin/bookings/${bookingId}/no-show`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ noShow: next }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${res.status}`);
-      }
+  const noShowMutation = useMutation({
+    mutationFn: (next: boolean) => setBookingNoShow(bookingId, next),
+    onSuccess: (_data, next) => {
       setLocalNoShow(next);
       toast.success(next ? 'Marked as no-show.' : 'No-show cleared.');
+      void queryClient.invalidateQueries({ queryKey: bookingKeys.all });
       router.refresh();
-    } catch (err) {
+    },
+    onError: (err) => {
       toast.error(err instanceof Error ? err.message : 'Update failed');
-    } finally {
-      setTogglingNoShow(false);
-    }
+    },
+  });
+  const togglingNoShow = noShowMutation.isPending;
+
+  function doCancel() {
+    cancelMutation.mutate();
+  }
+
+  function toggleNoShow(next: boolean) {
+    noShowMutation.mutate(next);
   }
 
   return (

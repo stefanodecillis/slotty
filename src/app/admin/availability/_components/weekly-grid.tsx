@@ -2,8 +2,11 @@
 
 import React, { useState, useCallback } from 'react';
 import { X, Plus } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { availabilityKeys, saveScheduleRules } from '@/lib/api/availability';
+import { publicKeys } from '@/lib/api/public';
 
 export interface RuleData {
   weekday: number;
@@ -98,9 +101,24 @@ function RuleRow({ rule, index, onChange, onRemove }: RuleRowProps) {
 }
 
 export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
+  const queryClient = useQueryClient();
   const [rules, setRules] = useState<RuleData[]>(initialRules);
-  const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: (next: RuleData[]) => saveScheduleRules(scheduleId, next),
+    onSuccess: () => {
+      toast.success('Schedule saved');
+      void queryClient.invalidateQueries({ queryKey: availabilityKeys.all });
+      // Slot computation depends on the schedule, so invalidate any cached
+      // slot queries for the public booking flow.
+      void queryClient.invalidateQueries({ queryKey: publicKeys.all });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to save schedule');
+    },
+  });
+  const saving = saveMutation.isPending;
 
   const handleChange = useCallback(
     (index: number, field: 'startMinute' | 'endMinute', value: number) => {
@@ -124,32 +142,13 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
     ]);
   }, []);
 
-  const handleSave = async () => {
+  const handleSave = () => {
     const error = validateRules(rules);
     if (error) {
       setValidationError(error);
       return;
     }
-
-    setSaving(true);
-    try {
-      const res = await fetch('/api/admin/availability/rules', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ scheduleId, rules }),
-      });
-
-      if (!res.ok) {
-        const data = (await res.json()) as { error?: unknown };
-        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to save');
-      }
-
-      toast.success('Schedule saved');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save schedule');
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate(rules);
   };
 
   return (

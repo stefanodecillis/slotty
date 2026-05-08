@@ -10,12 +10,14 @@ import {
   HourglassIcon,
   Video,
 } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { SlotResult } from '@/lib/scheduling/compute-types';
+import { createBooking, getSlots, publicKeys } from '@/lib/api/public';
 
 import { TzSelector, getInitialBookerTz } from './tz-selector';
 
@@ -70,14 +72,10 @@ export function BookingFlow(props: Props) {
 
   const [step, setStep] = useState<Step>('date');
   const [monthAnchor, setMonthAnchor] = useState<Date>(() => startOfMonthLocal(new Date()));
-  const [slotsByDay, setSlotsByDay] = useState<Map<string, SlotResult['days'][number]['slots']>>(
-    new Map(),
-  );
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<{ startUtc: string; label: string } | null>(
     null,
   );
-  const [loadingSlots, setLoadingSlots] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [guests, setGuests] = useState('');
@@ -85,42 +83,53 @@ export function BookingFlow(props: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [descExpanded, setDescExpanded] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoadingSlots(true);
-      const fromDate = new Date(monthAnchor);
-      const toDate = new Date(monthAnchor);
-      toDate.setMonth(toDate.getMonth() + 1);
+  // ── Slots query ──
+  // The query key includes slug + tz + month range so changing any of those
+  // produces a fresh cache entry instead of stomping over the previous one.
+  const fromIso = useMemo(() => {
+    const d = new Date(monthAnchor);
+    return d.toISOString();
+  }, [monthAnchor]);
+  const toIso = useMemo(() => {
+    const d = new Date(monthAnchor);
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString();
+  }, [monthAnchor]);
 
-      const url = new URL(`/api/public/event-types/${slug}/slots`, window.location.origin);
-      url.searchParams.set('from', fromDate.toISOString());
-      url.searchParams.set('to', toDate.toISOString());
-      url.searchParams.set('tz', bookerTz);
+  const slotsQuery = useQuery({
+    queryKey: publicKeys.slots({ slug, tz: bookerTz, fromIso, toIso }),
+    queryFn: () => getSlots({ slug, tz: bookerTz, fromIso, toIso }),
+  });
 
-      try {
-        const res = await fetch(url.toString());
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: SlotResult = await res.json();
-        if (cancelled) return;
-        const map = new Map<string, SlotResult['days'][number]['slots']>();
-        for (const d of data.days) map.set(d.date, d.slots);
-        setSlotsByDay(map);
-      } catch (err) {
-        if (!cancelled) {
-          toast.error('Could not load slots. Please try again.');
-          setSlotsByDay(new Map());
-        }
-        void err;
-      } finally {
-        if (!cancelled) setLoadingSlots(false);
-      }
+  const slotsByDay = useMemo(() => {
+    const map = new Map<string, SlotResult['days'][number]['slots']>();
+    if (slotsQuery.data) {
+      for (const d of slotsQuery.data.days) map.set(d.date, d.slots);
     }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, bookerTz, monthAnchor]);
+    return map;
+  }, [slotsQuery.data]);
+  const loadingSlots = slotsQuery.isLoading || slotsQuery.isFetching;
+
+  useEffect(() => {
+    if (slotsQuery.error) {
+      toast.error('Could not load slots. Please try again.');
+    }
+  }, [slotsQuery.error]);
+
+  const submitMutation = useMutation({
+    mutationFn: createBooking,
+    onSuccess: (data) => {
+      if (data.manageUrl) {
+        window.location.href = data.manageUrl;
+        return;
+      }
+      setStep('pending');
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Submission failed. Please try again.');
+      setStep('details');
+    },
+  });
 
   const monthGrid = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
 
@@ -135,7 +144,7 @@ export function BookingFlow(props: Props) {
     setStep('details');
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selectedSlot) return;
     if (!emailLooksValid(email)) {
@@ -143,40 +152,21 @@ export function BookingFlow(props: Props) {
       return;
     }
     setStep('submitting');
-    try {
-      const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      const res = await fetch('/api/public/bookings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          eventTypeSlug: slug,
-          startAt: selectedSlot.startUtc,
-          bookerName: name,
-          bookerEmail: email,
-          bookerTimezone: bookerTz,
-          additionalGuests: guests
-            .split(',')
-            .map((g) => g.trim())
-            .filter(Boolean),
-          notes,
-          answers,
-          clientRequestId,
-        }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${res.status}`);
-      }
-      const data = (await res.json()) as { manageUrl?: string };
-      if (data.manageUrl) {
-        window.location.href = data.manageUrl;
-        return;
-      }
-      setStep('pending');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Submission failed. Please try again.');
-      setStep('details');
-    }
+    const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    submitMutation.mutate({
+      eventTypeSlug: slug,
+      startAt: selectedSlot.startUtc,
+      bookerName: name,
+      bookerEmail: email,
+      bookerTimezone: bookerTz,
+      additionalGuests: guests
+        .split(',')
+        .map((g) => g.trim())
+        .filter(Boolean),
+      notes,
+      answers,
+      clientRequestId,
+    });
   }
 
   const stepIndex = STEP_INDEX[step];

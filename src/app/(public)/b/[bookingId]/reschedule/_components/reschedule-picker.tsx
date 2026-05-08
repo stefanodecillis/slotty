@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import type { SlotResult } from '@/lib/scheduling/compute-types';
+import { ApiError } from '@/lib/api/http';
+import { getSlots, publicKeys, rescheduleBookingPublic } from '@/lib/api/public';
 
 interface Props {
   bookingId: string;
@@ -31,82 +34,64 @@ export function ReschedulePicker({
 
   const bookerTz = currentBookerTz;
   const [monthAnchor, setMonthAnchor] = useState<Date>(() => startOfMonthLocal(new Date()));
-  const [slotsByDay, setSlotsByDay] = useState<Map<string, SlotResult['days'][number]['slots']>>(
-    new Map(),
-  );
-  const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<{ startUtc: string; label: string } | null>(
     null,
   );
-  const [submitting, setSubmitting] = useState(false);
+
+  const fromIso = useMemo(() => new Date(monthAnchor).toISOString(), [monthAnchor]);
+  const toIso = useMemo(() => {
+    const d = new Date(monthAnchor);
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString();
+  }, [monthAnchor]);
+
+  const slotsQuery = useQuery({
+    queryKey: publicKeys.slots({ slug, tz: bookerTz, fromIso, toIso }),
+    queryFn: () => getSlots({ slug, tz: bookerTz, fromIso, toIso }),
+  });
+  const slotsByDay = useMemo(() => {
+    const map = new Map<string, SlotResult['days'][number]['slots']>();
+    if (slotsQuery.data) {
+      for (const d of slotsQuery.data.days) map.set(d.date, d.slots);
+    }
+    return map;
+  }, [slotsQuery.data]);
+  const loadingSlots = slotsQuery.isLoading || slotsQuery.isFetching;
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoadingSlots(true);
-      const fromDate = new Date(monthAnchor);
-      const toDate = new Date(monthAnchor);
-      toDate.setMonth(toDate.getMonth() + 1);
-
-      const url = new URL(`/api/public/event-types/${slug}/slots`, window.location.origin);
-      url.searchParams.set('from', fromDate.toISOString());
-      url.searchParams.set('to', toDate.toISOString());
-      url.searchParams.set('tz', bookerTz);
-
-      try {
-        const res = await fetch(url.toString());
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: SlotResult = await res.json();
-        if (cancelled) return;
-        const map = new Map<string, SlotResult['days'][number]['slots']>();
-        for (const d of data.days) map.set(d.date, d.slots);
-        setSlotsByDay(map);
-      } catch {
-        if (!cancelled) {
-          toast.error('Could not load slots. Please try again.');
-          setSlotsByDay(new Map());
-        }
-      } finally {
-        if (!cancelled) setLoadingSlots(false);
-      }
+    if (slotsQuery.error) {
+      toast.error('Could not load slots. Please try again.');
     }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, bookerTz, monthAnchor]);
+  }, [slotsQuery.error]);
+
+  const rescheduleMutation = useMutation({
+    mutationFn: () =>
+      rescheduleBookingPublic({
+        bookingId,
+        token,
+        startAt: selectedSlot!.startUtc,
+      }),
+    onSuccess: () => {
+      toast.success('Booking rescheduled.');
+      router.push(`/b/${bookingId}?t=${encodeURIComponent(token)}`);
+    },
+    onError: (err) => {
+      // Surface the slot-conflict (409) error message verbatim if present.
+      if (err instanceof ApiError && err.status === 409) {
+        toast.error(err.message || 'That slot is no longer available.');
+        return;
+      }
+      toast.error(err instanceof Error ? err.message : 'Reschedule failed');
+    },
+  });
+  const submitting = rescheduleMutation.isPending;
 
   const monthGrid = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
 
-  async function handleSubmit() {
+  function handleSubmit() {
     if (!selectedSlot) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch(
-        `/api/public/bookings/${bookingId}/reschedule?t=${encodeURIComponent(token)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ startAt: selectedSlot.startUtc }),
-        },
-      );
-      if (res.status === 409) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(data.error ?? 'That slot is no longer available.');
-        setSubmitting(false);
-        return;
-      }
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${res.status}`);
-      }
-      toast.success('Booking rescheduled.');
-      router.push(`/b/${bookingId}?t=${encodeURIComponent(token)}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Reschedule failed');
-      setSubmitting(false);
-    }
+    rescheduleMutation.mutate();
   }
 
   return (

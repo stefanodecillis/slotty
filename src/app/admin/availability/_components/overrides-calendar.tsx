@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { DateTime } from 'luxon';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,6 +13,12 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils/cn';
+import {
+  availabilityKeys,
+  deleteOverride,
+  upsertOverride,
+} from '@/lib/api/availability';
+import { publicKeys } from '@/lib/api/public';
 
 export interface OverrideData {
   id: string;
@@ -194,6 +201,7 @@ export function OverridesCalendar({
   initialOverrides,
   timezone,
 }: OverridesCalendarProps) {
+  const queryClient = useQueryClient();
   const [overrides, setOverrides] = useState<Map<string, OverrideData>>(() => {
     const map = new Map<string, OverrideData>();
     for (const ov of initialOverrides) {
@@ -213,54 +221,60 @@ export function OverridesCalendar({
     setDialogOpen(true);
   }, []);
 
-  const handleSave = useCallback(
-    async (
-      date: string,
-      data: { isBlocked: boolean; startMinute?: number; endMinute?: number },
-    ) => {
-      const res = await fetch('/api/admin/availability/overrides', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ scheduleId, date, ...data }),
-      });
+  const invalidateAvailability = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: availabilityKeys.all });
+    void queryClient.invalidateQueries({ queryKey: publicKeys.all });
+  }, [queryClient]);
 
-      if (!res.ok) {
-        const json = (await res.json()) as { error?: unknown };
-        throw new Error(typeof json.error === 'string' ? json.error : 'Failed to save');
-      }
-
-      const json = (await res.json()) as { override: OverrideData };
+  const upsertMutation = useMutation({
+    mutationFn: (vars: {
+      date: string;
+      isBlocked: boolean;
+      startMinute?: number;
+      endMinute?: number;
+    }) =>
+      upsertOverride({
+        scheduleId,
+        date: vars.date,
+        isBlocked: vars.isBlocked,
+        startMinute: vars.startMinute,
+        endMinute: vars.endMinute,
+      }),
+    onSuccess: ({ override }, vars) => {
       setOverrides((prev) => {
         const next = new Map(prev);
-        next.set(date, json.override);
+        next.set(vars.date, override);
         return next;
       });
       toast.success('Override saved');
+      invalidateAvailability();
     },
-    [scheduleId],
-  );
+  });
 
-  const handleRemove = useCallback(
-    async (date: string) => {
-      const res = await fetch('/api/admin/availability/overrides', {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ scheduleId, date }),
-      });
-
-      if (!res.ok) {
-        const json = (await res.json()) as { error?: unknown };
-        throw new Error(typeof json.error === 'string' ? json.error : 'Failed to remove');
-      }
-
+  const deleteMutation = useMutation({
+    mutationFn: (date: string) => deleteOverride(scheduleId, date),
+    onSuccess: (_data, date) => {
       setOverrides((prev) => {
         const next = new Map(prev);
         next.delete(date);
         return next;
       });
       toast.success('Override removed');
+      invalidateAvailability();
     },
-    [scheduleId],
+  });
+
+  const handleSave = useCallback(
+    (
+      date: string,
+      data: { isBlocked: boolean; startMinute?: number; endMinute?: number },
+    ) => upsertMutation.mutateAsync({ date, ...data }).then(() => undefined),
+    [upsertMutation],
+  );
+
+  const handleRemove = useCallback(
+    (date: string) => deleteMutation.mutateAsync(date).then(() => undefined),
+    [deleteMutation],
   );
 
   return (

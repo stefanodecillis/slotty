@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +13,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { availabilityKeys, importHolidays } from '@/lib/api/availability';
+import { publicKeys } from '@/lib/api/public';
 
 const GOOGLE_HOLIDAYS_PLACEHOLDER =
   'https://calendar.google.com/calendar/ical/en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics';
@@ -27,36 +30,34 @@ interface HolidayImportProps {
 }
 
 export function HolidayImport({ scheduleId }: HolidayImportProps) {
+  const queryClient = useQueryClient();
   const [icalUrl, setIcalUrl] = useState('');
   const [year, setYear] = useState(String(currentYear));
-  const [loading, setLoading] = useState(false);
 
-  const handleImport = async () => {
+  const importMutation = useMutation({
+    mutationFn: () =>
+      importHolidays({
+        scheduleId,
+        icalUrl: icalUrl.trim(),
+        year: parseInt(year, 10),
+      }),
+    onSuccess: (data) => {
+      toast.success(`Imported ${data.imported ?? 0} holiday(s), skipped ${data.skipped ?? 0}`);
+      void queryClient.invalidateQueries({ queryKey: availabilityKeys.all });
+      void queryClient.invalidateQueries({ queryKey: publicKeys.all });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Import failed');
+    },
+  });
+  const loading = importMutation.isPending;
+
+  const handleImport = () => {
     if (!icalUrl.trim()) {
       toast.error('Please enter an iCal URL');
       return;
     }
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/availability/holidays/import', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ scheduleId, icalUrl: icalUrl.trim(), year: parseInt(year, 10) }),
-      });
-
-      const data = (await res.json()) as { error?: unknown; imported?: number; skipped?: number };
-
-      if (!res.ok) {
-        throw new Error(typeof data.error === 'string' ? data.error : 'Import failed');
-      }
-
-      toast.success(`Imported ${data.imported ?? 0} holiday(s), skipped ${data.skipped ?? 0}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Import failed');
-    } finally {
-      setLoading(false);
-    }
+    importMutation.mutate();
   };
 
   return (

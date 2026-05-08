@@ -1,14 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { ChevronLeft, Plus, Webhook, CheckCircle2 } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  createWebhook,
+  deleteWebhook,
+  listWebhooks,
+  testWebhook,
+  updateWebhook,
+  webhookKeys,
+  type WebhookEndpoint,
+} from '@/lib/api/webhooks';
 
 const VALID_EVENTS = [
   { value: 'booking.created', label: 'Booking created' },
@@ -17,15 +27,6 @@ const VALID_EVENTS = [
   { value: 'booking.no_show', label: 'Booking no-show' },
 ];
 
-interface WebhookEndpoint {
-  id: string;
-  url: string;
-  eventTypesJson: string;
-  active: boolean;
-  createdAt: string;
-  deliveries: Array<{ status: string; createdAt: string; responseCode: number | null }>;
-}
-
 function generateRandomSecret(): string {
   const arr = new Uint8Array(32);
   crypto.getRandomValues(arr);
@@ -33,82 +34,77 @@ function generateRandomSecret(): string {
 }
 
 export default function WebhooksPage() {
-  const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [createUrl, setCreateUrl] = useState('');
   const [createSecret, setCreateSecret] = useState('');
   const [createEvents, setCreateEvents] = useState<string[]>(['booking.created']);
   const [createError, setCreateError] = useState('');
-  const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  const loadEndpoints = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/admin/webhooks');
-      if (res.ok) {
-        const data = await res.json() as { data: WebhookEndpoint[] };
-        setEndpoints(data.data);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const endpointsQuery = useQuery({
+    queryKey: webhookKeys.list(),
+    queryFn: listWebhooks,
+  });
+  const endpoints: WebhookEndpoint[] = endpointsQuery.data?.data ?? [];
+  const loading = endpointsQuery.isLoading;
 
-  useEffect(() => {
-    void loadEndpoints();
-  }, [loadEndpoints]);
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: webhookKeys.all });
+  };
 
-  async function handleCreate() {
-    if (!createUrl || !createSecret || createEvents.length === 0) {
-      setCreateError('URL, secret, and at least one event are required.');
-      return;
-    }
-    setSaving(true);
-    setCreateError('');
-    try {
-      const res = await fetch('/api/admin/webhooks', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ url: createUrl, secret: createSecret, events: createEvents }),
-      });
-      if (!res.ok) {
-        const err = await res.json() as { error?: string };
-        setCreateError(err.error ?? 'Failed to create endpoint.');
-        return;
-      }
+  const createMutation = useMutation({
+    mutationFn: createWebhook,
+    onSuccess: () => {
       setShowCreate(false);
       setCreateUrl('');
       setCreateSecret('');
       setCreateEvents(['booking.created']);
       setSuccessMsg('Webhook endpoint created.');
-      await loadEndpoints();
-    } finally {
-      setSaving(false);
+      invalidate();
+    },
+    onError: (err) => {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create endpoint.');
+    },
+  });
+  const saving = createMutation.isPending;
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      updateWebhook(id, { active }),
+    onSuccess: invalidate,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteWebhook(id),
+    onSuccess: invalidate,
+  });
+
+  const testMutation = useMutation({
+    mutationFn: (id: string) => testWebhook(id),
+    onSuccess: () => setSuccessMsg('Test delivery enqueued.'),
+  });
+
+  function handleCreate() {
+    if (!createUrl || !createSecret || createEvents.length === 0) {
+      setCreateError('URL, secret, and at least one event are required.');
+      return;
     }
+    setCreateError('');
+    createMutation.mutate({ url: createUrl, secret: createSecret, events: createEvents });
   }
 
-  async function handleToggle(id: string, active: boolean) {
-    await fetch(`/api/admin/webhooks/${id}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ active }),
-    });
-    await loadEndpoints();
+  function handleToggle(id: string, active: boolean) {
+    toggleMutation.mutate({ id, active });
   }
 
-  async function handleDelete(id: string) {
+  function handleDelete(id: string) {
     if (!confirm('Delete this webhook endpoint?')) return;
-    await fetch(`/api/admin/webhooks/${id}`, { method: 'DELETE' });
-    await loadEndpoints();
+    deleteMutation.mutate(id);
   }
 
-  async function handleTest(id: string) {
-    const res = await fetch(`/api/admin/webhooks/${id}/test`, { method: 'POST' });
-    if (res.ok) {
-      setSuccessMsg('Test delivery enqueued.');
-    }
+  function handleTest(id: string) {
+    testMutation.mutate(id);
   }
 
   function toggleEvent(event: string) {
@@ -217,14 +213,14 @@ export default function WebhooksPage() {
                   <div className="flex shrink-0 flex-col items-end gap-2">
                     <Switch
                       checked={ep.active}
-                      onCheckedChange={(v) => void handleToggle(ep.id, v)}
+                      onCheckedChange={(v) => handleToggle(ep.id, v)}
                       aria-label="Active"
                     />
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => void handleTest(ep.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => handleTest(ep.id)}>
                         Test
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => void handleDelete(ep.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => handleDelete(ep.id)}>
                         Delete
                       </Button>
                     </div>
@@ -300,7 +296,7 @@ export default function WebhooksPage() {
             <Button variant="ghost" onClick={() => setShowCreate(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void handleCreate()} disabled={saving}>
+            <Button onClick={handleCreate} disabled={saving}>
               {saving ? 'Adding…' : 'Add endpoint'}
             </Button>
           </DialogFooter>

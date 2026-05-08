@@ -1,33 +1,39 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { ChevronLeft, ShieldCheck, Shield, Monitor } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-
-interface Session {
-  id: string;
-  fullId: string;
-  expiresAt: string;
-  isCurrent: boolean;
-}
+import {
+  changePassword,
+  disableTotp,
+  enableTotp,
+  listSessions,
+  revokeOtherSessions,
+  securityKeys,
+  setupTotp,
+  type Session,
+  type TotpSetupResponse,
+} from '@/lib/api/security';
 
 export default function SecurityPage() {
+  const queryClient = useQueryClient();
+
   // Password change
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
-  const [savingPassword, setSavingPassword] = useState(false);
 
   // TOTP
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [showEnableDialog, setShowEnableDialog] = useState(false);
-  const [totpSetupData, setTotpSetupData] = useState<{ secret: string; uri: string } | null>(null);
+  const [totpSetupData, setTotpSetupData] = useState<TotpSetupResponse | null>(null);
   const [totpCode, setTotpCode] = useState('');
   const [totpError, setTotpError] = useState('');
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
@@ -35,107 +41,99 @@ export default function SecurityPage() {
   const [disablePassword, setDisablePassword] = useState('');
   const [disableError, setDisableError] = useState('');
 
-  // Sessions
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(true);
+  // ── Sessions list ──
+  const sessionsQuery = useQuery({
+    queryKey: securityKeys.sessions(),
+    queryFn: listSessions,
+  });
+  const sessions: Session[] = sessionsQuery.data?.data ?? [];
+  const sessionsLoading = sessionsQuery.isLoading;
 
-  const loadSessions = useCallback(async () => {
-    setSessionsLoading(true);
-    try {
-      const res = await fetch('/api/admin/security/sessions');
-      if (res.ok) {
-        const data = await res.json() as { data: Session[] };
-        setSessions(data.data);
-      }
-    } finally {
-      setSessionsLoading(false);
-    }
-  }, []);
+  const passwordMutation = useMutation({
+    mutationFn: changePassword,
+    onSuccess: (data) => {
+      setPasswordSuccess(data.message ?? 'Password changed. Please sign in again.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    },
+    onError: (err) => {
+      setPasswordError(err instanceof Error ? err.message : 'Failed to change password.');
+    },
+  });
+  const savingPassword = passwordMutation.isPending;
 
-  useEffect(() => {
-    void loadSessions();
-  }, [loadSessions]);
+  const totpSetupMutation = useMutation({
+    mutationFn: setupTotp,
+    onSuccess: (data) => {
+      setTotpSetupData(data);
+      setShowEnableDialog(true);
+    },
+  });
 
-  async function handleChangePassword() {
+  const totpEnableMutation = useMutation({
+    mutationFn: enableTotp,
+    onSuccess: (data) => {
+      setTotpEnabled(true);
+      setBackupCodes(data.backupCodes ?? []);
+      setShowEnableDialog(false);
+      setTotpSetupData(null);
+      setTotpCode('');
+    },
+    onError: (err) => {
+      setTotpError(err instanceof Error ? err.message : 'Invalid code.');
+    },
+  });
+
+  const totpDisableMutation = useMutation({
+    mutationFn: disableTotp,
+    onSuccess: () => {
+      setTotpEnabled(false);
+      setBackupCodes([]);
+      setShowDisableDialog(false);
+      setDisablePassword('');
+    },
+    onError: (err) => {
+      setDisableError(err instanceof Error ? err.message : 'Failed to disable 2FA.');
+    },
+  });
+
+  const revokeSessionsMutation = useMutation({
+    mutationFn: revokeOtherSessions,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: securityKeys.sessions() });
+    },
+  });
+
+  function handleChangePassword() {
     setPasswordError('');
     setPasswordSuccess('');
     if (!currentPassword || !newPassword || !confirmPassword) {
       setPasswordError('All fields are required.');
       return;
     }
-    setSavingPassword(true);
-    try {
-      const res = await fetch('/api/admin/security/password', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
-      });
-      const data = await res.json() as { error?: string; message?: string };
-      if (!res.ok) {
-        setPasswordError(data.error ?? 'Failed to change password.');
-        return;
-      }
-      setPasswordSuccess(data.message ?? 'Password changed. Please sign in again.');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } finally {
-      setSavingPassword(false);
-    }
+    passwordMutation.mutate({ currentPassword, newPassword, confirmPassword });
   }
 
-  async function handleStartTotpSetup() {
+  function handleStartTotpSetup() {
     setTotpError('');
-    const res = await fetch('/api/admin/security/totp/setup', { method: 'POST' });
-    if (res.ok) {
-      const data = await res.json() as { secret: string; uri: string };
-      setTotpSetupData(data);
-      setShowEnableDialog(true);
-    }
+    totpSetupMutation.mutate();
   }
 
-  async function handleEnableTotp() {
+  function handleEnableTotp() {
     if (!totpSetupData || !totpCode) return;
     setTotpError('');
-    const res = await fetch('/api/admin/security/totp/enable', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ secret: totpSetupData.secret, code: totpCode }),
-    });
-    const data = await res.json() as { error?: string; backupCodes?: string[] };
-    if (!res.ok) {
-      setTotpError(data.error ?? 'Invalid code.');
-      return;
-    }
-    setTotpEnabled(true);
-    setBackupCodes(data.backupCodes ?? []);
-    setShowEnableDialog(false);
-    setTotpSetupData(null);
-    setTotpCode('');
+    totpEnableMutation.mutate({ secret: totpSetupData.secret, code: totpCode });
   }
 
-  async function handleDisableTotp() {
+  function handleDisableTotp() {
     setDisableError('');
-    const res = await fetch('/api/admin/security/totp/disable', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: disablePassword }),
-    });
-    const data = await res.json() as { error?: string };
-    if (!res.ok) {
-      setDisableError(data.error ?? 'Failed to disable 2FA.');
-      return;
-    }
-    setTotpEnabled(false);
-    setBackupCodes([]);
-    setShowDisableDialog(false);
-    setDisablePassword('');
+    totpDisableMutation.mutate({ password: disablePassword });
   }
 
-  async function handleRevokeAllSessions() {
+  function handleRevokeAllSessions() {
     if (!confirm('Sign out of all other sessions?')) return;
-    await fetch('/api/admin/security/sessions', { method: 'DELETE' });
-    await loadSessions();
+    revokeSessionsMutation.mutate();
   }
 
   const otherSessions = sessions.filter((s) => !s.isCurrent);
@@ -205,7 +203,7 @@ export default function SecurityPage() {
             )}
             <div className="flex justify-end">
               <Button
-                onClick={() => void handleChangePassword()}
+                onClick={handleChangePassword}
                 disabled={savingPassword}
               >
                 {savingPassword ? 'Saving…' : 'Change password'}
@@ -248,7 +246,7 @@ export default function SecurityPage() {
                 </div>
               </div>
               {!totpEnabled ? (
-                <Button variant="secondary" onClick={() => void handleStartTotpSetup()}>
+                <Button variant="secondary" onClick={handleStartTotpSetup}>
                   Enable 2FA
                 </Button>
               ) : (
@@ -319,7 +317,7 @@ export default function SecurityPage() {
           )}
           {otherSessions.length > 0 && (
             <div className="flex justify-end border-t border-border px-5 py-3">
-              <Button variant="outline" onClick={() => void handleRevokeAllSessions()}>
+              <Button variant="outline" onClick={handleRevokeAllSessions}>
                 Sign out everywhere else
               </Button>
             </div>
@@ -365,7 +363,7 @@ export default function SecurityPage() {
             <Button variant="ghost" onClick={() => setShowEnableDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void handleEnableTotp()}>
+            <Button onClick={handleEnableTotp} disabled={totpEnableMutation.isPending}>
               Verify and enable
             </Button>
           </DialogFooter>
@@ -396,7 +394,7 @@ export default function SecurityPage() {
             <Button variant="ghost" onClick={() => setShowDisableDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void handleDisableTotp()}>
+            <Button onClick={handleDisableTotp} disabled={totpDisableMutation.isPending}>
               Disable 2FA
             </Button>
           </DialogFooter>
