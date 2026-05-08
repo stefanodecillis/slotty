@@ -45,9 +45,10 @@ RUN bun run build
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 3 — runtime
-# Minimal Node 20 image; no Bun needed at runtime.
+# Bun runtime: handles googleapis / pino / native node:* imports cleanly
+# without the bundler-externalization gymnastics that Node + webpack require.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM node:20-alpine AS runtime
+FROM oven/bun:1.3-alpine AS runtime
 
 # tini reaps zombie processes and forwards signals properly (PID 1 safety).
 RUN apk add --no-cache tini
@@ -64,8 +65,6 @@ COPY --from=builder --chown=slotty:slotty /build/.next/standalone ./
 COPY --from=builder --chown=slotty:slotty /build/.next/static ./.next/static
 
 # Copy public assets (favicon, robots.txt, etc.) if they exist.
-# The COPY with a trailing slash is intentional: it no-ops gracefully when the
-# source directory is absent because Next.js standalone does not require it.
 COPY --from=builder --chown=slotty:slotty /build/public ./public
 
 # Copy Prisma schema + migrations so `prisma migrate deploy` can run on startup.
@@ -94,6 +93,6 @@ USER slotty
 
 EXPOSE 3000
 
-# tini as PID 1, then: run migrations, start the standalone server.
+# tini as PID 1, then: run migrations, start the standalone server with Bun.
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["sh", "-c", "node node_modules/.bin/prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "bunx prisma migrate deploy && bun --bun server.js"]

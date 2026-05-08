@@ -273,13 +273,12 @@ async function ensureDailyBackupJob(): Promise<void> {
  * Idempotent — safe to call multiple times (dev hot-reload).
  */
 export async function startJobScheduler(): Promise<void> {
-  // Register built-in handlers. Backup module is dynamically imported to
-  // prevent webpack from bundling Node.js fs/path/child_process in the
-  // edge runtime build of instrumentation.ts.
+  // Register built-in handlers. The backup module uses node:fs/path/child_process,
+  // all of which are externalized via next.config.mjs's node:* rule, so a plain
+  // dynamic import works in both dev (Turbopack/webpack) and prod (standalone).
   registerHandler('daily_backup', async () => {
-    const backupPath = './backup';
-    const mod = await import(/* webpackIgnore: true */ backupPath as string);
-    await (mod as { runDailyBackup: () => Promise<void> }).runDailyBackup();
+    const { runDailyBackup } = await import('@/lib/jobs/backup');
+    await runDailyBackup();
     // Reschedule for the next day after completion.
     const runAt = nextDailyBackupTime();
     await db.job.create({

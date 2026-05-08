@@ -5,7 +5,9 @@ const nextConfig = {
   output: 'standalone',
   experimental: {
     instrumentationHook: true,
-    // Prevent bundling of these Node.js-only npm packages.
+    // Server Components must NOT bundle these — they use Node.js core
+    // features (native addons, child_process, http2) that don't survive
+    // webpack's Node.js polyfill layer.
     serverComponentsExternalPackages: [
       'googleapis',
       'google-auth-library',
@@ -15,8 +17,6 @@ const nextConfig = {
       'agent-base',
       'sharp',
       'argon2',
-      'pino',
-      'pino-pretty',
     ],
   },
   images: {
@@ -26,11 +26,11 @@ const nextConfig = {
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
-      // serverComponentsExternalPackages only externalizes for Server Components.
-      // Our instrumentation hook + in-process scheduler also need these as externals
-      // so googleapis (which transitively imports node:http2/stream) isn't bundled.
+      // serverComponentsExternalPackages only applies to Server Components.
+      // Our instrumentation hook + in-process scheduler need the same
+      // packages externalized too — otherwise googleapis pulls in node:http2
+      // and webpack chokes.
       const extraExternals = [
-        // googleapis subtree
         'googleapis',
         'googleapis-common',
         'google-auth-library',
@@ -38,36 +38,34 @@ const nextConfig = {
         'gcp-metadata',
         'https-proxy-agent',
         'agent-base',
-        // native modules
         'sharp',
         'argon2',
-        // pino + transitive worker-thread deps. Bundling these breaks
-        // pino-pretty's worker (it tries to resolve vendor-chunks/lib/worker.js).
-        'pino',
-        'pino-pretty',
-        'pino-abstract-transport',
-        'thread-stream',
-        'sonic-boom',
-        'on-exit-leak-free',
-        'real-require',
-        'quick-format-unescaped',
-        'fast-redact',
-        'safe-stable-stringify',
-        'split2',
-        'colorette',
-        'fast-copy',
-        'dateformat',
-        'secure-json-parse',
-        'pump',
       ];
-      const existing = Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean);
+      // All Node.js built-in modules — externalize whether imported as
+      // `fs`, `crypto`, etc. or as `node:fs`, `node:crypto`, etc.
+      const NODE_BUILTINS = new Set([
+        'assert', 'async_hooks', 'buffer', 'child_process', 'cluster',
+        'console', 'constants', 'crypto', 'dgram', 'dns', 'domain',
+        'events', 'fs', 'fs/promises', 'http', 'http2', 'https',
+        'inspector', 'module', 'net', 'os', 'path', 'path/posix',
+        'path/win32', 'perf_hooks', 'process', 'punycode', 'querystring',
+        'readline', 'repl', 'stream', 'stream/promises', 'stream/web',
+        'string_decoder', 'sys', 'timers', 'timers/promises', 'tls',
+        'trace_events', 'tty', 'url', 'util', 'util/types', 'v8',
+        'vm', 'wasi', 'worker_threads', 'zlib',
+      ]);
+      const existing = Array.isArray(config.externals)
+        ? config.externals
+        : [config.externals].filter(Boolean);
       config.externals = [
         ...existing,
         ({ request }, callback) => {
           if (!request) return callback();
-          // Node.js built-ins via node: protocol — externalize as commonjs
-          // so they're require()'d at runtime instead of bundled.
+          // Node.js built-ins (with or without node: prefix).
           if (request.startsWith('node:')) {
+            return callback(null, `commonjs ${request}`);
+          }
+          if (NODE_BUILTINS.has(request)) {
             return callback(null, `commonjs ${request}`);
           }
           if (extraExternals.some((p) => request === p || request.startsWith(`${p}/`))) {
@@ -77,7 +75,8 @@ const nextConfig = {
         },
       ];
     } else {
-      // Client bundle: stub Node built-ins that may be referenced transitively.
+      // Client bundle: stub Node built-ins that may be referenced transitively
+      // by Node-only modules webpack happens to trace through.
       config.resolve = config.resolve ?? {};
       config.resolve.fallback = {
         ...(config.resolve.fallback ?? {}),
