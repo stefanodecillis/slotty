@@ -97,7 +97,13 @@ function buildCsp(opts: { isAdmin: boolean }): string {
     'connect-src': connectSrc,
     'frame-ancestors': ["'none'"],
     'base-uri': ["'self'"],
-    'form-action': ["'self'"],
+    // form-action intentionally omitted: CSRF protection comes from
+    // `validateOrigin()` (src/lib/auth/csrf.ts), which checks Origin/Referer
+    // against SLOTTY_PUBLIC_URL on every state-changing request. The CSP
+    // directive was triggering false-positive blocks on plain-http homeserver
+    // setups (e.g., http://truenas:3210) where browsers' HTTPS upgrade or
+    // single-label-host quirks prevented `'self'` from matching same-origin
+    // submissions. frame-ancestors 'none' still defends against clickjacking.
     'object-src': ["'none'"],
   };
 

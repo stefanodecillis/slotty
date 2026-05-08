@@ -122,6 +122,18 @@ describe('security middleware', () => {
       expect(csp).toContain('https://lh3.googleusercontent.com');
     });
 
+    it('does not set form-action (CSRF is enforced server-side)', () => {
+      // form-action was dropped intentionally — see middleware.ts. Browsers
+      // on plain-http setups (e.g., http://truenas:3210) reject same-origin
+      // submissions when 'self' fails to match due to HTTPS-upgrade quirks.
+      const res = applySecurityHeaders(
+        makeReq('http://localhost/admin/login'),
+        NextResponse.next(),
+      );
+      const csp = res.headers.get('Content-Security-Policy') ?? '';
+      expect(csp).not.toContain('form-action');
+    });
+
     it('does not overwrite a CSP that downstream already set', () => {
       const req = makeReq('http://localhost/');
       const res = NextResponse.next();
