@@ -44,7 +44,6 @@ interface SortableItemProps {
   onDelete: (id: string) => void;
   draggable: boolean;
   isFirst: boolean;
-  isLast: boolean;
 }
 
 interface EventTypesListProps {
@@ -56,7 +55,7 @@ interface EventTypesListProps {
 // Sortable row
 // ─────────────────────────────────────────────────────────────
 
-function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, isFirst, isLast }: SortableItemProps) {
+function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, isFirst }: SortableItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: eventType.id,
     disabled: !draggable,
@@ -69,15 +68,16 @@ function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, 
     opacity: isDragging ? 0.5 : 1,
   };
 
-  const radius = `${isFirst ? 'rounded-t-shape-md' : ''} ${isLast ? 'rounded-b-shape-md' : ''}`;
-
+  // The outer container has `overflow-hidden rounded-shape-md` so per-row
+  // rounded corners are unnecessary AND can show through as visual artifacts
+  // (nested-card look) when the hover background paints inside the row.
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`flex items-center gap-3 px-4 py-4 transition-colors hover:bg-surface-container-low ${
         isFirst ? '' : 'border-t border-outline-variant'
-      } ${radius}`}
+      }`}
     >
       {/* Drag handle */}
       {draggable ? (
@@ -393,7 +393,6 @@ export function EventTypesList({ active: initialActive, archived: initialArchive
                     onDelete={handleDelete}
                     draggable={active.length > 1}
                     isFirst={idx === 0}
-                    isLast={idx === active.length - 1}
                   />
                 ))}
               </div>
@@ -428,7 +427,6 @@ export function EventTypesList({ active: initialActive, archived: initialArchive
                   onDelete={handleDelete}
                   draggable={false}
                   isFirst={idx === 0}
-                  isLast={idx === archived.length - 1}
                 />
               ))}
             </div>
