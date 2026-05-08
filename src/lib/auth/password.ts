@@ -1,4 +1,4 @@
-import { Algorithm, hash as argon2Hash, verify as argon2Verify, type Options } from '@node-rs/argon2';
+import { hash as argon2Hash, verify as argon2Verify, type Options } from '@node-rs/argon2';
 
 /**
  * Argon2id parameters tuned for an interactive login on a modest VPS:
@@ -11,9 +11,12 @@ import { Algorithm, hash as argon2Hash, verify as argon2Verify, type Options } f
  * standard PHC string ($argon2id$...) and is byte-compatible with hashes
  * produced by the older `argon2` C-binding package, so existing stored
  * hashes verify cleanly under the new library.
+ *
+ * `algorithm` is omitted on purpose: it defaults to Argon2id in
+ * @node-rs/argon2, and the exported `Algorithm` is a `const enum` that
+ * can't be referenced by value under tsconfig `isolatedModules: true`.
  */
 const ARGON2_OPTIONS: Options = {
-  algorithm: Algorithm.Argon2id,
   memoryCost: 65536,
   timeCost: 3,
   parallelism: 4,
