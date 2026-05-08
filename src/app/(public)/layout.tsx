@@ -15,7 +15,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <main className="flex-1">{children}</main>
-      <footer className="mt-8 px-6 py-6 text-center">
+      <footer className="px-6 py-4 text-center">
         <Link
           href={BRAND.github}
           target="_blank"

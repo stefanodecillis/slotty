@@ -249,6 +249,79 @@ describe('computeSlots — busy events', () => {
     expect(result.days[0]!.slots.length).toBe(17);
   });
 
+  it('a confirmed Slotty booking blocks overlapping slots even before Google sync mirrors it', async () => {
+    const { user, eventType } = await seed();
+    const { db } = await import('@/lib/db');
+
+    // No BusyEvent row — only a local Booking. This simulates the window
+    // between Slotty insert and Google round-trip.
+    await db.booking.create({
+      data: {
+        eventTypeId: eventType.id,
+        googleAccountId: eventType.destinationAccountId,
+        googleCalendarId: eventType.destinationCalendarId,
+        startAt: new Date('2026-05-06T12:00:00Z'),
+        endAt: new Date('2026-05-06T13:00:00Z'),
+        status: 'confirmed',
+        bookerName: 'Test',
+        bookerEmail: 'test@example.com',
+        bookerTimezone: 'UTC',
+        cancelTokenHash: 'h1',
+        rescheduleTokenHash: 'h2',
+      },
+    });
+
+    const result = await computeSlots({
+      eventType,
+      user: user as never,
+      from: new Date('2026-05-06T00:00:00Z'),
+      to: new Date('2026-05-06T23:59:59Z'),
+      bookerTz: 'UTC',
+      now: new Date('2026-05-01T00:00:00Z'),
+      noCache: true,
+    });
+
+    const labels = result.days[0]!.slots.map((s) => s.startInBookerTz);
+    expect(labels).not.toContain('11:30');
+    expect(labels).not.toContain('12:00');
+    expect(labels).not.toContain('12:30');
+    expect(labels).toContain('11:00');
+    expect(labels).toContain('13:00');
+  });
+
+  it('a cancelled Slotty booking does not block slots', async () => {
+    const { user, eventType } = await seed();
+    const { db } = await import('@/lib/db');
+
+    await db.booking.create({
+      data: {
+        eventTypeId: eventType.id,
+        googleAccountId: eventType.destinationAccountId,
+        googleCalendarId: eventType.destinationCalendarId,
+        startAt: new Date('2026-05-06T12:00:00Z'),
+        endAt: new Date('2026-05-06T13:00:00Z'),
+        status: 'cancelled',
+        bookerName: 'Test',
+        bookerEmail: 'test@example.com',
+        bookerTimezone: 'UTC',
+        cancelTokenHash: 'h1',
+        rescheduleTokenHash: 'h2',
+      },
+    });
+
+    const result = await computeSlots({
+      eventType,
+      user: user as never,
+      from: new Date('2026-05-06T00:00:00Z'),
+      to: new Date('2026-05-06T23:59:59Z'),
+      bookerTz: 'UTC',
+      now: new Date('2026-05-01T00:00:00Z'),
+      noCache: true,
+    });
+
+    expect(result.days[0]!.slots.length).toBe(17);
+  });
+
   it('transparent busy events are ignored', async () => {
     const { user, eventType } = await seed();
     const { db } = await import('@/lib/db');

@@ -19,9 +19,11 @@ import {
   type Session,
   type TotpSetupResponse,
 } from '@/lib/api/security';
+import { useOwnerTimezone } from '@/components/admin/owner-tz-provider';
 
 export default function SecurityPage() {
   const queryClient = useQueryClient();
+  const ownerTz = useOwnerTimezone();
 
   // Password change
   const [currentPassword, setCurrentPassword] = useState('');
@@ -302,7 +304,10 @@ export default function SecurityPage() {
                     <div className="flex flex-col">
                       <span className="font-mono text-xs text-foreground">{s.id}</span>
                       <span className="text-xs text-muted-foreground">
-                        Expires {new Date(s.expiresAt).toLocaleDateString()}
+                        Expires{' '}
+                        {new Date(s.expiresAt).toLocaleDateString(undefined, {
+                          timeZone: ownerTz,
+                        })}
                       </span>
                     </div>
                   </div>

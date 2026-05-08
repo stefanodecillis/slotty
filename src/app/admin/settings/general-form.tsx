@@ -12,7 +12,6 @@ import { updateGeneralSettings, type SettingsActionResult } from './actions';
 interface GeneralFormProps {
   user: User;
   timezones: string[];
-  siteUrl: string;
 }
 
 const INITIAL_STATE: SettingsActionResult = { success: false };
@@ -22,7 +21,7 @@ const WEEK_START_OPTIONS = [
   { value: '0', label: 'Sunday' },
 ];
 
-export function GeneralForm({ user, timezones, siteUrl }: GeneralFormProps) {
+export function GeneralForm({ user, timezones }: GeneralFormProps) {
   const [isPending, startTransition] = useTransition();
   const [, setLastState] = useState<SettingsActionResult>(INITIAL_STATE);
   const [timezone, setTimezone] = useState(user.timezone);
@@ -51,13 +50,6 @@ export function GeneralForm({ user, timezones, siteUrl }: GeneralFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-      <div className="flex flex-col gap-1">
-        <p className="text-xs font-medium text-muted-foreground">Site URL</p>
-        <p className="text-base text-foreground font-mono bg-muted rounded-sm px-3 py-2">
-          {siteUrl}
-        </p>
-      </div>
-
       <div className="grid gap-2">
         <Label>Default timezone</Label>
         <Select value={timezone} onValueChange={setTimezone} name="timezone" required>

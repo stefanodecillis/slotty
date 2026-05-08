@@ -12,7 +12,9 @@ const STORAGE_KEY = 'slotty.bookerTz';
 
 /**
  * Time-zone picker for the booking flow. Renders as a quiet text-button that
- * opens a dropdown with search. Persists choice in localStorage.
+ * opens a dropdown with search. Persists the booker's choice in localStorage
+ * — but only after the user explicitly picks a zone, so the SSR placeholder
+ * value never pollutes storage on first paint.
  */
 export function TzSelector({ value, onChange }: Props) {
   const [zones, setZones] = useState<string[]>([]);
@@ -29,15 +31,16 @@ export function TzSelector({ value, onChange }: Props) {
     setZones(supported);
   }, []);
 
-  // Persist on every change.
-  useEffect(() => {
-    if (!value) return;
+  function pick(z: string) {
     try {
-      window.localStorage.setItem(STORAGE_KEY, value);
+      window.localStorage.setItem(STORAGE_KEY, z);
     } catch {
       /* storage quota / disabled */
     }
-  }, [value]);
+    onChange(z);
+    setOpen(false);
+    setQuery('');
+  }
 
   // Close on outside click.
   useEffect(() => {
@@ -115,7 +118,7 @@ export function TzSelector({ value, onChange }: Props) {
               <li key={z} role="option" aria-selected={z === value}>
                 <button
                   type="button"
-                  onClick={() => { onChange(z); setOpen(false); setQuery(''); }}
+                  onClick={() => pick(z)}
                   className={[
                     'w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-card',
                     z === value ? 'font-medium text-primary' : 'text-foreground',
@@ -132,18 +135,54 @@ export function TzSelector({ value, onChange }: Props) {
   );
 }
 
-/** Resolve the initial booker tz: localStorage > browser default > UTC. */
+/**
+ * Resolve the initial booker tz.
+ *
+ * Order:
+ *   1. Browser-detected tz (from `Intl.DateTimeFormat`) — the booker's actual
+ *      local tz is almost always what they want and matches Calendly UX.
+ *   2. localStorage value, IF the booker explicitly picked a different zone
+ *      from their detected one in a previous visit. We only honour the stored
+ *      value when it differs from the detected zone; otherwise stale
+ *      'UTC' pollution from earlier versions would override the real tz.
+ *   3. 'UTC' as the last resort (and the SSR placeholder).
+ */
 export function getInitialBookerTz(): string {
   if (typeof window === 'undefined') return 'UTC';
+
+  let detected = '';
   try {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) return stored;
+    detected = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
   } catch {
-    /* ignore */
+    /* no Intl */
   }
+
+  let stored = '';
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    stored = window.localStorage.getItem(STORAGE_KEY) ?? '';
   } catch {
-    return 'UTC';
+    /* storage disabled */
   }
+
+  // A stored value only counts as a deliberate booker choice when it diverges
+  // from what the browser detects. This wipes legacy 'UTC' rows that earlier
+  // versions persisted on first paint.
+  if (stored && detected && stored !== detected && stored !== 'UTC') {
+    return stored;
+  }
+
+  if (detected) {
+    // Self-heal: clear any stale stored value that matches detected (to avoid
+    // re-triggering this branch indefinitely) or that is the legacy 'UTC'.
+    if (stored && (stored === detected || stored === 'UTC')) {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+    }
+    return detected;
+  }
+
+  return stored || 'UTC';
 }

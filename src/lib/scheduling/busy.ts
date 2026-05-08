@@ -4,44 +4,52 @@ import { mergeIntervals, type Interval } from './intervals';
 /**
  * Fetch all busy intervals owned by `userId` that overlap [from, to).
  *
- * "Busy" means: an event from a calendar marked `isBusySource=true`, with
- * `transparency='opaque'` and `status !== 'cancelled'`. The events come from
- * Phase 3's sync engine (BusyEvent table) — we never hit Google here.
+ * Two sources are unioned:
+ *   1. Google-synced events from calendars flagged `isBusySource=true`,
+ *      `transparency='opaque'`, `status !== 'cancelled'`.
+ *   2. Slotty's own confirmed bookings (`status !== 'cancelled'`). Including
+ *      these closes the race window between local insert and the moment the
+ *      Google round-trip mirrors the booking back into BusyEvent — without it,
+ *      a freshly booked slot remains visible to the next booker for up to one
+ *      poll cycle.
  *
- * Phase 7 will add `getBookedIntervals` and union with this. For now, only
- * external busy intervals are subtracted from availability.
+ * Both sets are merged so any overlap (e.g. once Google sync catches up and
+ * BusyEvent now contains the same booking) collapses harmlessly into one block.
  */
 export async function getBusyIntervals(
   userId: string,
   from: Date,
   to: Date,
 ): Promise<Interval[]> {
-  void userId; // single-user app; ConnectedAccount → User chain isn't modelled directly.
-
-  // Note: in this single-user MVP every ConnectedAccount belongs to the one
-  // user, so filtering by `Calendar.connectedAccount` user is implicit.
-  // We still scope to `isBusySource=true` calendars and exclude cancelled
-  // events. Half-open overlap: event.end > windowStart AND event.start < windowEnd.
-  const events = await db.busyEvent.findMany({
-    where: {
-      startAt: { lt: to },
-      endAt: { gt: from },
-      status: { not: 'cancelled' },
-      transparency: 'opaque',
-      calendar: {
-        isBusySource: true,
+  // Single-user MVP: every ConnectedAccount and every EventType belongs to the
+  // same user, so filtering by Calendar→ConnectedAccount→user is implicit for
+  // BusyEvent. For Booking we filter by EventType.userId to be explicit.
+  const [events, bookings] = await Promise.all([
+    db.busyEvent.findMany({
+      where: {
+        startAt: { lt: to },
+        endAt: { gt: from },
+        status: { not: 'cancelled' },
+        transparency: 'opaque',
+        calendar: { isBusySource: true },
       },
-    },
-    select: {
-      startAt: true,
-      endAt: true,
-    },
-  });
+      select: { startAt: true, endAt: true },
+    }),
+    db.booking.findMany({
+      where: {
+        startAt: { lt: to },
+        endAt: { gt: from },
+        status: { not: 'cancelled' },
+        eventType: { userId },
+      },
+      select: { startAt: true, endAt: true },
+    }),
+  ]);
 
-  const intervals: Interval[] = events.map((e) => ({
-    start: e.startAt.getTime(),
-    end: e.endAt.getTime(),
-  }));
+  const intervals: Interval[] = [
+    ...events.map((e) => ({ start: e.startAt.getTime(), end: e.endAt.getTime() })),
+    ...bookings.map((b) => ({ start: b.startAt.getTime(), end: b.endAt.getTime() })),
+  ];
 
   return mergeIntervals(intervals);
 }

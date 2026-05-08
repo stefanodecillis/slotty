@@ -160,7 +160,9 @@ export default async function AuditLogPage({ searchParams }: PageProps) {
                         }`}
                       >
                         <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                          {DateTime.fromJSDate(entry.createdAt).toLocaleString(DateTime.DATETIME_MED)}
+                          {DateTime.fromJSDate(entry.createdAt)
+                            .setZone(user.timezone)
+                            .toLocaleString(DateTime.DATETIME_MED)}
                         </td>
                         <td className="px-4 py-3">
                           <span className="rounded bg-muted/50 px-2 py-0.5 font-mono text-xs text-foreground">

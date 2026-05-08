@@ -17,6 +17,11 @@ const nextConfig = {
       'agent-base',
       'sharp',
       'argon2',
+      // jsdom (pulled in via isomorphic-dompurify) uses a relative `require`
+      // to find a hoisted `undici`, which webpack can't trace. Externalizing
+      // skips the trace entirely so the runtime resolution works as intended.
+      'isomorphic-dompurify',
+      'jsdom',
     ],
   },
   images: {
@@ -40,6 +45,8 @@ const nextConfig = {
         'agent-base',
         'sharp',
         'argon2',
+        'isomorphic-dompurify',
+        'jsdom',
       ];
       // All Node.js built-in modules — externalize whether imported as
       // `fs`, `crypto`, etc. or as `node:fs`, `node:crypto`, etc.

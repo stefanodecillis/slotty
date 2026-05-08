@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import { AdminBottomNav } from '@/components/admin/bottom-nav';
 import { AdminPageTitle } from '@/components/admin/page-title';
 import { AdminSidebar } from '@/components/admin/sidebar';
+import { OwnerTimezoneProvider } from '@/components/admin/owner-tz-provider';
+import { TimezoneAutodetect } from '@/components/admin/timezone-autodetect';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { getCurrentSession } from '@/lib/auth/session';
@@ -32,7 +34,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .toUpperCase();
 
   return (
+    <OwnerTimezoneProvider timezone={user.timezone}>
     <div className="flex min-h-dvh">
+      <TimezoneAutodetect alreadySet={user.timezoneSet} />
       <AdminSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -62,5 +66,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       <AdminBottomNav />
     </div>
+    </OwnerTimezoneProvider>
   );
 }

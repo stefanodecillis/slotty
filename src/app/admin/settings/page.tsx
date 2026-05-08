@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { env } from '@/lib/env';
 import { Button } from '@/components/ui/button';
 import { Clock, Download, Archive, Info, Lock, Webhook, ChevronRight } from 'lucide-react';
 import { GeneralForm } from './general-form';
+import { SiteUrlPanel } from './site-url-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +36,6 @@ export default async function SettingsPage({ searchParams }: PageProps) {
     .supportedValuesOf?.('timeZone') ?? ['UTC'];
 
   const lastBackup = await getLastBackupDate();
-  const siteUrl = env.SLOTTY_PUBLIC_URL;
   const tab: Tab = isTab(searchParams?.tab) ? (searchParams!.tab as Tab) : 'general';
 
   const tabs: { id: Tab; label: string }[] = [
@@ -96,13 +95,25 @@ export default async function SettingsPage({ searchParams }: PageProps) {
       </nav>
 
       {tab === 'general' && (
-        <section>
-          <h2 className="text-lg font-semibold text-foreground">General</h2>
-          <p className="mb-4 mt-1 text-sm text-muted-foreground">
-            Default timezone and locale preferences.
-          </p>
-          <div className="rounded-lg bg-muted/50 p-6">
-            <GeneralForm user={user} timezones={timezones} siteUrl={siteUrl} />
+        <section className="flex flex-col gap-8">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Public URL</h2>
+            <p className="mb-4 mt-1 text-sm text-muted-foreground">
+              How the world reaches this Slotty instance through your reverse proxy.
+            </p>
+            <div className="rounded-lg bg-muted/50 p-6">
+              <SiteUrlPanel />
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Preferences</h2>
+            <p className="mb-4 mt-1 text-sm text-muted-foreground">
+              Default timezone and locale preferences.
+            </p>
+            <div className="rounded-lg bg-muted/50 p-6">
+              <GeneralForm user={user} timezones={timezones} />
+            </div>
           </div>
         </section>
       )}

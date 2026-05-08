@@ -255,13 +255,21 @@ export async function computeSlots(args: ComputeSlotsArgs): Promise<SlotResult> 
   const schedule = await loadSchedule(eventType, user);
   if (!schedule) return emptyResult;
 
-  // Cache lookup. We fold the latest BusyEvent.updatedAt into the key so a
-  // sync that mutates busy data implicitly invalidates without an explicit hook.
-  const busyCursor = await db.busyEvent.aggregate({
-    _max: { updatedAt: true },
-  });
+  // Cache lookup. We fold the latest BusyEvent.updatedAt AND Booking.updatedAt
+  // into the key so any sync or booking mutation implicitly invalidates the
+  // cache without needing an explicit hook for every code path.
+  const [busyCursor, bookingCursor] = await Promise.all([
+    db.busyEvent.aggregate({ _max: { updatedAt: true } }),
+    db.booking.aggregate({
+      _max: { updatedAt: true },
+      where: { eventType: { userId: user.id } },
+    }),
+  ]);
   const busyMaxUpdatedAtMs = busyCursor._max.updatedAt
     ? busyCursor._max.updatedAt.getTime()
+    : 0;
+  const bookingMaxUpdatedAtMs = bookingCursor._max.updatedAt
+    ? bookingCursor._max.updatedAt.getTime()
     : 0;
 
   const cacheKey = makeKey({
@@ -269,7 +277,7 @@ export async function computeSlots(args: ComputeSlotsArgs): Promise<SlotResult> 
     fromMs: effectiveFromMs,
     toMs: effectiveToMs,
     tz: bookerTz,
-    busyMaxUpdatedAtMs,
+    busyMaxUpdatedAtMs: Math.max(busyMaxUpdatedAtMs, bookingMaxUpdatedAtMs),
   });
 
   if (!args.noCache) {

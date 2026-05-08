@@ -7,7 +7,11 @@
  *   3. On 410 Gone: clear `syncToken`, delete all `BusyEvent` rows for this
  *      calendar, then recursively call self to perform a full pull.
  *   4. For each returned event:
- *      - cancelled  → delete the matching BusyEvent
+ *      - cancelled  → delete the matching BusyEvent. If the cancelled event
+ *        corresponds to a confirmed slotty Booking (matched by googleEventId),
+ *        also mark that Booking cancelled with reason "Deleted in Google
+ *        Calendar". DB-only — no email, no webhook (Google's own delete with
+ *        sendUpdates=all already notified attendees).
  *      - transparent (free) → delete (these don't block)
  *      - opaque, confirmed/tentative → upsert with start/end + status
  *   5. Save `nextSyncToken` and `lastIncrementalSyncAt`.
@@ -51,11 +55,58 @@ function parseEventTime(event: calendar_v3.Schema$Event): ParsedTime | null {
   return null;
 }
 
+// Mirror an upstream Google deletion onto any matching slotty Booking. The
+// owner deleted the event from their calendar UI, so we cancel the booking
+// locally to keep the admin view consistent. Idempotent: if the booking is
+// already cancelled (e.g. because the cancellation originated *from* slotty
+// and is now echoing back via the webhook), this is a no-op.
+async function cancelBookingFromUpstreamDeletion(
+  calendarId: string,
+  googleEventId: string,
+): Promise<void> {
+  const booking = await db.booking.findFirst({
+    where: { googleCalendarId: calendarId, googleEventId, status: 'confirmed' },
+  });
+  if (!booking) return;
+
+  const now = new Date();
+  await db.$transaction([
+    db.booking.update({
+      where: { id: booking.id },
+      data: {
+        status: 'cancelled',
+        cancelledAt: now,
+        cancelReason: 'Deleted in Google Calendar',
+      },
+    }),
+    db.bookingHistory.create({
+      data: {
+        bookingId: booking.id,
+        action: 'cancelled',
+        actor: 'system',
+        payloadJson: JSON.stringify({
+          previousStatus: booking.status,
+          reason: 'Deleted in Google Calendar',
+          cancelledAt: now.toISOString(),
+          source: 'sync',
+        }),
+      },
+    }),
+  ]);
+
+  logger.info(
+    { event: 'sync.booking_cancelled_from_upstream', bookingId: booking.id, calendarId, googleEventId },
+    'cancelled booking after detecting upstream Google Calendar deletion',
+  );
+}
+
 async function applyEventChange(calendarId: string, event: calendar_v3.Schema$Event): Promise<void> {
   if (!event.id) return;
 
-  // Cancelled → delete (so the slot reopens).
+  // Cancelled → delete BusyEvent (so the slot reopens) and mirror the cancel
+  // onto any matching slotty Booking.
   if (event.status === 'cancelled') {
+    await cancelBookingFromUpstreamDeletion(calendarId, event.id);
     // deleteMany silently no-ops if the row doesn't exist (no error log noise).
     await db.busyEvent.deleteMany({ where: { calendarId, googleEventId: event.id } });
     return;

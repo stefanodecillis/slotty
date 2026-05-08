@@ -34,6 +34,7 @@ beforeEach(async () => {
   await db.eventType.deleteMany({});
   await db.calendar.deleteMany({});
   await db.connectedAccount.deleteMany({});
+  await db.user.deleteMany({});
 });
 
 const cleanups: Array<() => void> = [];
@@ -258,5 +259,178 @@ describe('syncCalendarIncremental', () => {
     await syncCalendarIncremental(calendar.id);
     count = await db.busyEvent.count({ where: { calendarId: calendar.id } });
     expect(count).toBe(0);
+  });
+
+  it('cancels matching booking when its Google event is deleted upstream', async () => {
+    const calendarMod = await import('@/lib/google/calendar');
+    const { db } = await import('@/lib/db');
+    const { account, calendar } = await seedAccountAndCalendar();
+
+    const user = await db.user.create({
+      data: {
+        username: `sync-${randomBytes(4).toString('hex')}`,
+        passwordHash: 'placeholder',
+        email: 'owner@example.com',
+        displayName: 'Owner',
+        timezone: 'UTC',
+      },
+    });
+    const eventType = await db.eventType.create({
+      data: {
+        userId: user.id,
+        title: 'Sync Cancel Test',
+        slug: `sct-${randomBytes(4).toString('hex')}`,
+        durationMinutes: 30,
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        locationKind: 'google_meet',
+      },
+    });
+    const booking = await db.booking.create({
+      data: {
+        eventTypeId: eventType.id,
+        googleAccountId: account.id,
+        googleCalendarId: calendar.id,
+        googleEventId: 'gev-deleted',
+        startAt: new Date('2026-06-10T10:00:00Z'),
+        endAt: new Date('2026-06-10T10:30:00Z'),
+        status: 'confirmed',
+        bookerName: 'Booker',
+        bookerEmail: 'booker@example.com',
+        bookerTimezone: 'UTC',
+        cancelTokenHash: 'x',
+        rescheduleTokenHash: 'x',
+      },
+    });
+    // Plus an unrelated booking to confirm scoping doesn't over-match.
+    const otherBooking = await db.booking.create({
+      data: {
+        eventTypeId: eventType.id,
+        googleAccountId: account.id,
+        googleCalendarId: calendar.id,
+        googleEventId: 'gev-other',
+        startAt: new Date('2026-06-11T10:00:00Z'),
+        endAt: new Date('2026-06-11T10:30:00Z'),
+        status: 'confirmed',
+        bookerName: 'Other',
+        bookerEmail: 'other@example.com',
+        bookerTimezone: 'UTC',
+        cancelTokenHash: 'x',
+        rescheduleTokenHash: 'x',
+      },
+    });
+
+    // Pre-seed the BusyEvent rows that a prior sync would have hydrated.
+    await db.busyEvent.createMany({
+      data: [
+        {
+          calendarId: calendar.id,
+          googleEventId: 'gev-deleted',
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          status: 'confirmed',
+        },
+        {
+          calendarId: calendar.id,
+          googleEventId: 'gev-other',
+          startAt: otherBooking.startAt,
+          endAt: otherBooking.endAt,
+          status: 'confirmed',
+        },
+      ],
+    });
+    await db.calendar.update({ where: { id: calendar.id }, data: { syncToken: 'token-pre' } });
+
+    const sp = spyOn(calendarMod, 'listEventsIncremental');
+    sp.mockResolvedValueOnce({
+      events: [{ id: 'gev-deleted', status: 'cancelled' }],
+      nextSyncToken: 'token-post',
+      fullResyncRequired: false,
+    });
+    cleanups.push(() => sp.mockRestore());
+
+    const { syncCalendarIncremental } = await import('@/lib/sync/incremental');
+    await syncCalendarIncremental(calendar.id);
+
+    const cancelled = await db.booking.findUnique({ where: { id: booking.id } });
+    expect(cancelled?.status).toBe('cancelled');
+    expect(cancelled?.cancelReason).toBe('Deleted in Google Calendar');
+    expect(cancelled?.cancelledAt).not.toBeNull();
+
+    const untouched = await db.booking.findUnique({ where: { id: otherBooking.id } });
+    expect(untouched?.status).toBe('confirmed');
+
+    const history = await db.bookingHistory.findMany({ where: { bookingId: booking.id } });
+    expect(history).toHaveLength(1);
+    expect(history[0]!.action).toBe('cancelled');
+    expect(history[0]!.actor).toBe('system');
+
+    // BusyEvent for the deleted event is also gone (slot reopens).
+    const busy = await db.busyEvent.findFirst({
+      where: { calendarId: calendar.id, googleEventId: 'gev-deleted' },
+    });
+    expect(busy).toBeNull();
+  });
+
+  it('is idempotent when a booking is already cancelled (echoed webhook)', async () => {
+    const calendarMod = await import('@/lib/google/calendar');
+    const { db } = await import('@/lib/db');
+    const { account, calendar } = await seedAccountAndCalendar();
+
+    const user = await db.user.create({
+      data: {
+        username: `sync-${randomBytes(4).toString('hex')}`,
+        passwordHash: 'placeholder',
+        email: 'owner2@example.com',
+        displayName: 'Owner',
+        timezone: 'UTC',
+      },
+    });
+    const eventType = await db.eventType.create({
+      data: {
+        userId: user.id,
+        title: 'Sync Idempotent',
+        slug: `sct-${randomBytes(4).toString('hex')}`,
+        durationMinutes: 30,
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        locationKind: 'google_meet',
+      },
+    });
+    const booking = await db.booking.create({
+      data: {
+        eventTypeId: eventType.id,
+        googleAccountId: account.id,
+        googleCalendarId: calendar.id,
+        googleEventId: 'gev-already-cancelled',
+        startAt: new Date('2026-06-12T10:00:00Z'),
+        endAt: new Date('2026-06-12T10:30:00Z'),
+        status: 'cancelled',
+        cancelledAt: new Date('2026-06-09T09:00:00Z'),
+        cancelReason: 'Booker cancelled',
+        bookerName: 'Booker',
+        bookerEmail: 'booker@example.com',
+        bookerTimezone: 'UTC',
+        cancelTokenHash: 'x',
+        rescheduleTokenHash: 'x',
+      },
+    });
+
+    const sp = spyOn(calendarMod, 'listEventsIncremental');
+    sp.mockResolvedValueOnce({
+      events: [{ id: 'gev-already-cancelled', status: 'cancelled' }],
+      nextSyncToken: 'token-post',
+      fullResyncRequired: false,
+    });
+    cleanups.push(() => sp.mockRestore());
+
+    const { syncCalendarIncremental } = await import('@/lib/sync/incremental');
+    await syncCalendarIncremental(calendar.id);
+
+    const after = await db.booking.findUnique({ where: { id: booking.id } });
+    // Reason untouched — idempotent guard prevented overwriting.
+    expect(after?.cancelReason).toBe('Booker cancelled');
+    const history = await db.bookingHistory.findMany({ where: { bookingId: booking.id } });
+    expect(history).toHaveLength(0);
   });
 });

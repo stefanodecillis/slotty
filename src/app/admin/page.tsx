@@ -114,7 +114,7 @@ export default async function AdminDashboardPage() {
     <div className="mx-auto flex max-w-4xl flex-col">
       <header className="mb-10">
         <p className="text-sm font-medium text-muted-foreground">
-          {DateTime.now().toLocaleString(DateTime.DATE_FULL)}
+          {DateTime.now().setZone(user.timezone).toLocaleString(DateTime.DATE_FULL)}
         </p>
         <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
           Welcome back, {firstName}
@@ -164,7 +164,7 @@ export default async function AdminDashboardPage() {
         ) : (
           <div className="rounded-lg border border-border bg-card">
             {upcomingBookings.map((b, idx) => {
-              const dt = DateTime.fromJSDate(b.startAt);
+              const dt = DateTime.fromJSDate(b.startAt).setZone(user.timezone);
               return (
                 <Link
                   key={b.id}

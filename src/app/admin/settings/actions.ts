@@ -59,13 +59,22 @@ export async function updateGeneralSettings(
   }
 
   try {
-    await db.user.update({
-      where: { id: user.id },
-      data: {
-        timezone: parsed.data.timezone,
-        weekStart: parsed.data.weekStart,
-      },
-    });
+    await db.$transaction([
+      db.user.update({
+        where: { id: user.id },
+        data: {
+          timezone: parsed.data.timezone,
+          timezoneSet: true,
+          weekStart: parsed.data.weekStart,
+        },
+      }),
+      db.schedule.updateMany({
+        where: { userId: user.id },
+        data: { timezone: parsed.data.timezone },
+      }),
+    ]);
+    const { invalidate } = await import('@/lib/scheduling/cache');
+    invalidate();
 
     logger.info({ event: 'settings.general_updated', userId: user.id }, 'general settings updated');
     revalidatePath('/admin/settings');

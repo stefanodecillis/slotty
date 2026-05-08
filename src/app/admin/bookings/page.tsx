@@ -147,7 +147,7 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
             </div>
             <ul className="flex flex-col">
               {rows.map((b) => {
-                const start = DateTime.fromJSDate(b.startAt);
+                const start = DateTime.fromJSDate(b.startAt).setZone(user.timezone);
                 const color = eventTypeColors.get(b.eventType.id) ?? '#888';
                 return (
                   <li key={b.id} className="border-b border-border last:border-b-0">

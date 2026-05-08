@@ -19,6 +19,7 @@ import {
   webhookKeys,
   type WebhookEndpoint,
 } from '@/lib/api/webhooks';
+import { useOwnerTimezone } from '@/components/admin/owner-tz-provider';
 
 const VALID_EVENTS = [
   { value: 'booking.created', label: 'Booking created' },
@@ -35,6 +36,7 @@ function generateRandomSecret(): string {
 
 export default function WebhooksPage() {
   const queryClient = useQueryClient();
+  const ownerTz = useOwnerTimezone();
   const [showCreate, setShowCreate] = useState(false);
   const [createUrl, setCreateUrl] = useState('');
   const [createSecret, setCreateSecret] = useState('');
@@ -206,7 +208,9 @@ export default function WebhooksPage() {
                           {lastDelivery.responseCode ? ` (${lastDelivery.responseCode})` : ''}
                         </span>
                         {' · '}
-                        {new Date(lastDelivery.createdAt).toLocaleString()}
+                        {new Date(lastDelivery.createdAt).toLocaleString(undefined, {
+                          timeZone: ownerTz,
+                        })}
                       </p>
                     )}
                   </div>

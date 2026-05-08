@@ -21,7 +21,14 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   const booking = await db.booking.findUnique({
     where: { id: params.bookingId },
     include: {
-      eventType: { select: { slug: true, title: true, durationMinutes: true } },
+      eventType: {
+        select: {
+          slug: true,
+          title: true,
+          durationMinutes: true,
+          user: { select: { weekStart: true } },
+        },
+      },
     },
   });
   if (!booking) notFound();
@@ -68,6 +75,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
         durationMinutes={booking.eventType.durationMinutes}
         currentStartUtc={booking.startAt.toISOString()}
         currentBookerTz={booking.bookerTimezone}
+        weekStart={booking.eventType.user.weekStart}
       />
     </div>
   );

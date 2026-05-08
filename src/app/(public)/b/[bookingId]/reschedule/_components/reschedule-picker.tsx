@@ -18,6 +18,7 @@ interface Props {
   durationMinutes: number;
   currentStartUtc: string;
   currentBookerTz: string;
+  weekStart: number;
 }
 
 /**
@@ -29,6 +30,7 @@ export function ReschedulePicker({
   token,
   slug,
   currentBookerTz,
+  weekStart,
 }: Props) {
   const router = useRouter();
 
@@ -87,7 +89,10 @@ export function ReschedulePicker({
   });
   const submitting = rescheduleMutation.isPending;
 
-  const monthGrid = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
+  const monthGrid = useMemo(
+    () => buildMonthGrid(monthAnchor, weekStart),
+    [monthAnchor, weekStart],
+  );
 
   function handleSubmit() {
     if (!selectedSlot) return;
@@ -103,6 +108,7 @@ export function ReschedulePicker({
           grid={monthGrid}
           slotsByDay={slotsByDay}
           loading={loadingSlots}
+          weekStart={weekStart}
           onPrev={() => setMonthAnchor(addMonths(monthAnchor, -1))}
           onNext={() => setMonthAnchor(addMonths(monthAnchor, 1))}
           onPick={(k) => {
@@ -186,9 +192,12 @@ function isoDateLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function buildMonthGrid(anchor: Date): { date: Date; key: string; inMonth: boolean }[] {
+function buildMonthGrid(
+  anchor: Date,
+  weekStart: number,
+): { date: Date; key: string; inMonth: boolean }[] {
   const first = startOfMonthLocal(anchor);
-  const offset = first.getDay();
+  const offset = (first.getDay() - weekStart + 7) % 7;
   const start = new Date(first);
   start.setDate(first.getDate() - offset);
   const cells: { date: Date; key: string; inMonth: boolean }[] = [];
@@ -223,6 +232,7 @@ function DateGrid({
   grid,
   slotsByDay,
   loading,
+  weekStart,
   onPrev,
   onNext,
   onPick,
@@ -231,12 +241,14 @@ function DateGrid({
   grid: { date: Date; key: string; inMonth: boolean }[];
   slotsByDay: Map<string, SlotResult['days'][number]['slots']>;
   loading: boolean;
+  weekStart: number;
   onPrev: () => void;
   onNext: () => void;
   onPick: (k: string) => void;
 }) {
   const monthLabel = monthAnchor.toLocaleString(undefined, { month: 'long', year: 'numeric' });
-  const weekdayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const ALL_WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const weekdayLabels = [...ALL_WEEKDAYS.slice(weekStart), ...ALL_WEEKDAYS.slice(0, weekStart)];
   const today = isoDateLocal(new Date());
 
   return (

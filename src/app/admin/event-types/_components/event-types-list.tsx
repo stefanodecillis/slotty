@@ -19,7 +19,19 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { MoreVertical, Pencil, Copy, Archive, ArchiveRestore, Trash2, GripVertical, ChevronRight, ChevronDown } from 'lucide-react';
+import {
+  MoreVertical,
+  Pencil,
+  Copy,
+  Archive,
+  ArchiveRestore,
+  Trash2,
+  GripVertical,
+  ChevronRight,
+  ChevronDown,
+  Link2,
+  Check,
+} from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import {
@@ -63,6 +75,7 @@ export interface EventTypeRow {
 
 interface SortableItemProps {
   eventType: EventTypeRow;
+  publicUrl: string;
   onDuplicate: (id: string) => void;
   onArchive: (id: string, archive: boolean) => void;
   onDelete: (id: string) => void;
@@ -73,18 +86,40 @@ interface SortableItemProps {
 interface EventTypesListProps {
   active: EventTypeRow[];
   archived: EventTypeRow[];
+  /** Origin (no trailing slash) used to build the public booking URL. */
+  siteUrl: string;
 }
 
 // ─────────────────────────────────────────────────────────────
 // Sortable row
 // ─────────────────────────────────────────────────────────────
 
-function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, isFirst }: SortableItemProps) {
+function SortableItem({
+  eventType,
+  publicUrl,
+  onDuplicate,
+  onArchive,
+  onDelete,
+  draggable,
+  isFirst,
+}: SortableItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: eventType.id,
     disabled: !draggable,
   });
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopyLink() {
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setCopied(true);
+      toast.success('Public link copied');
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error('Could not copy. Copy manually: ' + publicUrl);
+    }
+  }
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -157,6 +192,21 @@ function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, 
 
       {/* Actions */}
       <div className="flex shrink-0 items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleCopyLink}
+          aria-label={`Copy public link for ${eventType.title}`}
+          title={publicUrl}
+          disabled={eventType.archived}
+        >
+          {copied ? (
+            <Check className="h-4 w-4 text-emerald-600" />
+          ) : (
+            <Link2 className="h-4 w-4" />
+          )}
+        </Button>
+
         <a
           href={`/admin/event-types/${eventType.id}`}
           className="hidden rounded-full px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/[0.08] sm:inline-block"
@@ -233,8 +283,13 @@ function SortableItem({ eventType, onDuplicate, onArchive, onDelete, draggable, 
 // Main list
 // ─────────────────────────────────────────────────────────────
 
-export function EventTypesList({ active: initialActive, archived: initialArchived }: EventTypesListProps) {
+export function EventTypesList({
+  active: initialActive,
+  archived: initialArchived,
+  siteUrl,
+}: EventTypesListProps) {
   const queryClient = useQueryClient();
+  const buildPublicUrl = (slug: string) => `${siteUrl}/${slug}`;
 
   // Local state mirrors the props so we can do optimistic UI for reorder + archive.
   // Server-Component-rendered props are the source of truth on full page reloads;
@@ -348,6 +403,7 @@ export function EventTypesList({ active: initialActive, archived: initialArchive
                   <SortableItem
                     key={eventType.id}
                     eventType={eventType}
+                    publicUrl={buildPublicUrl(eventType.slug)}
                     onDuplicate={handleDuplicate}
                     onArchive={handleArchive}
                     onDelete={handleDelete}
@@ -384,6 +440,7 @@ export function EventTypesList({ active: initialActive, archived: initialArchive
                 <SortableItem
                   key={eventType.id}
                   eventType={eventType}
+                  publicUrl={buildPublicUrl(eventType.slug)}
                   onDuplicate={handleDuplicate}
                   onArchive={handleArchive}
                   onDelete={handleDelete}

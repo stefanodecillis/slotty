@@ -18,6 +18,7 @@ type DatabaseUserAttributes = {
   avatarPath: string | null;
   bio: string | null;
   timezone: string;
+  timezoneSet: boolean;
   locale: string;
   theme: string;
   seedColor: string;
@@ -43,6 +44,7 @@ export const lucia = new Lucia(adapter, {
     avatarPath: attributes.avatarPath,
     bio: attributes.bio,
     timezone: attributes.timezone,
+    timezoneSet: attributes.timezoneSet,
     locale: attributes.locale,
     theme: attributes.theme,
     seedColor: attributes.seedColor,
@@ -65,6 +67,7 @@ export type AuthUser = {
   avatarPath: string | null;
   bio: string | null;
   timezone: string;
+  timezoneSet: boolean;
   locale: string;
   theme: string;
   seedColor: string;

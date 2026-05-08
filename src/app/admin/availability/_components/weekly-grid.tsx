@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Copy } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from 'sonner';
 import { availabilityKeys, saveScheduleRules } from '@/lib/api/availability';
 import { publicKeys } from '@/lib/api/public';
@@ -61,6 +63,108 @@ function validateRules(rules: RuleData[]): string | null {
   }
 
   return null;
+}
+
+interface CopyTimesPopoverProps {
+  sourceWeekday: number;
+  onApply: (targetWeekdays: number[]) => void;
+}
+
+function CopyTimesPopover({ sourceWeekday, onApply }: CopyTimesPopoverProps) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  // Reset selection each time the popover opens so the source day's previous
+  // selection doesn't leak into a different day's session.
+  function handleOpenChange(next: boolean) {
+    if (next) setSelected(new Set());
+    setOpen(next);
+  }
+
+  function toggle(weekday: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(weekday)) next.delete(weekday);
+      else next.add(weekday);
+      return next;
+    });
+  }
+
+  function selectWeekdays() {
+    setSelected(new Set([1, 2, 3, 4, 5].filter((d) => d !== sourceWeekday)));
+  }
+
+  function selectAllOthers() {
+    setSelected(new Set([0, 1, 2, 3, 4, 5, 6].filter((d) => d !== sourceWeekday)));
+  }
+
+  function handleApply() {
+    onApply([...selected].sort((a, b) => a - b));
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Copy times from ${WEEKDAY_LABELS[sourceWeekday]}`}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Copy className="h-4 w-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 p-3">
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-medium text-foreground">Copy times to…</p>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={selectWeekdays}
+              className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              Weekdays
+            </button>
+            <button
+              type="button"
+              onClick={selectAllOthers}
+              className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              All others
+            </button>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {WEEKDAY_LABELS.map((label, weekday) => {
+              if (weekday === sourceWeekday) return null;
+              const id = `copy-target-${sourceWeekday}-${weekday}`;
+              return (
+                <label
+                  key={weekday}
+                  htmlFor={id}
+                  className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm text-foreground hover:bg-muted"
+                >
+                  <Checkbox
+                    id={id}
+                    checked={selected.has(weekday)}
+                    onCheckedChange={() => toggle(weekday)}
+                  />
+                  {label}
+                </label>
+              );
+            })}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleApply}
+            disabled={selected.size === 0}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 interface RuleRowProps {
@@ -142,6 +246,27 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
     ]);
   }, []);
 
+  const handleCopyTo = useCallback((sourceWeekday: number, targetWeekdays: number[]) => {
+    if (targetWeekdays.length === 0) return;
+    setRules((prev) => {
+      const sourceRules = prev.filter((r) => r.weekday === sourceWeekday);
+      const targetSet = new Set(targetWeekdays);
+      const withoutTargets = prev.filter((r) => !targetSet.has(r.weekday));
+      const additions = targetWeekdays.flatMap((wd) =>
+        sourceRules.map((r) => ({
+          weekday: wd,
+          startMinute: r.startMinute,
+          endMinute: r.endMinute,
+        })),
+      );
+      return [...withoutTargets, ...additions];
+    });
+    setValidationError(null);
+    toast.success(
+      `Copied to ${targetWeekdays.length} day${targetWeekdays.length === 1 ? '' : 's'}`,
+    );
+  }, []);
+
   const handleSave = () => {
     const error = validateRules(rules);
     if (error) {
@@ -182,14 +307,22 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
                 ))
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => handleAdd(weekday)}
-              aria-label={`Add time range for ${label}`}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-primary transition-colors hover:bg-primary/[0.08] sm:mt-0.5"
-            >
-              <Plus className="h-5 w-5" />
-            </button>
+            <div className="flex shrink-0 items-center gap-1 sm:mt-0.5">
+              {dayRules.length > 0 && (
+                <CopyTimesPopover
+                  sourceWeekday={weekday}
+                  onApply={(targets) => handleCopyTo(weekday, targets)}
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => handleAdd(weekday)}
+                aria-label={`Add time range for ${label}`}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-primary transition-colors hover:bg-primary/[0.08]"
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </div>
           </div>
         );
       })}

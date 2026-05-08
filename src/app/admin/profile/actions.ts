@@ -58,15 +58,24 @@ export async function updateProfile(
   }
 
   try {
-    await db.user.update({
-      where: { id: user.id },
-      data: {
-        displayName: parsed.data.displayName,
-        email: parsed.data.email,
-        bio: parsed.data.bio ?? '',
-        timezone: parsed.data.timezone,
-      },
-    });
+    await db.$transaction([
+      db.user.update({
+        where: { id: user.id },
+        data: {
+          displayName: parsed.data.displayName,
+          email: parsed.data.email,
+          bio: parsed.data.bio ?? '',
+          timezone: parsed.data.timezone,
+          timezoneSet: true,
+        },
+      }),
+      db.schedule.updateMany({
+        where: { userId: user.id },
+        data: { timezone: parsed.data.timezone },
+      }),
+    ]);
+    const { invalidate } = await import('@/lib/scheduling/cache');
+    invalidate();
 
     logger.info({ event: 'profile.updated', userId: user.id }, 'profile updated');
     revalidatePath('/admin/profile');

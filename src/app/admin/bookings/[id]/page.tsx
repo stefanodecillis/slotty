@@ -52,8 +52,8 @@ export default async function AdminBookingDetailPage({ params }: PageProps) {
     Object.entries(safeJsonObject(booking.answersJson)).map(([k, v]) => [k, typeof v === 'string' ? v : JSON.stringify(v)]),
   );
   const isCancelled = booking.status === 'cancelled';
-  const start = DateTime.fromJSDate(booking.startAt);
-  const end = DateTime.fromJSDate(booking.endAt);
+  const start = DateTime.fromJSDate(booking.startAt).setZone(user.timezone);
+  const end = DateTime.fromJSDate(booking.endAt).setZone(user.timezone);
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col">
@@ -167,7 +167,9 @@ export default async function AdminBookingDetailPage({ params }: PageProps) {
                 label="Cancelled at"
                 value={
                   booking.cancelledAt
-                    ? DateTime.fromJSDate(booking.cancelledAt).toLocaleString(DateTime.DATETIME_MED)
+                    ? DateTime.fromJSDate(booking.cancelledAt)
+                        .setZone(user.timezone)
+                        .toLocaleString(DateTime.DATETIME_MED)
                     : '—'
                 }
               />
@@ -197,7 +199,10 @@ export default async function AdminBookingDetailPage({ params }: PageProps) {
               >
                 <p className="text-base font-medium text-foreground">{h.action}</p>
                 <p className="text-xs text-muted-foreground">
-                  {DateTime.fromJSDate(h.createdAt).toLocaleString(DateTime.DATETIME_MED_WITH_SECONDS)} · by {h.actor}
+                  {DateTime.fromJSDate(h.createdAt)
+                    .setZone(user.timezone)
+                    .toLocaleString(DateTime.DATETIME_MED_WITH_SECONDS)}{' '}
+                  · by {h.actor}
                 </p>
                 {h.payloadJson && h.payloadJson !== '{}' && (
                   <pre className="mt-1 overflow-x-auto rounded-sm bg-muted p-3 text-xs text-muted-foreground">
