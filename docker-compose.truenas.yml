@@ -1,0 +1,76 @@
+# docker-compose.truenas.yml
+#
+# Drop-in stack for TrueNAS Community Edition (Apps → Custom App → Install via YAML).
+# Pulls the prebuilt image from GHCR and runs Watchtower alongside it to
+# auto-update Slotty within ~5 min of every successful push to main.
+#
+# One-time setup before installing:
+#   1. Create dataset:    <pool>/apps/slotty
+#                         <pool>/apps/slotty/data
+#   2. Create file:       /mnt/<pool>/apps/slotty/.env  (copy from .env.example,
+#                         fill secrets, set SLOTTY_PUBLIC_URL to your real URL)
+#   3. Replace <your-github-user> below with your actual GitHub username.
+#   4. Replace <pool> below with your actual ZFS pool name.
+#   5. Make the GHCR package public once after the first push:
+#      github.com → Profile → Packages → slotty → Settings → Visibility → Public
+#
+# Host port: 3210 (NOT 3000) to avoid collisions with other Node apps you may
+# have on the same host. The container itself still listens on 3000 internally.
+
+services:
+  slotty:
+    image: ghcr.io/<your-github-user>/slotty:latest
+    container_name: slotty
+    restart: unless-stopped
+
+    # 3210 on the TrueNAS host → 3000 inside the container.
+    # Reverse-proxy / TLS is handled separately (Cloudflare Tunnel, Traefik,
+    # Caddy, the TrueNAS built-in proxy, etc.) — out of scope for this file.
+    ports:
+      - "3210:3000"
+
+    env_file:
+      - /mnt/<pool>/apps/slotty/.env
+
+    volumes:
+      # Bind-mount onto a real ZFS dataset so snapshots / replication / backup
+      # tasks in TrueNAS apply directly to the SQLite database.
+      - /mnt/<pool>/apps/slotty/data:/app/data
+
+    labels:
+      # Watchtower (below) only updates containers carrying this label.
+      com.centurylinklabs.watchtower.enable: "true"
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: slotty-watchtower
+    restart: unless-stopped
+
+    volumes:
+      # Watchtower needs the Docker socket to inspect, pull, and recreate
+      # containers. Read-only would be nicer but it has to write to recreate.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      # Only act on containers that explicitly opt in via the watchtower
+      # label above — anything else on this TrueNAS host is left alone.
+      WATCHTOWER_LABEL_ENABLE: "true"
+
+      # Remove the previous image after a successful update so the host
+      # disk doesn't slowly fill with stale layers.
+      WATCHTOWER_CLEANUP: "true"
+
+      # Poll the registry every 5 minutes. Lower bound is 60s; raise this
+      # if you'd rather be gentler on GHCR or want quieter update windows.
+      WATCHTOWER_POLL_INTERVAL: "300"
+
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+
+      TZ: "Europe/Rome"

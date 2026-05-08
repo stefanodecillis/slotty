@@ -1,5 +1,8 @@
 # docker-compose.example.yml — copy this to docker-compose.yml and edit as needed.
 #
+# For TrueNAS Community Edition with auto-update on push, use
+# docker-compose.truenas.yml instead — it pulls from GHCR and runs Watchtower.
+#
 # Quick-start:
 #   1. cp .env.example .env
 #   2. Generate secrets and add them to .env:
@@ -11,13 +14,15 @@
 #        SLOTTY_PUBLIC_URL=https://book.example.com
 #   4. docker compose up -d
 #
-# The app listens on 127.0.0.1:3000 only. Put Caddy (or Nginx) in front for
+# The app listens on 127.0.0.1:3210 only. Put Caddy (or Nginx) in front for
 # TLS termination, IP-based access control on /admin routes, and HTTP/2.
 # See Caddyfile.example for a ready-to-use reverse-proxy configuration.
+# Host port 3210 is chosen to avoid collisions with other Node apps that
+# commonly default to 3000.
 
 services:
   slotty:
-    image: slotty/slotty:latest   # replace with your own registry tag
+    image: ghcr.io/<your-github-user>/slotty:latest   # replace with your GHCR namespace
     # build:                      # uncomment to build locally instead of pulling
     #   context: .
     #   dockerfile: docker/Dockerfile
@@ -25,8 +30,9 @@ services:
     restart: unless-stopped
 
     # Bind to localhost only — the reverse proxy handles public traffic.
+    # Host port 3210 → container port 3000 (Next.js listens internally on 3000).
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3210:3000"
 
     # All secrets and configuration are supplied through .env.
     env_file: .env
