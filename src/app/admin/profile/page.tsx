@@ -16,8 +16,8 @@ export default async function ProfilePage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col">
       <header className="mb-8">
-        <h1 className="text-display-s text-on-background">Profile</h1>
-        <p className="mt-1 text-body-l text-on-surface-variant">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Profile</h1>
+        <p className="mt-1 text-base text-muted-foreground">
           Update how you appear on your public booking page.
         </p>
       </header>
@@ -25,17 +25,17 @@ export default async function ProfilePage() {
       <div className="grid gap-8 md:grid-cols-[280px_1fr] md:gap-10">
         {/* Left column — avatar */}
         <section className="md:sticky md:top-24 md:self-start">
-          <h2 className="mb-3 text-title-l text-on-surface">Avatar</h2>
+          <h2 className="mb-3 text-lg font-semibold text-foreground">Avatar</h2>
           <AvatarForm currentAvatarPath={user.avatarPath} userId={user.id} />
         </section>
 
         {/* Right column — form */}
         <section>
-          <h2 className="mb-3 text-title-l text-on-surface">Personal information</h2>
-          <p className="mb-4 text-body-m text-on-surface-variant">
+          <h2 className="mb-3 text-lg font-semibold text-foreground">Personal information</h2>
+          <p className="mb-4 text-sm text-muted-foreground">
             Your name, email, bio, and timezone preference.
           </p>
-          <div className="rounded-shape-md bg-surface-container-low p-6">
+          <div className="rounded-lg bg-muted/50 p-6">
             <ProfileForm user={user} timezones={timezones} />
           </div>
         </section>

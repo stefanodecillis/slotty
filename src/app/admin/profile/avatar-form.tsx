@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useCallback, useRef, useState } from 'react';
-import { useSnackbar } from '@/components/ui/Snackbar';
-import { Button } from '@/components/ui/Button';
+import { toast } from 'sonner';
+import { User } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface AvatarFormProps {
   currentAvatarPath: string | null;
@@ -10,7 +11,6 @@ interface AvatarFormProps {
 }
 
 export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
-  const snackbar = useSnackbar();
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
@@ -22,11 +22,11 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
   const handleFile = useCallback(
     async (file: File) => {
       if (!file.type.startsWith('image/')) {
-        snackbar.show({ message: 'Please select an image file.' });
+        toast.error('Please select an image file.');
         return;
       }
       if (file.size > 1 * 1024 * 1024) {
-        snackbar.show({ message: 'Image must be under 1 MB.' });
+        toast.error('Image must be under 1 MB.');
         return;
       }
 
@@ -46,7 +46,7 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
 
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
-          snackbar.show({ message: body.error ?? 'Upload failed.' });
+          toast.error(body.error ?? 'Upload failed.');
           setPreview(null);
           return;
         }
@@ -54,16 +54,16 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
         const data = (await res.json()) as { avatarUrl?: string };
         setAvatarUrl(data.avatarUrl ?? null);
         setPreview(null);
-        snackbar.show({ message: 'Avatar updated.' });
+        toast.success('Avatar updated.');
       } catch {
-        snackbar.show({ message: 'Upload failed. Please try again.' });
+        toast.error('Upload failed. Please try again.');
         setPreview(null);
       } finally {
         setIsUploading(false);
         URL.revokeObjectURL(objectUrl);
       }
     },
-    [snackbar],
+    [],
   );
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -104,11 +104,11 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
         }}
         className={[
           'flex cursor-pointer flex-col items-center justify-center gap-4',
-          'rounded-shape-md border-2 border-dashed px-6 py-8',
-          'transition-colors duration-200 ease-standard',
+          'rounded-lg border-2 border-dashed px-6 py-8',
+          'transition-colors duration-200 ease-out',
           isDragging
             ? 'border-primary bg-primary/[0.08]'
-            : 'border-outline-variant hover:border-primary hover:bg-primary/[0.04]',
+            : 'border-border hover:border-primary hover:bg-primary/[0.04]',
         ].join(' ')}
       >
         {cacheBustedSrc ? (
@@ -121,17 +121,15 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
             className="h-32 w-32 rounded-full object-cover shadow-sm"
           />
         ) : (
-          <div className="flex h-32 w-32 items-center justify-center rounded-full bg-secondary-container">
-            <span className="material-symbols-outlined text-[56px] text-on-secondary-container">
-              person
-            </span>
+          <div className="flex h-32 w-32 items-center justify-center rounded-full bg-secondary">
+            <User className="h-14 w-14 text-secondary-foreground" />
           </div>
         )}
         <div className="flex flex-col items-center gap-1 text-center">
-          <p className="text-label-l text-on-surface">
+          <p className="text-sm font-medium text-foreground">
             {isUploading ? 'Uploading…' : 'Click or drag to upload'}
           </p>
-          <p className="text-body-s text-on-surface-variant">
+          <p className="text-xs text-muted-foreground">
             JPEG, PNG, WebP or GIF · max 1 MB
           </p>
         </div>
@@ -139,10 +137,10 @@ export function AvatarForm({ currentAvatarPath, userId }: AvatarFormProps) {
 
       <Button
         type="button"
-        variant="outlined"
+        variant="outline"
         disabled={isUploading}
         onClick={() => inputRef.current?.click()}
-        fullWidth
+        className="w-full"
       >
         Choose file
       </Button>

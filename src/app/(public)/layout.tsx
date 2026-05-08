@@ -13,14 +13,14 @@ export const metadata = {
  */
 export default function PublicLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col bg-background text-on-background">
+    <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <main className="flex-1">{children}</main>
       <footer className="mt-8 px-6 py-6 text-center">
         <Link
           href={BRAND.github}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-label-m text-on-surface-variant/60 underline-offset-2 transition-colors hover:text-on-surface-variant hover:underline"
+          className="text-xs font-medium text-muted-foreground/60 underline-offset-2 transition-colors hover:text-muted-foreground hover:underline"
         >
           Powered by {BRAND.name}
         </Link>

@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { SnackbarProvider } from '@/components/ui/Snackbar';
 import { EventTypeForm } from '../_components/event-type-form';
 import type {
   ConnectedAccountOption,
@@ -103,28 +102,26 @@ export default async function EditEventTypePage({ params }: PageProps) {
   };
 
   return (
-    <SnackbarProvider>
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <header className="flex flex-col gap-2">
-          <nav className="text-body-s text-on-surface-variant">
-            <Link href="/admin/event-types" className="hover:text-on-surface">
-              Event Types
-            </Link>{' '}
-            &rsaquo; Edit
-          </nav>
-          <h1 className="text-display-s text-on-background">Edit: {eventType.title}</h1>
-        </header>
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <header className="flex flex-col gap-2">
+        <nav className="text-xs text-muted-foreground">
+          <Link href="/admin/event-types" className="hover:text-foreground">
+            Event Types
+          </Link>{' '}
+          &rsaquo; Edit
+        </nav>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Edit: {eventType.title}</h1>
+      </header>
 
-        <EventTypeForm
-          mode="edit"
-          eventTypeId={eventType.id}
-          username={user.username}
-          initialValues={initialValues}
-          accounts={accountOptions}
-          allCalendars={calendarOptions}
-          schedules={scheduleOptions}
-        />
-      </div>
-    </SnackbarProvider>
+      <EventTypeForm
+        mode="edit"
+        eventTypeId={eventType.id}
+        username={user.username}
+        initialValues={initialValues}
+        accounts={accountOptions}
+        allCalendars={calendarOptions}
+        schedules={scheduleOptions}
+      />
+    </div>
   );
 }

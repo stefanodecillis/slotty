@@ -1,10 +1,17 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/TextField';
-import { Select } from '@/components/ui/Select';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { toast } from 'sonner';
 
 const GOOGLE_HOLIDAYS_PLACEHOLDER =
   'https://calendar.google.com/calendar/ical/en.usa%23holiday%40group.v.calendar.google.com/public/basic.ics';
@@ -23,11 +30,10 @@ export function HolidayImport({ scheduleId }: HolidayImportProps) {
   const [icalUrl, setIcalUrl] = useState('');
   const [year, setYear] = useState(String(currentYear));
   const [loading, setLoading] = useState(false);
-  const { show } = useSnackbar();
 
   const handleImport = async () => {
     if (!icalUrl.trim()) {
-      show({ message: 'Please enter an iCal URL' });
+      toast.error('Please enter an iCal URL');
       return;
     }
 
@@ -45,12 +51,9 @@ export function HolidayImport({ scheduleId }: HolidayImportProps) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Import failed');
       }
 
-      show({
-        message: `Imported ${data.imported ?? 0} holiday(s), skipped ${data.skipped ?? 0}`,
-        duration: 6000,
-      });
+      toast.success(`Imported ${data.imported ?? 0} holiday(s), skipped ${data.skipped ?? 0}`);
     } catch (err) {
-      show({ message: err instanceof Error ? err.message : 'Import failed' });
+      toast.error(err instanceof Error ? err.message : 'Import failed');
     } finally {
       setLoading(false);
     }
@@ -59,29 +62,41 @@ export function HolidayImport({ scheduleId }: HolidayImportProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
-        <TextField
-          label="iCal URL"
-          value={icalUrl}
-          onChange={(v) => setIcalUrl(v)}
-          placeholder={GOOGLE_HOLIDAYS_PLACEHOLDER}
-          helperText="https:// link to a public .ics feed"
-          type="url"
-        />
-        <Select
-          label="Year"
-          value={year}
-          onValueChange={setYear}
-          options={YEAR_OPTIONS}
-        />
+        <div className="grid gap-2">
+          <Label htmlFor="icalUrl">iCal URL</Label>
+          <Input
+            id="icalUrl"
+            type="url"
+            value={icalUrl}
+            onChange={(e) => setIcalUrl(e.target.value)}
+            placeholder={GOOGLE_HOLIDAYS_PLACEHOLDER}
+          />
+          <p className="text-xs text-muted-foreground">https:// link to a public .ics feed</p>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="importYear">Year</Label>
+          <Select value={year} onValueChange={setYear}>
+            <SelectTrigger id="importYear">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {YEAR_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <p className="text-body-s text-on-surface-variant">
+      <p className="text-xs text-muted-foreground">
         Existing manual overrides will not be replaced. Re-running the import is safe (idempotent).
       </p>
 
       <div className="flex justify-end">
-        <Button onClick={handleImport} loading={loading} variant="tonal">
-          Import holidays
+        <Button onClick={handleImport} disabled={loading} variant="secondary">
+          {loading ? 'Importing…' : 'Import holidays'}
         </Button>
       </div>
     </div>

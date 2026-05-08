@@ -1,25 +1,26 @@
-'use client';
+"use client"
 
-import * as React from 'react';
-import * as LabelPrimitive from '@radix-ui/react-label';
-import { cn } from '@/lib/utils/cn';
+import * as React from "react"
+import * as LabelPrimitive from "@radix-ui/react-label"
+import { cva, type VariantProps } from "class-variance-authority"
 
-/**
- * M3-styled label, backed by Radix's Label primitive (proper `htmlFor`
- * forwarding + accessible click-to-focus on the associated form control).
- */
-export const Label = React.forwardRef<
+import { cn } from "@/lib/utils"
+
+const labelVariants = cva(
+  "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+)
+
+const Label = React.forwardRef<
   React.ElementRef<typeof LabelPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
+    VariantProps<typeof labelVariants>
 >(({ className, ...props }, ref) => (
   <LabelPrimitive.Root
     ref={ref}
-    className={cn(
-      'text-label-l text-on-surface',
-      'peer-disabled:cursor-not-allowed peer-disabled:opacity-38',
-      className,
-    )}
+    className={cn(labelVariants(), className)}
     {...props}
   />
-));
-Label.displayName = 'Label';
+))
+Label.displayName = LabelPrimitive.Root.displayName
+
+export { Label }

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { DateTime } from 'luxon';
+import { Calendar, CalendarOff, CheckCircle2, RefreshCw, StickyNote, User, Video } from 'lucide-react';
 
 import { db } from '@/lib/db';
 import { verifyBookingToken } from '@/lib/booking/tokens';
@@ -133,31 +134,27 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
         <div
           className={[
             'flex h-16 w-16 items-center justify-center rounded-full',
-            isCancelled ? 'bg-surface-container-high' : 'bg-tertiary-container',
+            isCancelled ? 'bg-card' : 'bg-emerald-100',
           ].join(' ')}
         >
-          <span
-            className={[
-              'material-symbols-outlined text-[32px]',
-              isCancelled ? 'text-on-surface-variant' : 'text-tertiary',
-            ].join(' ')}
-            aria-hidden
-          >
-            {isCancelled ? 'event_busy' : 'check_circle'}
-          </span>
+          {isCancelled ? (
+            <CalendarOff className="h-8 w-8 text-muted-foreground" aria-hidden />
+          ) : (
+            <CheckCircle2 className="h-8 w-8 text-emerald-600" aria-hidden />
+          )}
         </div>
         <div>
-          <h1 className="text-headline-s text-on-background">
+          <h1 className="text-xl font-semibold text-foreground">
             {isCancelled ? 'Booking cancelled' : 'Booking confirmed'}
           </h1>
-          <p className="mt-1 text-body-m text-on-surface-variant">{vm.eventTitle}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{vm.eventTitle}</p>
         </div>
       </div>
 
       {/* Cancelled note */}
       {isCancelled && vm.cancelledAt && (
-        <div className="rounded-shape-md border border-outline-variant bg-surface-container px-4 py-3">
-          <p className="text-body-s text-on-surface-variant">
+        <div className="rounded-lg border border-border bg-muted px-4 py-3">
+          <p className="text-xs text-muted-foreground">
             Cancelled on{' '}
             {DateTime.fromJSDate(vm.cancelledAt).toLocaleString(DateTime.DATETIME_MED)}.
             {vm.cancelReason ? ` Reason: ${vm.cancelReason}` : ''}
@@ -167,55 +164,47 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
 
       {/* Needs sync notice */}
       {vm.needsSync && !isCancelled && (
-        <div className="flex items-start gap-3 rounded-shape-md border border-outline-variant bg-surface-container px-4 py-3">
-          <span className="material-symbols-outlined mt-0.5 text-[18px] text-tertiary" aria-hidden>
-            sync
-          </span>
-          <p className="text-body-s text-on-surface-variant">
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted px-4 py-3">
+          <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+          <p className="text-xs text-muted-foreground">
             This booking is awaiting sync to Google Calendar. The owner will follow up.
           </p>
         </div>
       )}
 
       {/* When */}
-      <div className="flex flex-col gap-3 rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
+      <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-muted/50 p-5">
         <div className="flex items-start gap-3">
-          <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
-            calendar_today
-          </span>
+          <Calendar className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
           <div>
-            <p className="text-body-l text-on-surface">{range.date}</p>
-            <p className="mt-0.5 text-body-m text-on-surface-variant">
+            <p className="text-base text-foreground">{range.date}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
               {range.time} &middot; {range.tzLabel}
             </p>
           </div>
         </div>
 
         {vm.meetingUrl && !isCancelled && (
-          <div className="flex items-start gap-3 border-t border-outline-variant/40 pt-3">
-            <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
-              videocam
-            </span>
+          <div className="flex items-start gap-3 border-t border-border/40 pt-3">
+            <Video className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
             <a
               href={vm.meetingUrl}
               target="_blank"
               rel="noreferrer"
-              className="break-all text-body-m text-primary underline underline-offset-2 hover:text-primary/80"
+              className="break-all text-sm text-primary underline underline-offset-2 hover:text-primary/80"
             >
               {vm.meetingUrl}
             </a>
           </div>
         )}
 
-        <div className="flex items-start gap-3 border-t border-outline-variant/40 pt-3">
-          <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
-            person
-          </span>
+        <div className="flex items-start gap-3 border-t border-border/40 pt-3">
+          <User className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
           <div className="flex flex-col gap-0.5">
-            <p className="text-body-m text-on-surface">{vm.bookerName}</p>
-            <p className="text-body-s text-on-surface-variant">{vm.bookerEmail}</p>
+            <p className="text-sm text-foreground">{vm.bookerName}</p>
+            <p className="text-xs text-muted-foreground">{vm.bookerEmail}</p>
             {vm.additionalGuests.length > 0 && (
-              <p className="mt-1 text-body-s text-on-surface-variant">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Also: {vm.additionalGuests.join(', ')}
               </p>
             )}
@@ -223,23 +212,21 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
         </div>
 
         {vm.notes && (
-          <div className="flex items-start gap-3 border-t border-outline-variant/40 pt-3">
-            <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
-              sticky_note_2
-            </span>
-            <p className="whitespace-pre-wrap text-body-m text-on-surface-variant">{vm.notes}</p>
+          <div className="flex items-start gap-3 border-t border-border/40 pt-3">
+            <StickyNote className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{vm.notes}</p>
           </div>
         )}
 
         {vm.questions.length > 0 && vm.questions.some((q) => vm.answers[q.id]) && (
-          <div className="flex flex-col gap-2 border-t border-outline-variant/40 pt-3">
+          <div className="flex flex-col gap-2 border-t border-border/40 pt-3">
             {vm.questions.map((q) => {
               const a = vm.answers[q.id];
               if (!a) return null;
               return (
                 <div key={q.id}>
-                  <p className="text-body-s text-on-surface-variant">{q.label}</p>
-                  <p className="text-body-m text-on-surface">{a}</p>
+                  <p className="text-xs text-muted-foreground">{q.label}</p>
+                  <p className="text-sm text-foreground">{a}</p>
                 </div>
               );
             })}
@@ -257,7 +244,7 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
       )}
 
       {!canManage && (
-        <p className="text-center text-body-s text-on-surface-variant">
+        <p className="text-center text-xs text-muted-foreground">
           Use the management link emailed to you to cancel or reschedule.{' '}
           <Link href="/" className="text-primary underline underline-offset-2">
             Back to home
@@ -267,7 +254,7 @@ export default async function BookingPage({ params, searchParams }: PageProps) {
 
       {isCancelled && (
         <div className="text-center">
-          <Link href="/" className="text-body-s text-primary underline underline-offset-2">
+          <Link href="/" className="text-xs text-primary underline underline-offset-2">
             Back to home
           </Link>
         </div>

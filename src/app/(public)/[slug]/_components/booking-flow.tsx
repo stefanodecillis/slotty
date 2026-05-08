@@ -1,10 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import {
+  CalendarOff,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Lock,
+  HourglassIcon,
+  Video,
+} from 'lucide-react';
+import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/TextField';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { SlotResult } from '@/lib/scheduling/compute-types';
 
 import { TzSelector, getInitialBookerTz } from './tz-selector';
@@ -54,7 +64,6 @@ export function BookingFlow(props: Props) {
     questions,
     passwordRequired,
   } = props;
-  const { show } = useSnackbar();
 
   const [bookerTz, setBookerTz] = useState<string>('UTC');
   useEffect(() => setBookerTz(getInitialBookerTz()), []);
@@ -99,7 +108,7 @@ export function BookingFlow(props: Props) {
         setSlotsByDay(map);
       } catch (err) {
         if (!cancelled) {
-          show({ message: 'Could not load slots. Please try again.' });
+          toast.error('Could not load slots. Please try again.');
           setSlotsByDay(new Map());
         }
         void err;
@@ -111,7 +120,7 @@ export function BookingFlow(props: Props) {
     return () => {
       cancelled = true;
     };
-  }, [slug, bookerTz, monthAnchor, show]);
+  }, [slug, bookerTz, monthAnchor]);
 
   const monthGrid = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
 
@@ -130,7 +139,7 @@ export function BookingFlow(props: Props) {
     e.preventDefault();
     if (!selectedSlot) return;
     if (!emailLooksValid(email)) {
-      show({ message: 'Please enter a valid email address.' });
+      toast.error('Please enter a valid email address.');
       return;
     }
     setStep('submitting');
@@ -165,9 +174,7 @@ export function BookingFlow(props: Props) {
       }
       setStep('pending');
     } catch (err) {
-      show({
-        message: err instanceof Error ? err.message : 'Submission failed. Please try again.',
-      });
+      toast.error(err instanceof Error ? err.message : 'Submission failed. Please try again.');
       setStep('details');
     }
   }
@@ -180,44 +187,40 @@ export function BookingFlow(props: Props) {
       <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:gap-10">
         {/* Left summary panel */}
         <aside className="w-full shrink-0 sm:sticky sm:top-10 sm:w-56">
-          <div className="flex flex-col gap-5 rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
+          <div className="flex flex-col gap-5 rounded-2xl border border-border/60 bg-muted/50 p-5">
             <div className="flex items-center gap-3">
               {ownerAvatarPath ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={ownerAvatarPath}
                   alt={ownerName}
-                  className="h-10 w-10 shrink-0 rounded-full border border-outline-variant object-cover"
+                  className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
                 />
               ) : (
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary-container text-on-secondary-container">
-                  <span className="text-title-m select-none">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
+                  <span className="text-base font-medium select-none">
                     {ownerName.slice(0, 1).toUpperCase()}
                   </span>
                 </div>
               )}
-              <span className="text-body-m text-on-surface-variant">{ownerName}</span>
+              <span className="text-sm text-muted-foreground">{ownerName}</span>
             </div>
 
-            <div className="border-t border-outline-variant/40" />
+            <div className="border-t border-border/40" />
 
             <div>
-              <h1 className="text-title-l text-on-surface" style={{ color }}>
+              <h1 className="text-lg font-semibold text-foreground" style={{ color }}>
                 {title}
               </h1>
             </div>
 
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-body-m text-on-surface-variant">
-                <span className="material-symbols-outlined text-[18px]" aria-hidden>
-                  schedule
-                </span>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" aria-hidden />
                 <span>{durationLabel(durationMinutes)}</span>
               </div>
-              <div className="flex items-center gap-2 text-body-m text-on-surface-variant">
-                <span className="material-symbols-outlined text-[18px]" aria-hidden>
-                  videocam
-                </span>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Video className="h-4 w-4" aria-hidden />
                 <span>Video call</span>
               </div>
             </div>
@@ -226,7 +229,7 @@ export function BookingFlow(props: Props) {
               <div>
                 <div
                   className={[
-                    'text-body-s text-on-surface-variant [&_a]:text-primary [&_a]:underline',
+                    'text-xs text-muted-foreground [&_a]:text-primary [&_a]:underline',
                     descExpanded ? '' : 'line-clamp-3',
                   ]
                     .filter(Boolean)
@@ -239,7 +242,7 @@ export function BookingFlow(props: Props) {
                   <button
                     type="button"
                     onClick={() => setDescExpanded(true)}
-                    className="mt-1 text-body-s text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    className="mt-1 text-xs text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
                     more
                   </button>
@@ -248,12 +251,12 @@ export function BookingFlow(props: Props) {
             )}
 
             {selectedDate && (
-              <div className="rounded-shape-sm bg-primary-container px-3 py-2">
-                <p className="text-body-s font-medium text-on-primary-container">
+              <div className="rounded-md bg-primary/10 px-3 py-2">
+                <p className="text-xs font-medium text-primary">
                   {formatHumanDate(selectedDate, bookerTz)}
                 </p>
                 {selectedSlot && (
-                  <p className="mt-0.5 text-body-s text-on-primary-container">
+                  <p className="mt-0.5 text-xs text-primary">
                     {selectedSlot.label}
                   </p>
                 )}
@@ -275,12 +278,12 @@ export function BookingFlow(props: Props) {
                       ? 'w-6 bg-primary'
                       : i < stepIndex
                         ? 'w-2 bg-primary/40'
-                        : 'w-2 bg-outline-variant',
+                        : 'w-2 bg-border',
                   ].join(' ')}
                   aria-hidden
                 />
               ))}
-              <span className="ml-2 text-label-m text-on-surface-variant">
+              <span className="ml-2 text-xs font-medium text-muted-foreground">
                 {step === 'date' && 'Select a date'}
                 {step === 'time' && 'Select a time'}
                 {(step === 'details' || step === 'submitting') && 'Your details'}
@@ -289,11 +292,9 @@ export function BookingFlow(props: Props) {
           )}
 
           {passwordRequired && (
-            <div className="mb-4 flex items-start gap-3 rounded-shape-md border border-outline-variant bg-surface-container px-4 py-3">
-              <span className="material-symbols-outlined mt-0.5 text-[18px] text-tertiary" aria-hidden>
-                lock
-              </span>
-              <p className="text-body-s text-on-surface-variant">
+            <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-muted px-4 py-3">
+              <Lock className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden />
+              <p className="text-xs text-muted-foreground">
                 This event type is password-protected.
               </p>
             </div>
@@ -302,7 +303,7 @@ export function BookingFlow(props: Props) {
           <div className="relative">
             <StepPanel active={step === 'date'}>
               <div className="flex items-center justify-between gap-4 mb-5">
-                <h2 className="text-title-l text-on-surface">Pick a date</h2>
+                <h2 className="text-lg font-semibold text-foreground">Pick a date</h2>
                 <TzSelector value={bookerTz} onChange={setBookerTz} />
               </div>
               <DateGrid
@@ -319,15 +320,15 @@ export function BookingFlow(props: Props) {
             <StepPanel active={step === 'time'}>
               <div className="mb-5 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-title-l text-on-surface">Pick a time</h2>
+                  <h2 className="text-lg font-semibold text-foreground">Pick a time</h2>
                   {selectedDate && (
-                    <p className="mt-0.5 text-body-s text-on-surface-variant">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {formatHumanDate(selectedDate, bookerTz)}
                     </p>
                   )}
                 </div>
                 <Button
-                  variant="text"
+                  variant="ghost"
                   size="sm"
                   onClick={() => setStep('date')}
                 >
@@ -344,9 +345,9 @@ export function BookingFlow(props: Props) {
 
             <StepPanel active={step === 'details' || step === 'submitting'}>
               <div className="mb-5 flex items-center justify-between gap-4">
-                <h2 className="text-title-l text-on-surface">Your details</h2>
+                <h2 className="text-lg font-semibold text-foreground">Your details</h2>
                 <Button
-                  variant="text"
+                  variant="ghost"
                   size="sm"
                   onClick={() => setStep('time')}
                   disabled={step === 'submitting'}
@@ -373,16 +374,11 @@ export function BookingFlow(props: Props) {
 
             <StepPanel active={step === 'pending'}>
               <div className="flex flex-col items-center gap-4 py-12 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-tertiary-container">
-                  <span
-                    className="material-symbols-outlined text-[32px] text-tertiary"
-                    aria-hidden
-                  >
-                    hourglass_top
-                  </span>
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+                  <HourglassIcon className="h-8 w-8 text-emerald-600" aria-hidden />
                 </div>
-                <h2 className="text-headline-s text-on-surface">Booking submitted</h2>
-                <p className="max-w-sm text-body-m text-on-surface-variant">
+                <h2 className="text-xl font-semibold text-foreground">Booking submitted</h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
                   Your request has been queued. A confirmation will arrive in your inbox shortly.
                 </p>
               </div>
@@ -499,26 +495,26 @@ function DateGrid({
           type="button"
           onClick={onPrev}
           aria-label="Previous month"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <span className="material-symbols-outlined text-[20px]" aria-hidden>chevron_left</span>
+          <ChevronLeft className="h-5 w-5" aria-hidden />
         </button>
-        <span className="text-title-m text-on-surface" aria-live="polite">
+        <span className="text-base font-medium text-foreground" aria-live="polite">
           {monthLabel}
         </span>
         <button
           type="button"
           onClick={onNext}
           aria-label="Next month"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <span className="material-symbols-outlined text-[20px]" aria-hidden>chevron_right</span>
+          <ChevronRight className="h-5 w-5" aria-hidden />
         </button>
       </div>
 
       <div className="grid grid-cols-7 text-center">
         {weekdayLabels.map((w) => (
-          <div key={w} className="py-1 text-label-m text-on-surface-variant">
+          <div key={w} className="py-1 text-xs font-medium text-muted-foreground">
             {w}
           </div>
         ))}
@@ -540,11 +536,11 @@ function DateGrid({
               disabled={!enabled}
               onClick={() => enabled && onPick(key)}
               className={[
-                'relative mx-auto flex h-9 w-9 items-center justify-center rounded-full text-body-m transition-colors',
+                'relative mx-auto flex h-9 w-9 items-center justify-center rounded-full text-sm transition-colors',
                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 enabled
-                  ? 'cursor-pointer bg-primary-container text-on-primary-container font-medium hover:bg-primary hover:text-on-primary'
-                  : 'cursor-default text-on-surface-variant',
+                  ? 'cursor-pointer bg-primary/10 text-primary font-medium hover:bg-primary hover:text-primary-foreground'
+                  : 'cursor-default text-muted-foreground',
                 dim ? 'opacity-30' : '',
                 isToday ? 'ring-1 ring-inset ring-primary' : '',
               ]
@@ -558,7 +554,7 @@ function DateGrid({
       </div>
 
       {loading && (
-        <p className="text-center text-body-s text-on-surface-variant" aria-live="polite">
+        <p className="text-center text-xs text-muted-foreground" aria-live="polite">
           Loading availability...
         </p>
       )}
@@ -576,10 +572,8 @@ function TimeGrid({
   if (slots.length === 0) {
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-center">
-        <span className="material-symbols-outlined text-[32px] text-on-surface-variant" aria-hidden>
-          event_busy
-        </span>
-        <p className="text-body-m text-on-surface-variant">No availability on this day.</p>
+        <CalendarOff className="h-8 w-8 text-muted-foreground" aria-hidden />
+        <p className="text-sm text-muted-foreground">No availability on this day.</p>
       </div>
     );
   }
@@ -590,7 +584,7 @@ function TimeGrid({
           key={s.startUtc}
           type="button"
           onClick={() => onPick(s)}
-          className="w-full rounded-shape-md border border-outline bg-transparent px-4 py-3 text-left text-body-l text-on-surface transition-colors hover:border-primary hover:bg-primary-container/50 hover:text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:text-center"
+          className="w-full rounded-lg border border-input bg-transparent px-4 py-3 text-left text-base text-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:text-center"
         >
           {s.startInBookerTz}
         </button>
@@ -630,25 +624,46 @@ function DetailsForm({
 }) {
   return (
     <form className="flex flex-col gap-5" onSubmit={onSubmit}>
-      <TextField label="Your name" value={name} onChange={setName} required />
-      <TextField label="Email address" type="email" value={email} onChange={setEmail} required />
-      <TextField
-        label="Additional guests (optional)"
-        value={guests}
-        onChange={setGuests}
-        placeholder="alice@example.com, bob@example.com"
-        helperText="Comma-separated email addresses"
-      />
-      <label className="flex flex-col gap-1.5">
-        <span className="px-1 text-body-s text-on-surface-variant">Notes (optional)</span>
+      <div className="grid gap-2">
+        <Label htmlFor="booker-name">Your name</Label>
+        <Input
+          id="booker-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="booker-email">Email address</Label>
+        <Input
+          id="booker-email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="booker-guests">Additional guests (optional)</Label>
+        <Input
+          id="booker-guests"
+          value={guests}
+          onChange={(e) => setGuests(e.target.value)}
+          placeholder="alice@example.com, bob@example.com"
+        />
+        <p className="text-xs text-muted-foreground">Comma-separated email addresses</p>
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="booker-notes">Notes (optional)</Label>
         <textarea
+          id="booker-notes"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={4}
           placeholder="Anything you want the organizer to know..."
-          className="rounded-shape-md border border-outline bg-transparent px-4 py-3 text-body-l text-on-surface placeholder:text-on-surface-variant/50 focus:border-2 focus:border-primary focus:outline-none"
+          className="rounded-lg border border-input bg-transparent px-4 py-3 text-base text-foreground placeholder:text-muted-foreground/50 focus:border-2 focus:border-primary focus:outline-none"
         />
-      </label>
+      </div>
 
       {questions.map((q) => (
         <CustomQuestion
@@ -662,14 +677,13 @@ function DetailsForm({
       <div className="pt-2">
         <Button
           type="submit"
-          loading={submitting}
           disabled={submitting}
-          fullWidth
+          className="w-full"
           size="lg"
         >
-          Confirm booking
+          {submitting ? 'Confirming…' : 'Confirm booking'}
         </Button>
-        <p className="mt-3 text-center text-body-s text-on-surface-variant">
+        <p className="mt-3 text-center text-xs text-muted-foreground">
           A confirmation email will be sent to your address.
         </p>
       </div>
@@ -688,22 +702,23 @@ function CustomQuestion({
 }) {
   if (question.kind === 'textarea') {
     return (
-      <label className="flex flex-col gap-1.5">
-        <span className="px-1 text-body-s text-on-surface-variant">
+      <div className="grid gap-1.5">
+        <Label htmlFor={`q-${question.id}`}>
           {question.label}
           {question.required && <span aria-hidden> *</span>}
-        </span>
+        </Label>
         <textarea
+          id={`q-${question.id}`}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           required={question.required}
           rows={3}
-          className="rounded-shape-md border border-outline bg-transparent px-4 py-3 text-body-l text-on-surface focus:border-2 focus:border-primary focus:outline-none"
+          className="rounded-lg border border-input bg-transparent px-4 py-3 text-base text-foreground focus:border-2 focus:border-primary focus:outline-none"
         />
         {question.helperText && (
-          <span className="px-1 text-body-s text-on-surface-variant">{question.helperText}</span>
+          <p className="text-xs text-muted-foreground">{question.helperText}</p>
         )}
-      </label>
+      </div>
     );
   }
   if (question.kind === 'select' || question.kind === 'radio') {
@@ -715,13 +730,13 @@ function CustomQuestion({
     }
     return (
       <fieldset className="flex flex-col gap-2">
-        <legend className="px-1 text-body-s text-on-surface-variant">
+        <legend className="px-1 text-xs text-muted-foreground">
           {question.label}
           {question.required && <span aria-hidden> *</span>}
         </legend>
         <div className="flex flex-col gap-1.5 px-1">
           {options.map((opt) => (
-            <label key={opt} className="flex items-center gap-3 text-body-m text-on-surface">
+            <label key={opt} className="flex items-center gap-3 text-sm text-foreground">
               <input
                 type="radio"
                 name={question.id}
@@ -740,7 +755,7 @@ function CustomQuestion({
   }
   if (question.kind === 'checkbox') {
     return (
-      <label className="flex items-center gap-3 px-1 text-body-m text-on-surface">
+      <label className="flex items-center gap-3 px-1 text-sm text-foreground">
         <input
           type="checkbox"
           checked={value === 'on'}
@@ -753,12 +768,20 @@ function CustomQuestion({
     );
   }
   return (
-    <TextField
-      label={question.label}
-      value={value}
-      onChange={onChange}
-      required={question.required}
-      helperText={question.helperText ?? undefined}
-    />
+    <div className="grid gap-2">
+      <Label htmlFor={`q-${question.id}`}>
+        {question.label}
+        {question.required && <span aria-hidden> *</span>}
+      </Label>
+      <Input
+        id={`q-${question.id}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={question.required}
+      />
+      {question.helperText && (
+        <p className="text-xs text-muted-foreground">{question.helperText}</p>
+      )}
+    </div>
   );
 }

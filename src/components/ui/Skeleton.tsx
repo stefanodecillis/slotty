@@ -1,19 +1,15 @@
-import * as React from 'react';
-import { cn } from '@/lib/utils/cn';
+import { cn } from "@/lib/utils"
 
-export type SkeletonProps = React.HTMLAttributes<HTMLDivElement>;
-
-/**
- * Loading-state placeholder. Subtle pulse on the surface-container-highest
- * tone so it reads as inert content awaiting load.
- */
-export const Skeleton = React.forwardRef<HTMLDivElement, SkeletonProps>(
-  ({ className, ...props }, ref) => (
+function Skeleton({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
     <div
-      ref={ref}
-      className={cn('animate-pulse rounded-shape-sm bg-surface-container-highest', className)}
+      className={cn("animate-pulse rounded-md bg-muted", className)}
       {...props}
     />
-  ),
-);
-Skeleton.displayName = 'Skeleton';
+  )
+}
+
+export { Skeleton }

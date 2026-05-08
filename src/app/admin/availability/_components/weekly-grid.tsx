@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useCallback } from 'react';
-import { Button } from '@/components/ui/Button';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { X, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 
 export interface RuleData {
   weekday: number;
@@ -73,24 +74,24 @@ function RuleRow({ rule, index, onChange, onRemove }: RuleRowProps) {
         type="time"
         value={minutesToTime(rule.startMinute)}
         onChange={(e) => onChange(index, 'startMinute', timeToMinutes(e.target.value))}
-        className="w-28 rounded-shape-sm border border-outline-variant bg-surface px-3 py-1.5 text-body-m text-on-surface outline-none transition-colors focus:border-primary"
+        className="w-28 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-primary"
         step={900}
       />
-      <span className="text-body-s text-on-surface-variant">to</span>
+      <span className="text-xs text-muted-foreground">to</span>
       <input
         type="time"
         value={minutesToTime(rule.endMinute)}
         onChange={(e) => onChange(index, 'endMinute', timeToMinutes(e.target.value))}
-        className="w-28 rounded-shape-sm border border-outline-variant bg-surface px-3 py-1.5 text-body-m text-on-surface outline-none transition-colors focus:border-primary"
+        className="w-28 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none transition-colors focus:border-primary"
         step={900}
       />
       <button
         type="button"
         onClick={() => onRemove(index)}
         aria-label="Remove time range"
-        className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-on-surface-variant/[0.08]"
+        className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted"
       >
-        <span className="material-symbols-outlined text-[18px]">close</span>
+        <X className="h-4 w-4" />
       </button>
     </div>
   );
@@ -100,7 +101,6 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
   const [rules, setRules] = useState<RuleData[]>(initialRules);
   const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const { show } = useSnackbar();
 
   const handleChange = useCallback(
     (index: number, field: 'startMinute' | 'endMinute', value: number) => {
@@ -144,9 +144,9 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Failed to save');
       }
 
-      show({ message: 'Schedule saved' });
+      toast.success('Schedule saved');
     } catch (err) {
-      show({ message: err instanceof Error ? err.message : 'Failed to save schedule' });
+      toast.error(err instanceof Error ? err.message : 'Failed to save schedule');
     } finally {
       setSaving(false);
     }
@@ -162,15 +162,15 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
         return (
           <div
             key={weekday}
-            className="flex flex-col gap-3 border-b border-outline-variant py-3 last:border-b-0 sm:flex-row sm:items-start sm:gap-4"
+            className="flex flex-col gap-3 border-b border-border py-3 last:border-b-0 sm:flex-row sm:items-start sm:gap-4"
           >
             <div className="flex shrink-0 items-center gap-2 sm:w-32 sm:pt-1.5">
-              <span className="text-title-m text-on-surface sm:hidden">{label}</span>
-              <span className="hidden sm:inline text-label-l text-on-surface">{WEEKDAY_SHORT[weekday]}</span>
+              <span className="text-base font-medium text-foreground sm:hidden">{label}</span>
+              <span className="hidden sm:inline text-sm font-medium text-foreground">{WEEKDAY_SHORT[weekday]}</span>
             </div>
             <div className="flex flex-1 flex-col gap-2">
               {dayRules.length === 0 ? (
-                <span className="text-body-m text-on-surface-variant py-1.5">Unavailable</span>
+                <span className="text-sm text-muted-foreground py-1.5">Unavailable</span>
               ) : (
                 dayRules.map(({ index, ...rule }) => (
                   <RuleRow
@@ -189,21 +189,21 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
               aria-label={`Add time range for ${label}`}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-primary transition-colors hover:bg-primary/[0.08] sm:mt-0.5"
             >
-              <span className="material-symbols-outlined text-[20px]">add</span>
+              <Plus className="h-5 w-5" />
             </button>
           </div>
         );
       })}
 
       {validationError && (
-        <p className="mt-3 text-body-s text-error" role="alert">
+        <p className="mt-3 text-xs text-destructive" role="alert">
           {validationError}
         </p>
       )}
 
       <div className="mt-4 flex justify-end">
-        <Button onClick={handleSave} loading={saving} variant="filled">
-          Save changes
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save changes'}
         </Button>
       </div>
     </div>

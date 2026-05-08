@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import { DateTime } from 'luxon';
+import { RotateCcw } from 'lucide-react';
 
 import { db } from '@/lib/db';
 import { verifyBookingToken } from '@/lib/booking/tokens';
@@ -41,23 +42,21 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-8 sm:py-12">
       {/* Top banner */}
-      <div className="flex items-start gap-3 rounded-shape-md border border-outline-variant bg-surface-container px-4 py-3">
-        <span className="material-symbols-outlined mt-0.5 shrink-0 text-[20px] text-on-surface-variant" aria-hidden>
-          update
-        </span>
+      <div className="flex items-start gap-3 rounded-lg border border-border bg-muted px-4 py-3">
+        <RotateCcw className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
         <div>
-          <p className="text-body-s font-medium text-on-surface">
+          <p className="text-xs font-medium text-foreground">
             Rescheduling: {booking.eventType.title}
           </p>
-          <p className="mt-0.5 text-body-s text-on-surface-variant">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Originally: {originalLabel}
           </p>
         </div>
       </div>
 
       <div>
-        <h1 className="text-headline-s text-on-background">Pick a new time</h1>
-        <p className="mt-1 text-body-m text-on-surface-variant">
+        <h1 className="text-xl font-semibold text-foreground">Pick a new time</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           The original meeting link (if any) will stay the same.
         </p>
       </div>

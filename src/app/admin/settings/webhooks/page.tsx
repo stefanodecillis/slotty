@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
-import { Button } from '@/components/ui/Button';
-import { Switch } from '@/components/ui/Switch';
-import { Dialog } from '@/components/ui/Dialog';
-import { TextField } from '@/components/ui/TextField';
-import { Skeleton } from '@/components/ui/Skeleton';
+import { ChevronLeft, Plus, Webhook, CheckCircle2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const VALID_EVENTS = [
   { value: 'booking.created', label: 'Booking created' },
@@ -119,31 +121,30 @@ export default function WebhooksPage() {
     <div className="mx-auto flex max-w-4xl flex-col">
       <Link
         href="/admin/settings"
-        className="mb-4 inline-flex w-fit items-center gap-1 text-label-l text-on-surface-variant transition-colors hover:text-on-surface"
+        className="mb-4 inline-flex w-fit items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+        <ChevronLeft className="h-4 w-4" />
         Back to settings
       </Link>
 
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-display-s text-on-background">Webhooks</h1>
-          <p className="mt-1 text-body-l text-on-surface-variant">
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Webhooks</h1>
+          <p className="mt-1 text-base text-muted-foreground">
             Get notified when bookings are created, cancelled, or rescheduled.
           </p>
         </div>
         <Button
-          variant="filled"
           onClick={() => setShowCreate(true)}
-          leadingIcon={<span className="material-symbols-outlined">add</span>}
         >
+          <Plus className="h-4 w-4" />
           Add endpoint
         </Button>
       </header>
 
       {successMsg && (
-        <div className="mb-6 flex items-center gap-2 rounded-shape-md bg-secondary-container px-4 py-3 text-body-m text-on-secondary-container">
-          <span className="material-symbols-outlined text-[20px]">check_circle</span>
+        <div className="mb-6 flex items-center gap-2 rounded-lg bg-secondary px-4 py-3 text-sm text-secondary-foreground">
+          <CheckCircle2 className="h-5 w-5" />
           {successMsg}
         </div>
       )}
@@ -154,16 +155,13 @@ export default function WebhooksPage() {
           <Skeleton className="h-24 w-full" />
         </div>
       ) : endpoints.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-shape-md bg-surface-container-low px-6 py-16 text-center">
-          <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
-            webhook
-          </span>
-          <h2 className="text-title-l text-on-surface">No endpoints yet</h2>
-          <p className="max-w-sm text-body-m text-on-surface-variant">
+        <div className="flex flex-col items-center gap-3 rounded-lg bg-muted/50 px-6 py-16 text-center">
+          <Webhook className="h-12 w-12 text-muted-foreground" />
+          <h2 className="text-lg font-semibold text-foreground">No endpoints yet</h2>
+          <p className="max-w-sm text-sm text-muted-foreground">
             Add an HTTPS endpoint and we'll POST a signed JSON payload there for every event.
           </p>
           <Button
-            variant="filled"
             onClick={() => setShowCreate(true)}
             className="mt-2"
           >
@@ -181,33 +179,33 @@ export default function WebhooksPage() {
             return (
               <article
                 key={ep.id}
-                className="rounded-shape-md border border-outline-variant bg-surface p-5"
+                className="rounded-lg border border-border bg-card p-5"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <span
                         className={`flex h-2 w-2 shrink-0 rounded-full ${
-                          ep.active ? 'bg-tertiary' : 'bg-on-surface-variant/50'
+                          ep.active ? 'bg-emerald-600' : 'bg-muted-foreground/50'
                         }`}
                         aria-hidden="true"
                       />
-                      <p className="truncate font-mono text-title-m text-on-surface">{ep.url}</p>
+                      <p className="truncate font-mono text-base font-medium text-foreground">{ep.url}</p>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {events.map((e) => (
                         <span
                           key={e}
-                          className="rounded-full bg-surface-container-low px-2 py-0.5 text-label-s text-on-surface-variant"
+                          className="rounded-full bg-muted/50 px-2 py-0.5 text-xs text-muted-foreground"
                         >
                           {e}
                         </span>
                       ))}
                     </div>
                     {lastDelivery && (
-                      <p className="text-body-s text-on-surface-variant">
+                      <p className="text-xs text-muted-foreground">
                         Last delivery:{' '}
-                        <span className={lastOk ? 'text-tertiary' : 'text-error'}>
+                        <span className={lastOk ? 'text-emerald-600' : 'text-destructive'}>
                           {lastDelivery.status}
                           {lastDelivery.responseCode ? ` (${lastDelivery.responseCode})` : ''}
                         </span>
@@ -223,10 +221,10 @@ export default function WebhooksPage() {
                       aria-label="Active"
                     />
                     <div className="flex gap-1">
-                      <Button variant="text" size="sm" onClick={() => void handleTest(ep.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => void handleTest(ep.id)}>
                         Test
                       </Button>
-                      <Button variant="text" size="sm" onClick={() => void handleDelete(ep.id)}>
+                      <Button variant="ghost" size="sm" onClick={() => void handleDelete(ep.id)}>
                         Delete
                       </Button>
                     </div>
@@ -240,45 +238,48 @@ export default function WebhooksPage() {
 
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <Dialog.Content className="max-w-md">
-          <Dialog.Title>Add webhook endpoint</Dialog.Title>
+        <DialogContent className="max-w-md">
+          <DialogTitle>Add webhook endpoint</DialogTitle>
           <div className="flex flex-col gap-4 pb-4">
-            <TextField
-              label="Endpoint URL"
-              type="url"
-              value={createUrl}
-              onChange={(v) => setCreateUrl(v)}
-              placeholder="https://example.com/webhook"
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="webhookUrl">Endpoint URL</Label>
+              <Input
+                id="webhookUrl"
+                type="url"
+                value={createUrl}
+                onChange={(e) => setCreateUrl(e.target.value)}
+                placeholder="https://example.com/webhook"
+              />
+            </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-label-l text-on-surface-variant">Signing secret</label>
+              <Label>Signing secret</Label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={createSecret}
                   onChange={(e) => setCreateSecret(e.target.value)}
                   placeholder="Signing secret…"
-                  className="flex-1 rounded-shape-sm border border-outline-variant bg-surface px-3 py-2 font-mono text-body-s text-on-surface outline-none transition-colors focus:border-primary"
+                  className="flex-1 rounded-md border border-border bg-card px-3 py-2 font-mono text-xs text-foreground outline-none transition-colors focus:border-primary"
                 />
                 <Button
-                  variant="outlined"
+                  variant="outline"
                   type="button"
                   onClick={() => setCreateSecret(generateRandomSecret())}
                 >
                   Generate
                 </Button>
               </div>
-              <p className="text-body-s text-on-surface-variant">
+              <p className="text-xs text-muted-foreground">
                 Save this now — it won't be shown again.
               </p>
             </div>
             <div className="flex flex-col gap-2">
-              <p className="text-label-l text-on-surface-variant">Subscribe to events</p>
-              <div className="flex flex-col gap-1 rounded-shape-sm bg-surface-container-low p-3">
+              <p className="text-sm font-medium text-muted-foreground">Subscribe to events</p>
+              <div className="flex flex-col gap-1 rounded-md bg-muted/50 p-3">
                 {VALID_EVENTS.map((ev) => (
                   <label
                     key={ev.value}
-                    className="flex cursor-pointer items-center gap-2 rounded-shape-xs px-2 py-1.5 text-body-m text-on-surface transition-colors hover:bg-surface-container"
+                    className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-muted"
                   >
                     <input
                       type="checkbox"
@@ -292,18 +293,18 @@ export default function WebhooksPage() {
               </div>
             </div>
             {createError && (
-              <p className="text-body-s text-error">{createError}</p>
+              <p className="text-xs text-destructive">{createError}</p>
             )}
           </div>
-          <Dialog.Actions>
-            <Button variant="text" onClick={() => setShowCreate(false)}>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowCreate(false)}>
               Cancel
             </Button>
-            <Button variant="filled" onClick={() => void handleCreate()} loading={saving} disabled={saving}>
-              Add endpoint
+            <Button onClick={() => void handleCreate()} disabled={saving}>
+              {saving ? 'Adding…' : 'Add endpoint'}
             </Button>
-          </Dialog.Actions>
-        </Dialog.Content>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );

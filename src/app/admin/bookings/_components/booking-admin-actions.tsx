@@ -3,11 +3,18 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { Button } from '@/components/ui/Button';
-import { Dialog } from '@/components/ui/Dialog';
-import { TextField } from '@/components/ui/TextField';
-import { Switch } from '@/components/ui/Switch';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { toast } from 'sonner';
 
 interface Props {
   bookingId: string;
@@ -21,7 +28,6 @@ interface Props {
  */
 export function BookingAdminActions({ bookingId, noShow }: Props) {
   const router = useRouter();
-  const { show } = useSnackbar();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
@@ -40,11 +46,11 @@ export function BookingAdminActions({ bookingId, noShow }: Props) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
-      show({ message: 'Booking cancelled.' });
+      toast.success('Booking cancelled.');
       setCancelOpen(false);
       router.refresh();
     } catch (err) {
-      show({ message: err instanceof Error ? err.message : 'Cancel failed' });
+      toast.error(err instanceof Error ? err.message : 'Cancel failed');
     } finally {
       setCancelling(false);
     }
@@ -63,10 +69,10 @@ export function BookingAdminActions({ bookingId, noShow }: Props) {
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
       setLocalNoShow(next);
-      show({ message: next ? 'Marked as no-show.' : 'No-show cleared.' });
+      toast.success(next ? 'Marked as no-show.' : 'No-show cleared.');
       router.refresh();
     } catch (err) {
-      show({ message: err instanceof Error ? err.message : 'Update failed' });
+      toast.error(err instanceof Error ? err.message : 'Update failed');
     } finally {
       setTogglingNoShow(false);
     }
@@ -74,7 +80,7 @@ export function BookingAdminActions({ bookingId, noShow }: Props) {
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <label className="flex items-center gap-2 text-label-l text-on-surface">
+      <label className="flex items-center gap-2 text-sm font-medium text-foreground">
         <Switch
           checked={localNoShow}
           onCheckedChange={(v) => toggleNoShow(v)}
@@ -83,7 +89,7 @@ export function BookingAdminActions({ bookingId, noShow }: Props) {
         No-show
       </label>
       <Button
-        variant="outlined"
+        variant="outline"
         type="button"
         onClick={() => setCancelOpen(true)}
       >
@@ -91,23 +97,41 @@ export function BookingAdminActions({ bookingId, noShow }: Props) {
       </Button>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <Dialog.Content>
-          <Dialog.Title>Cancel booking</Dialog.Title>
-          <Dialog.Body>
-            <p className="mb-3 text-body-m text-on-surface-variant">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel booking</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-muted-foreground">
               The booker and any guests will be notified by Google Calendar.
             </p>
-            <TextField label="Reason (optional)" value={reason} onChange={setReason} />
-          </Dialog.Body>
-          <Dialog.Actions>
-            <Button variant="text" type="button" onClick={() => setCancelOpen(false)} disabled={cancelling}>
+            <div className="grid gap-2">
+              <Label htmlFor="cancel-reason">Reason (optional)</Label>
+              <Input
+                id="cancel-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setCancelOpen(false)}
+              disabled={cancelling}
+            >
               Keep booking
             </Button>
-            <Button variant="filled" type="button" onClick={doCancel} loading={cancelling} disabled={cancelling}>
-              Cancel booking
+            <Button
+              type="button"
+              onClick={doCancel}
+              disabled={cancelling}
+            >
+              {cancelling ? 'Cancelling…' : 'Cancel booking'}
             </Button>
-          </Dialog.Actions>
-        </Dialog.Content>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );

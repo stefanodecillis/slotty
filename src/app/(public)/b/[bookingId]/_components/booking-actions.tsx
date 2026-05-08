@@ -3,10 +3,19 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { CalendarPlus, RotateCcw } from 'lucide-react';
 
-import { Button } from '@/components/ui/Button';
-import { Dialog } from '@/components/ui/Dialog';
-import { TextField } from '@/components/ui/TextField';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 interface Props {
   bookingId: string;
@@ -58,44 +67,30 @@ export function BookingActions({ bookingId, token, tokenKind }: Props) {
 
   return (
     <>
-      <div className="flex flex-col gap-3 rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
-        <p className="text-label-l text-on-surface-variant">Manage booking</p>
+      <div className="flex flex-col gap-3 rounded-2xl border border-border/60 bg-muted/50 p-5">
+        <p className="text-sm font-medium text-muted-foreground">Manage booking</p>
         <div className="flex flex-wrap gap-2 pt-1">
           <a href={icsUrl} download>
-            <Button
-              variant="tonal"
-              type="button"
-              leadingIcon={
-                <span className="material-symbols-outlined text-[18px]" aria-hidden>
-                  calendar_add_on
-                </span>
-              }
-            >
+            <Button variant="secondary" type="button">
+              <CalendarPlus className="h-4 w-4" aria-hidden />
               Add to calendar
             </Button>
           </a>
 
           {tokenKind === 'reschedule' && (
             <Link href={rescheduleHref}>
-              <Button
-                variant="outlined"
-                type="button"
-                leadingIcon={
-                  <span className="material-symbols-outlined text-[18px]" aria-hidden>
-                    update
-                  </span>
-                }
-              >
+              <Button variant="outline" type="button">
+                <RotateCcw className="h-4 w-4" aria-hidden />
                 Reschedule
               </Button>
             </Link>
           )}
 
           <Button
-            variant="text"
+            variant="ghost"
             type="button"
             onClick={() => setCancelOpen(true)}
-            className="text-error hover:bg-error/[0.08]"
+            className="text-destructive hover:bg-destructive/10"
           >
             Cancel booking
           </Button>
@@ -103,23 +98,26 @@ export function BookingActions({ bookingId, token, tokenKind }: Props) {
       </div>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <Dialog.Content>
-          <Dialog.Title>Cancel this booking?</Dialog.Title>
-          <Dialog.Body>
-            <p className="mb-4 text-body-m text-on-surface-variant">
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel this booking?</DialogTitle>
+            <DialogDescription>
               The organizer and any guests will be notified. This cannot be undone.
-            </p>
-            <TextField
-              label="Reason (optional)"
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="cancel-reason">Reason (optional)</Label>
+            <Input
+              id="cancel-reason"
               value={reason}
-              onChange={setReason}
+              onChange={(e) => setReason(e.target.value)}
               placeholder="Anything you want the organizer to know"
             />
-            {error && <p className="mt-2 text-body-s text-error">{error}</p>}
-          </Dialog.Body>
-          <Dialog.Actions>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+          </div>
+          <DialogFooter>
             <Button
-              variant="text"
+              variant="ghost"
               type="button"
               onClick={() => setCancelOpen(false)}
               disabled={submitting}
@@ -127,17 +125,15 @@ export function BookingActions({ bookingId, token, tokenKind }: Props) {
               Keep booking
             </Button>
             <Button
-              variant="filled"
               type="button"
               onClick={handleCancel}
-              loading={submitting}
               disabled={submitting}
-              className="bg-error text-on-error hover:bg-error/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Cancel booking
+              {submitting ? 'Cancelling…' : 'Cancel booking'}
             </Button>
-          </Dialog.Actions>
-        </Dialog.Content>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </>
   );

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { Calendar, ChevronRight } from 'lucide-react';
 
 import { db } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
@@ -47,19 +48,19 @@ export default async function PublicHomePage() {
           <img
             src={user.avatarPath}
             alt={user.displayName}
-            className="h-24 w-24 rounded-full border-2 border-outline-variant object-cover shadow-sm"
+            className="h-24 w-24 rounded-full border-2 border-border object-cover shadow-sm"
           />
         ) : (
-          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-secondary-container text-on-secondary-container shadow-sm">
-            <span className="text-display-s select-none">
+          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-secondary text-secondary-foreground shadow-sm">
+            <span className="text-3xl font-semibold tracking-tight select-none">
               {user.displayName.slice(0, 1).toUpperCase()}
             </span>
           </div>
         )}
-        <h1 className="text-display-s text-on-background">{user.displayName}</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">{user.displayName}</h1>
         {bioHtml && (
           <div
-            className="max-w-prose text-body-l text-on-surface-variant [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2"
+            className="max-w-prose text-base text-muted-foreground [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2"
             // eslint-disable-next-line react/no-danger
             dangerouslySetInnerHTML={{ __html: bioHtml }}
           />
@@ -69,22 +70,17 @@ export default async function PublicHomePage() {
       {/* Event type list */}
       <section className="w-full" aria-label="Available event types">
         {eventTypes.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-shape-lg border border-outline-variant bg-surface-container-low px-6 py-14 text-center">
-            <span
-              className="material-symbols-outlined text-[40px] text-on-surface-variant"
-              aria-hidden
-            >
-              calendar_today
-            </span>
-            <p className="text-body-l text-on-surface-variant">No bookable events yet.</p>
+          <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-muted/50 px-6 py-14 text-center">
+            <Calendar className="h-10 w-10 text-muted-foreground" aria-hidden />
+            <p className="text-base text-muted-foreground">No bookable events yet.</p>
           </div>
         ) : (
-          <ul className="flex flex-col divide-y divide-outline-variant/40">
+          <ul className="flex flex-col divide-y divide-border/40">
             {eventTypes.map((et) => (
               <li key={et.id}>
                 <Link
                   href={`/${et.slug}`}
-                  className="group flex items-center gap-4 rounded-shape-sm px-3 py-4 transition-colors hover:bg-surface-container-low focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="group flex items-center gap-4 rounded-md px-3 py-4 transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   {/* Color dot */}
                   <span
@@ -95,19 +91,17 @@ export default async function PublicHomePage() {
 
                   {/* Title + duration */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-title-l text-on-surface">{et.title}</p>
-                    <p className="mt-0.5 text-body-m text-on-surface-variant">
+                    <p className="text-lg font-semibold text-foreground">{et.title}</p>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
                       {durationLabel(et.durationMinutes)}
                     </p>
                   </div>
 
                   {/* Chevron — slides right on hover */}
-                  <span
+                  <ChevronRight
                     aria-hidden
-                    className="material-symbols-outlined flex-shrink-0 text-[20px] text-on-surface-variant transition-transform duration-150 group-hover:translate-x-0.5"
-                  >
-                    chevron_right
-                  </span>
+                    className="h-5 w-5 flex-shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5"
+                  />
                 </Link>
               </li>
             ))}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, Globe } from 'lucide-react';
 
 interface Props {
   value: string;
@@ -73,31 +74,33 @@ export function TzSelector({ value, onChange }: Props) {
       <button
         type="button"
         onClick={() => { setOpen((o) => !o); setQuery(''); }}
-        className="flex items-center gap-1 rounded-shape-xs px-2 py-1 text-body-s text-on-surface-variant transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        className="flex items-center gap-1 rounded-sm px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="material-symbols-outlined text-[14px]" aria-hidden>public</span>
+        <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="max-w-[120px] truncate">{displayValue}</span>
-        <span className="material-symbols-outlined text-[14px]" aria-hidden>
-          {open ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-        </span>
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        )}
       </button>
 
       {open && (
         <div
-          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-shape-md border border-outline-variant bg-surface-container shadow-lg"
+          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-border bg-muted shadow-lg"
           role="dialog"
           aria-label="Select timezone"
         >
-          <div className="border-b border-outline-variant/40 px-3 py-2">
+          <div className="border-b border-border/40 px-3 py-2">
             <input
               ref={inputRef}
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search timezones..."
-              className="w-full bg-transparent text-body-s text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none"
+              className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
             />
           </div>
           <ul
@@ -106,7 +109,7 @@ export function TzSelector({ value, onChange }: Props) {
             className="max-h-48 overflow-y-auto py-1"
           >
             {filtered.length === 0 && (
-              <li className="px-3 py-2 text-body-s text-on-surface-variant">No results</li>
+              <li className="px-3 py-2 text-xs text-muted-foreground">No results</li>
             )}
             {filtered.map((z) => (
               <li key={z} role="option" aria-selected={z === value}>
@@ -114,8 +117,8 @@ export function TzSelector({ value, onChange }: Props) {
                   type="button"
                   onClick={() => { onChange(z); setOpen(false); setQuery(''); }}
                   className={[
-                    'w-full px-3 py-1.5 text-left text-body-s transition-colors hover:bg-surface-container-high',
-                    z === value ? 'font-medium text-primary' : 'text-on-surface',
+                    'w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-card',
+                    z === value ? 'font-medium text-primary' : 'text-foreground',
                   ].join(' ')}
                 >
                   {z.replace(/_/g, ' ')}

@@ -3,9 +3,16 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/TextField';
-import { Select } from '@/components/ui/Select';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface Props {
   status: string;
@@ -50,50 +57,80 @@ export function BookingsFilters(props: Props) {
   const hasFilters = Boolean(status || eventTypeId || from || to || q);
 
   return (
-    <div className="rounded-shape-md bg-surface-container-low p-4">
+    <div className="rounded-lg bg-muted/50 p-4">
       <div className="grid gap-3 md:grid-cols-12">
-        <div className="md:col-span-3">
+        <div className="md:col-span-3 grid gap-1.5">
+          <Label htmlFor="filter-status">Status</Label>
           <Select
-            label="Status"
-            value={status}
-            onValueChange={setStatus}
-            options={[
-              { value: '', label: 'All statuses' },
-              { value: 'confirmed', label: 'Confirmed' },
-              { value: 'rescheduled', label: 'Rescheduled' },
-              { value: 'cancelled', label: 'Cancelled' },
-            ]}
+            value={status || '__all__'}
+            onValueChange={(v) => setStatus(v === '__all__' ? '' : v)}
+          >
+            <SelectTrigger id="filter-status">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All statuses</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="rescheduled">Rescheduled</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="md:col-span-3 grid gap-1.5">
+          <Label htmlFor="filter-event-type">Event type</Label>
+          <Select
+            value={eventTypeId || '__all__'}
+            onValueChange={(v) => setEventTypeId(v === '__all__' ? '' : v)}
+          >
+            <SelectTrigger id="filter-event-type">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All types</SelectItem>
+              {props.eventTypes.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="md:col-span-2 grid gap-1.5">
+          <Label htmlFor="filter-from">From</Label>
+          <Input
+            id="filter-from"
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
           />
         </div>
-        <div className="md:col-span-3">
-          <Select
-            label="Event type"
-            value={eventTypeId}
-            onValueChange={setEventTypeId}
-            options={[
-              { value: '', label: 'All types' },
-              ...props.eventTypes.map((e) => ({ value: e.id, label: e.title })),
-            ]}
+        <div className="md:col-span-2 grid gap-1.5">
+          <Label htmlFor="filter-to">To</Label>
+          <Input
+            id="filter-to"
+            type="date"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
           />
         </div>
-        <div className="md:col-span-2">
-          <TextField label="From" value={from} onChange={setFrom} type="date" />
-        </div>
-        <div className="md:col-span-2">
-          <TextField label="To" value={to} onChange={setTo} type="date" />
-        </div>
-        <div className="md:col-span-2">
-          <TextField label="Search" value={q} onChange={setQ} placeholder="Name or email" />
+        <div className="md:col-span-2 grid gap-1.5">
+          <Label htmlFor="filter-search">Search</Label>
+          <Input
+            id="filter-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Name or email"
+          />
         </div>
       </div>
 
       <div className="mt-3 flex justify-end gap-2">
         {hasFilters && (
-          <Button variant="text" type="button" onClick={clear}>
+          <Button variant="ghost" type="button" onClick={clear}>
             Clear
           </Button>
         )}
-        <Button variant="filled" type="button" onClick={apply}>
+        <Button type="button" onClick={apply}>
           Apply filters
         </Button>
       </div>

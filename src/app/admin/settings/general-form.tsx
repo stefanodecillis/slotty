@@ -2,10 +2,11 @@
 
 import React, { useTransition, useState, useCallback } from 'react';
 import type { User } from 'lucia';
+import { toast } from 'sonner';
 
-import { Select } from '@/components/ui/Select';
-import { Button } from '@/components/ui/Button';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { updateGeneralSettings, type SettingsActionResult } from './actions';
 
 interface GeneralFormProps {
@@ -22,25 +23,28 @@ const WEEK_START_OPTIONS = [
 ];
 
 export function GeneralForm({ user, timezones, siteUrl }: GeneralFormProps) {
-  const snackbar = useSnackbar();
   const [isPending, startTransition] = useTransition();
   const [, setLastState] = useState<SettingsActionResult>(INITIAL_STATE);
+  const [timezone, setTimezone] = useState(user.timezone);
+  const [weekStart, setWeekStart] = useState(String(user.weekStart));
 
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
       const formData = new FormData(e.currentTarget);
+      formData.set('timezone', timezone);
+      formData.set('weekStart', weekStart);
       startTransition(async () => {
         const result = await updateGeneralSettings(INITIAL_STATE, formData);
         setLastState(result);
         if (result.success) {
-          snackbar.show({ message: 'General settings saved.' });
+          toast.success('General settings saved.');
         } else if (result.error) {
-          snackbar.show({ message: result.error });
+          toast.error(result.error);
         }
       });
     },
-    [snackbar],
+    [timezone, weekStart],
   );
 
   const tzOptions = timezones.map((tz) => ({ value: tz, label: tz }));
@@ -48,40 +52,56 @@ export function GeneralForm({ user, timezones, siteUrl }: GeneralFormProps) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <p className="text-label-m text-on-surface-variant">Site URL</p>
-        <p className="text-body-l text-on-surface font-mono bg-surface-container rounded-shape-xs px-3 py-2">
+        <p className="text-xs font-medium text-muted-foreground">Site URL</p>
+        <p className="text-base text-foreground font-mono bg-muted rounded-sm px-3 py-2">
           {siteUrl}
         </p>
       </div>
 
-      <Select
-        label="Default timezone"
-        name="timezone"
-        defaultValue={user.timezone}
-        options={tzOptions}
-        searchable
-        required
-      />
+      <div className="grid gap-2">
+        <Label>Default timezone</Label>
+        <Select value={timezone} onValueChange={setTimezone} name="timezone" required>
+          <SelectTrigger>
+            <SelectValue placeholder="Select timezone..." />
+          </SelectTrigger>
+          <SelectContent>
+            {tzOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-      <Select
-        label="Locale"
-        name="locale"
-        defaultValue="en"
-        options={[{ value: 'en', label: 'English' }]}
-        disabled
-        helperText="Additional locales coming in a future release."
-      />
+      <div className="grid gap-2">
+        <Label>Locale</Label>
+        <Select defaultValue="en" disabled>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">English</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">Additional locales coming in a future release.</p>
+      </div>
 
-      <Select
-        label="Week starts on"
-        name="weekStart"
-        defaultValue={String(user.weekStart)}
-        options={WEEK_START_OPTIONS}
-      />
+      <div className="grid gap-2">
+        <Label>Week starts on</Label>
+        <Select value={weekStart} onValueChange={setWeekStart} name="weekStart">
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {WEEK_START_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="flex justify-end">
-        <Button type="submit" variant="filled" loading={isPending}>
-          Save
+        <Button type="submit" disabled={isPending}>
+          {isPending ? 'Saving…' : 'Save'}
         </Button>
       </div>
     </form>

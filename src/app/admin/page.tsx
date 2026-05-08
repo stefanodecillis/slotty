@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { DateTime } from 'luxon';
+import { ChevronRight, Calendar, Plus, ExternalLink } from 'lucide-react';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 
@@ -112,10 +113,10 @@ export default async function AdminDashboardPage() {
   return (
     <div className="mx-auto flex max-w-4xl flex-col">
       <header className="mb-10">
-        <p className="text-label-l text-on-surface-variant">
+        <p className="text-sm font-medium text-muted-foreground">
           {DateTime.now().toLocaleString(DateTime.DATE_FULL)}
         </p>
-        <h1 className="mt-1 text-display-s text-on-background">
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
           Welcome back, {firstName}
         </h1>
       </header>
@@ -141,14 +142,14 @@ export default async function AdminDashboardPage() {
       <section className="mt-12">
         <div className="mb-4 flex items-end justify-between">
           <div>
-            <h2 className="text-title-l text-on-surface">Upcoming bookings</h2>
-            <p className="mt-1 text-body-m text-on-surface-variant">
+            <h2 className="text-lg font-semibold text-foreground">Upcoming bookings</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               The next five confirmed bookings on your calendar.
             </p>
           </div>
           <Link
             href="/admin/bookings"
-            className="text-label-l text-primary hover:underline"
+            className="text-sm font-medium text-primary hover:underline"
           >
             View all
           </Link>
@@ -156,34 +157,33 @@ export default async function AdminDashboardPage() {
 
         {upcomingBookings.length === 0 ? (
           <EmptyState
-            icon="event_available"
             title="No upcoming bookings"
             description="Once people book through your link, they'll show up here."
             cta={{ label: 'Share your booking page', href: `/${user.username}` }}
           />
         ) : (
-          <div className="rounded-shape-md border border-outline-variant bg-surface">
+          <div className="rounded-lg border border-border bg-card">
             {upcomingBookings.map((b, idx) => {
               const dt = DateTime.fromJSDate(b.startAt);
               return (
                 <Link
                   key={b.id}
                   href={`/admin/bookings/${b.id}`}
-                  className={`flex items-center gap-4 px-5 py-4 transition-colors hover:bg-surface-container-low ${
-                    idx > 0 ? 'border-t border-outline-variant' : ''
+                  className={`flex items-center gap-4 px-5 py-4 transition-colors hover:bg-muted/50 ${
+                    idx > 0 ? 'border-t border-border' : ''
                   }`}
                 >
-                  <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-shape-sm bg-surface-container-low text-on-surface">
-                    <span className="text-label-m uppercase text-on-surface-variant">
+                  <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-md bg-muted/50 text-foreground">
+                    <span className="text-xs font-medium uppercase text-muted-foreground">
                       {dt.toFormat('MMM')}
                     </span>
-                    <span className="text-title-m">{dt.toFormat('d')}</span>
+                    <span className="text-base font-medium">{dt.toFormat('d')}</span>
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-title-m text-on-surface">
+                    <span className="truncate text-base font-medium text-foreground">
                       {b.bookerName}
                     </span>
-                    <span className="flex items-center gap-2 truncate text-body-s text-on-surface-variant">
+                    <span className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                       <span
                         className="h-2 w-2 shrink-0 rounded-full"
                         style={{ backgroundColor: b.eventType.color }}
@@ -191,12 +191,10 @@ export default async function AdminDashboardPage() {
                       <span className="truncate">{b.eventType.title}</span>
                     </span>
                   </div>
-                  <div className="hidden text-right text-body-s text-on-surface-variant sm:block">
+                  <div className="hidden text-right text-xs text-muted-foreground sm:block">
                     {dt.toFormat('h:mm a')}
                   </div>
-                  <span className="material-symbols-outlined text-on-surface-variant">
-                    chevron_right
-                  </span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </Link>
               );
             })}
@@ -206,22 +204,22 @@ export default async function AdminDashboardPage() {
 
       {/* Quick actions */}
       <section className="mt-12">
-        <h2 className="mb-4 text-title-l text-on-surface">Quick actions</h2>
+        <h2 className="mb-4 text-lg font-semibold text-foreground">Quick actions</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <QuickLink
-            icon="calendar_today"
+            icon={<Calendar className="h-5 w-5" />}
             title="Connect a calendar"
             description="Sync Google Calendar"
             href="/admin/calendars"
           />
           <QuickLink
-            icon="add_circle"
+            icon={<Plus className="h-5 w-5" />}
             title="New event type"
             description="Define a bookable offering"
             href="/admin/event-types/new"
           />
           <QuickLink
-            icon="open_in_new"
+            icon={<ExternalLink className="h-5 w-5" />}
             title="Public profile"
             description={`/${user.username}`}
             href={`/${user.username}`}
@@ -242,16 +240,16 @@ interface StatTileProps {
 
 function StatTile({ label, value, hint, delta }: StatTileProps) {
   return (
-    <div className="flex flex-col gap-1 rounded-shape-md bg-surface-container-high p-5">
-      <p className="text-label-l text-on-surface-variant">{label}</p>
+    <div className="flex flex-col gap-1 rounded-lg bg-card p-5">
+      <p className="text-sm font-medium text-muted-foreground">{label}</p>
       <div className="flex items-baseline gap-2">
-        <p className="text-display-m leading-none text-on-surface">{value}</p>
+        <p className="text-4xl tracking-tight leading-none text-foreground">{value}</p>
         {delta && (
           <span
-            className={`rounded-full px-2 py-0.5 text-label-s ${
+            className={`rounded-full px-2 py-0.5 text-xs ${
               delta.positive
-                ? 'bg-tertiary-container text-on-tertiary-container'
-                : 'bg-error-container text-on-error-container'
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-destructive/10 text-destructive'
             }`}
           >
             {delta.positive ? '+' : ''}
@@ -259,24 +257,24 @@ function StatTile({ label, value, hint, delta }: StatTileProps) {
           </span>
         )}
       </div>
-      {hint && <p className="mt-1 text-body-s text-on-surface-variant">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
 function SyncTile({ tone, label }: { tone: 'green' | 'yellow' | 'red'; label: string }) {
   const dot =
-    tone === 'green' ? 'bg-tertiary' : tone === 'yellow' ? 'bg-yellow-500' : 'bg-error';
+    tone === 'green' ? 'bg-emerald-600' : tone === 'yellow' ? 'bg-yellow-500' : 'bg-destructive';
   return (
-    <div className="flex flex-col gap-1 rounded-shape-md bg-surface-container-high p-5">
-      <p className="text-label-l text-on-surface-variant">Sync health</p>
+    <div className="flex flex-col gap-1 rounded-lg bg-card p-5">
+      <p className="text-sm font-medium text-muted-foreground">Sync health</p>
       <div className="flex items-center gap-2 pt-3">
         <span className={`h-3 w-3 shrink-0 rounded-full ${dot}`} />
-        <p className="text-title-m text-on-surface">{label}</p>
+        <p className="text-base font-medium text-foreground">{label}</p>
       </div>
       <Link
         href="/admin/calendars"
-        className="mt-2 self-start text-label-m text-primary hover:underline"
+        className="mt-2 self-start text-xs font-medium text-primary hover:underline"
       >
         Manage calendars
       </Link>
@@ -285,7 +283,7 @@ function SyncTile({ tone, label }: { tone: 'green' | 'yellow' | 'red'; label: st
 }
 
 interface QuickLinkProps {
-  icon: string;
+  icon: React.ReactNode;
   title: string;
   description: string;
   href: string;
@@ -298,45 +296,40 @@ function QuickLink({ icon, title, description, href, external }: QuickLinkProps)
       href={href}
       target={external ? '_blank' : undefined}
       rel={external ? 'noopener noreferrer' : undefined}
-      className="group flex items-start gap-3 rounded-shape-md bg-surface-container-low p-5 transition-colors hover:bg-surface-container"
+      className="group flex items-start gap-3 rounded-lg bg-muted/50 p-5 transition-colors hover:bg-muted"
     >
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-container text-on-primary-container">
-        <span className="material-symbols-outlined text-[22px]">{icon}</span>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+        {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1 text-title-m text-on-surface">
+        <p className="flex items-center gap-1 text-base font-medium text-foreground">
           {title}
           {external && (
-            <span className="material-symbols-outlined text-[16px] text-on-surface-variant transition-transform group-hover:translate-x-0.5">
-              arrow_outward
-            </span>
+            <ExternalLink className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
           )}
         </p>
-        <p className="mt-0.5 truncate text-body-s text-on-surface-variant">{description}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
       </div>
     </Link>
   );
 }
 
 interface EmptyStateProps {
-  icon: string;
   title: string;
   description: string;
   cta?: { label: string; href: string };
 }
 
-function EmptyState({ icon, title, description, cta }: EmptyStateProps) {
+function EmptyState({ title, description, cta }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-shape-md bg-surface-container-low py-16 px-6 text-center">
-      <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
-        {icon}
-      </span>
-      <h3 className="text-title-l text-on-surface">{title}</h3>
-      <p className="max-w-sm text-body-m text-on-surface-variant">{description}</p>
+    <div className="flex flex-col items-center gap-3 rounded-lg bg-muted/50 py-16 px-6 text-center">
+      <Calendar className="h-12 w-12 text-muted-foreground" />
+      <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+      <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
       {cta && (
         <Link
           href={cta.href}
-          className="mt-2 inline-flex items-center gap-1 rounded-full bg-primary px-5 py-2 text-label-l text-on-primary transition-opacity hover:opacity-90"
+          className="mt-2 inline-flex items-center gap-1 rounded-full bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
           {cta.label}
         </Link>

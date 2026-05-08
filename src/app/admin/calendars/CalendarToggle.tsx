@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 
-import { Switch } from '@/components/ui/Switch';
+import { Switch } from '@/components/ui/switch';
 
 interface Props {
   calendarId: string;
@@ -37,9 +37,9 @@ export function CalendarToggle({ calendarId, field, initialValue, label }: Props
 
   return (
     <div className="flex items-center gap-3 sm:flex-col-reverse sm:items-center sm:gap-1">
-      <span className="text-label-m text-on-surface-variant sm:text-label-s">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground sm:text-xs">{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
-      {error ? <span className="text-label-s text-error">{error}</span> : null}
+      {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </div>
   );
 }

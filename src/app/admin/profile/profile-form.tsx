@@ -2,11 +2,13 @@
 
 import React, { useTransition, useState, useCallback } from 'react';
 import type { User } from 'lucia';
+import { toast } from 'sonner';
 
-import { TextField } from '@/components/ui/TextField';
-import { Select } from '@/components/ui/Select';
-import { Button } from '@/components/ui/Button';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { updateProfile, type ProfileActionResult } from './actions';
 
 interface ProfileFormProps {
@@ -17,79 +19,98 @@ interface ProfileFormProps {
 const INITIAL_STATE: ProfileActionResult = { success: false };
 
 export function ProfileForm({ user, timezones }: ProfileFormProps) {
-  const snackbar = useSnackbar();
   const [isPending, startTransition] = useTransition();
   const [, setLastState] = useState<ProfileActionResult>(INITIAL_STATE);
+  const [timezone, setTimezone] = useState(user.timezone);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
       const formData = new FormData(e.currentTarget);
+      formData.set('timezone', timezone);
       startTransition(async () => {
         const result = await updateProfile(INITIAL_STATE, formData);
         setLastState(result);
         if (result.success) {
-          snackbar.show({ message: 'Profile saved successfully.' });
+          toast.success('Profile saved successfully.');
         } else if (result.error) {
-          snackbar.show({ message: result.error });
+          toast.error(result.error);
         }
       });
     },
-    [snackbar],
+    [timezone],
   );
-
-  const tzOptions = timezones.map((tz) => ({ value: tz, label: tz }));
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-      <TextField
-        label="Display name"
-        name="displayName"
-        defaultValue={user.displayName}
-        required
-      />
-      <TextField
-        label="Username"
-        name="username"
-        defaultValue={user.username}
-        disabled
-        helperText="Username cannot be changed after setup."
-      />
-      <TextField
-        label="Email"
-        name="email"
-        type="email"
-        defaultValue={user.email}
-        required
-      />
-      <TextField
-        label="Bio"
-        name="bio"
-        defaultValue={user.bio ?? ''}
-        multiline
-        rows={4}
-        helperText="Markdown supported. Max 1000 characters."
-      />
-      <Select
-        label="Timezone"
-        name="timezone"
-        defaultValue={user.timezone}
-        options={tzOptions}
-        searchable
-        required
-      />
-      <Select
-        label="Locale"
-        name="locale"
-        defaultValue="en"
-        options={[{ value: 'en', label: 'English' }]}
-        disabled
-        helperText="Additional locales coming in a future release."
-      />
+      <div className="grid gap-2">
+        <Label htmlFor="displayName">Display name</Label>
+        <Input
+          id="displayName"
+          name="displayName"
+          defaultValue={user.displayName}
+          required
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="username">Username</Label>
+        <Input
+          id="username"
+          name="username"
+          defaultValue={user.username}
+          disabled
+        />
+        <p className="text-xs text-muted-foreground">Username cannot be changed after setup.</p>
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="email">Email</Label>
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          defaultValue={user.email}
+          required
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="bio">Bio</Label>
+        <Textarea
+          id="bio"
+          name="bio"
+          defaultValue={user.bio ?? ''}
+          rows={4}
+        />
+        <p className="text-xs text-muted-foreground">Markdown supported. Max 1000 characters.</p>
+      </div>
+      <div className="grid gap-2">
+        <Label>Timezone</Label>
+        <Select value={timezone} onValueChange={setTimezone} name="timezone" required>
+          <SelectTrigger>
+            <SelectValue placeholder="Select timezone..." />
+          </SelectTrigger>
+          <SelectContent>
+            {timezones.map((tz) => (
+              <SelectItem key={tz} value={tz}>{tz}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid gap-2">
+        <Label>Locale</Label>
+        <Select defaultValue="en" disabled>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="en">English</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">Additional locales coming in a future release.</p>
+      </div>
 
       <div className="flex justify-end">
-        <Button type="submit" variant="filled" loading={isPending}>
-          Save profile
+        <Button type="submit" disabled={isPending}>
+          {isPending ? 'Saving…' : 'Save profile'}
         </Button>
       </div>
     </form>

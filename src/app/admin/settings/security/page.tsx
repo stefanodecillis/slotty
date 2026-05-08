@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
-import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/TextField';
-import { Dialog } from '@/components/ui/Dialog';
+import { ChevronLeft, ShieldCheck, Shield, Monitor } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
 interface Session {
   id: string;
@@ -142,64 +144,71 @@ export default function SecurityPage() {
     <div className="mx-auto flex max-w-4xl flex-col">
       <Link
         href="/admin/settings"
-        className="mb-4 inline-flex w-fit items-center gap-1 text-label-l text-on-surface-variant transition-colors hover:text-on-surface"
+        className="mb-4 inline-flex w-fit items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
       >
-        <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+        <ChevronLeft className="h-4 w-4" />
         Back to settings
       </Link>
 
       <header className="mb-8">
-        <h1 className="text-display-s text-on-background">Security</h1>
-        <p className="mt-1 text-body-l text-on-surface-variant">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Security</h1>
+        <p className="mt-1 text-base text-muted-foreground">
           Password, two-factor authentication, and active sessions.
         </p>
       </header>
 
       {/* Password */}
       <section>
-        <h2 className="text-title-l text-on-surface">Password</h2>
-        <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+        <h2 className="text-lg font-semibold text-foreground">Password</h2>
+        <p className="mb-4 mt-1 text-sm text-muted-foreground">
           Use a long, unique password. After changing, you'll need to sign in again.
         </p>
-        <div className="rounded-shape-md bg-surface-container-low p-6">
+        <div className="rounded-lg bg-muted/50 p-6">
           <div className="flex flex-col gap-4">
-            <TextField
-              label="Current password"
-              type="password"
-              value={currentPassword}
-              onChange={(v) => setCurrentPassword(v)}
-              autoComplete="current-password"
-            />
-            <TextField
-              label="New password"
-              type="password"
-              value={newPassword}
-              onChange={(v) => setNewPassword(v)}
-              autoComplete="new-password"
-            />
-            <TextField
-              label="Confirm new password"
-              type="password"
-              value={confirmPassword}
-              onChange={(v) => setConfirmPassword(v)}
-              autoComplete="new-password"
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="currentPassword">Current password</Label>
+              <Input
+                id="currentPassword"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="newPassword">New password</Label>
+              <Input
+                id="newPassword"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="confirmPassword">Confirm new password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
             {passwordError && (
-              <p className="text-body-s text-error" role="alert">
+              <p className="text-xs text-destructive" role="alert">
                 {passwordError}
               </p>
             )}
             {passwordSuccess && (
-              <p className="text-body-s text-tertiary">{passwordSuccess}</p>
+              <p className="text-xs text-emerald-600">{passwordSuccess}</p>
             )}
             <div className="flex justify-end">
               <Button
-                variant="filled"
                 onClick={() => void handleChangePassword()}
-                loading={savingPassword}
                 disabled={savingPassword}
               >
-                Change password
+                {savingPassword ? 'Saving…' : 'Change password'}
               </Button>
             </div>
           </div>
@@ -208,54 +217,56 @@ export default function SecurityPage() {
 
       {/* 2FA */}
       <section className="mt-12">
-        <h2 className="text-title-l text-on-surface">Two-factor authentication</h2>
-        <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+        <h2 className="text-lg font-semibold text-foreground">Two-factor authentication</h2>
+        <p className="mb-4 mt-1 text-sm text-muted-foreground">
           Require a 6-digit code from an authenticator app on every sign-in.
         </p>
-        <div className="rounded-shape-md bg-surface-container-low p-6">
+        <div className="rounded-lg bg-muted/50 p-6">
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <span
                   className={`flex h-10 w-10 items-center justify-center rounded-full ${
                     totpEnabled
-                      ? 'bg-tertiary-container text-on-tertiary-container'
-                      : 'bg-surface-container-high text-on-surface-variant'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-card text-muted-foreground'
                   }`}
                 >
-                  <span className="material-symbols-outlined">
-                    {totpEnabled ? 'verified_user' : 'shield'}
-                  </span>
+                  {totpEnabled ? (
+                    <ShieldCheck className="h-5 w-5" />
+                  ) : (
+                    <Shield className="h-5 w-5" />
+                  )}
                 </span>
                 <div>
-                  <p className="text-title-m text-on-surface">
+                  <p className="text-base font-medium text-foreground">
                     {totpEnabled ? '2FA is enabled' : '2FA is disabled'}
                   </p>
-                  <p className="text-body-s text-on-surface-variant">
+                  <p className="text-xs text-muted-foreground">
                     {totpEnabled ? 'Your account is protected.' : 'Add an extra layer of security.'}
                   </p>
                 </div>
               </div>
               {!totpEnabled ? (
-                <Button variant="tonal" onClick={() => void handleStartTotpSetup()}>
+                <Button variant="secondary" onClick={() => void handleStartTotpSetup()}>
                   Enable 2FA
                 </Button>
               ) : (
-                <Button variant="outlined" onClick={() => setShowDisableDialog(true)}>
+                <Button variant="outline" onClick={() => setShowDisableDialog(true)}>
                   Disable
                 </Button>
               )}
             </div>
 
             {backupCodes.length > 0 && (
-              <div className="mt-2 rounded-shape-sm border border-outline-variant bg-surface p-4">
-                <p className="text-label-l text-on-surface">
+              <div className="mt-2 rounded-md border border-border bg-card p-4">
+                <p className="text-sm font-medium text-foreground">
                   Backup codes — save these now:
                 </p>
-                <p className="mb-3 mt-1 text-body-s text-on-surface-variant">
+                <p className="mb-3 mt-1 text-xs text-muted-foreground">
                   Each code can be used once if you lose access to your authenticator.
                 </p>
-                <div className="grid grid-cols-2 gap-1 rounded-shape-xs bg-surface-container-low p-3 font-mono text-body-s text-on-surface">
+                <div className="grid grid-cols-2 gap-1 rounded-sm bg-muted/50 p-3 font-mono text-xs text-foreground">
                   {backupCodes.map((c) => (
                     <span key={c}>{c}</span>
                   ))}
@@ -268,39 +279,37 @@ export default function SecurityPage() {
 
       {/* Sessions */}
       <section className="mt-12">
-        <h2 className="text-title-l text-on-surface">Active sessions</h2>
-        <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+        <h2 className="text-lg font-semibold text-foreground">Active sessions</h2>
+        <p className="mb-4 mt-1 text-sm text-muted-foreground">
           Devices currently signed in to your account.
         </p>
-        <div className="overflow-hidden rounded-shape-md border border-outline-variant bg-surface">
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
           {sessionsLoading ? (
-            <p className="p-6 text-body-m text-on-surface-variant">Loading…</p>
+            <p className="p-6 text-sm text-muted-foreground">Loading…</p>
           ) : sessions.length === 0 ? (
-            <p className="p-6 text-body-m text-on-surface-variant">No active sessions.</p>
+            <p className="p-6 text-sm text-muted-foreground">No active sessions.</p>
           ) : (
             <ul>
               {sessions.map((s, idx) => (
                 <li
                   key={s.fullId}
                   className={`flex flex-col gap-1 px-5 py-4 sm:flex-row sm:items-center sm:justify-between ${
-                    idx > 0 ? 'border-t border-outline-variant' : ''
+                    idx > 0 ? 'border-t border-border' : ''
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-container-low">
-                      <span className="material-symbols-outlined text-on-surface-variant">
-                        devices
-                      </span>
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-muted/50">
+                      <Monitor className="h-4 w-4 text-muted-foreground" />
                     </span>
                     <div className="flex flex-col">
-                      <span className="font-mono text-body-s text-on-surface">{s.id}</span>
-                      <span className="text-body-s text-on-surface-variant">
+                      <span className="font-mono text-xs text-foreground">{s.id}</span>
+                      <span className="text-xs text-muted-foreground">
                         Expires {new Date(s.expiresAt).toLocaleDateString()}
                       </span>
                     </div>
                   </div>
                   {s.isCurrent && (
-                    <span className="self-start rounded-full bg-secondary-container px-3 py-1 text-label-m text-on-secondary-container sm:self-center">
+                    <span className="self-start rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground sm:self-center">
                       Current
                     </span>
                   )}
@@ -309,8 +318,8 @@ export default function SecurityPage() {
             </ul>
           )}
           {otherSessions.length > 0 && (
-            <div className="flex justify-end border-t border-outline-variant px-5 py-3">
-              <Button variant="outlined" onClick={() => void handleRevokeAllSessions()}>
+            <div className="flex justify-end border-t border-border px-5 py-3">
+              <Button variant="outline" onClick={() => void handleRevokeAllSessions()}>
                 Sign out everywhere else
               </Button>
             </div>
@@ -320,72 +329,78 @@ export default function SecurityPage() {
 
       {/* TOTP enable dialog */}
       <Dialog open={showEnableDialog} onOpenChange={setShowEnableDialog}>
-        <Dialog.Content className="max-w-sm">
-          <Dialog.Title>Enable two-factor authentication</Dialog.Title>
+        <DialogContent className="max-w-sm">
+          <DialogTitle>Enable two-factor authentication</DialogTitle>
           <div className="flex flex-col gap-4 pb-4">
             {totpSetupData && (
               <>
-                <p className="text-body-m text-on-surface-variant">
+                <p className="text-sm text-muted-foreground">
                   Add this account to your authenticator, then enter the 6-digit code below.
                 </p>
-                <div className="rounded-shape-sm bg-surface-container-low p-3">
-                  <p className="text-label-m text-on-surface-variant">Secret key</p>
-                  <p className="mt-1 break-all font-mono text-body-s text-on-surface">
+                <div className="rounded-md bg-muted/50 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Secret key</p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">
                     {totpSetupData.secret}
                   </p>
-                  <p className="mt-3 text-label-m text-on-surface-variant">URI</p>
-                  <p className="mt-1 break-all font-mono text-body-s text-on-surface-variant">
+                  <p className="mt-3 text-xs font-medium text-muted-foreground">URI</p>
+                  <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
                     {totpSetupData.uri}
                   </p>
                 </div>
-                <TextField
-                  label="Verification code"
-                  value={totpCode}
-                  onChange={(v) => setTotpCode(v)}
-                  placeholder="000000"
-                  autoComplete="one-time-code"
-                />
-                {totpError && <p className="text-body-s text-error">{totpError}</p>}
+                <div className="grid gap-2">
+                  <Label htmlFor="totpCode">Verification code</Label>
+                  <Input
+                    id="totpCode"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value)}
+                    placeholder="000000"
+                    autoComplete="one-time-code"
+                  />
+                </div>
+                {totpError && <p className="text-xs text-destructive">{totpError}</p>}
               </>
             )}
           </div>
-          <Dialog.Actions>
-            <Button variant="text" onClick={() => setShowEnableDialog(false)}>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowEnableDialog(false)}>
               Cancel
             </Button>
-            <Button variant="filled" onClick={() => void handleEnableTotp()}>
+            <Button onClick={() => void handleEnableTotp()}>
               Verify and enable
             </Button>
-          </Dialog.Actions>
-        </Dialog.Content>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       {/* TOTP disable dialog */}
       <Dialog open={showDisableDialog} onOpenChange={setShowDisableDialog}>
-        <Dialog.Content className="max-w-sm">
-          <Dialog.Title>Disable two-factor authentication</Dialog.Title>
+        <DialogContent className="max-w-sm">
+          <DialogTitle>Disable two-factor authentication</DialogTitle>
           <div className="flex flex-col gap-4 pb-4">
-            <p className="text-body-m text-on-surface-variant">
+            <p className="text-sm text-muted-foreground">
               Enter your password to confirm.
             </p>
-            <TextField
-              label="Password"
-              type="password"
-              value={disablePassword}
-              onChange={(v) => setDisablePassword(v)}
-              autoComplete="current-password"
-            />
-            {disableError && <p className="text-body-s text-error">{disableError}</p>}
+            <div className="grid gap-2">
+              <Label htmlFor="disablePassword">Password</Label>
+              <Input
+                id="disablePassword"
+                type="password"
+                value={disablePassword}
+                onChange={(e) => setDisablePassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+            {disableError && <p className="text-xs text-destructive">{disableError}</p>}
           </div>
-          <Dialog.Actions>
-            <Button variant="text" onClick={() => setShowDisableDialog(false)}>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDisableDialog(false)}>
               Cancel
             </Button>
-            <Button variant="filled" onClick={() => void handleDisableTotp()}>
+            <Button onClick={() => void handleDisableTotp()}>
               Disable 2FA
             </Button>
-          </Dialog.Actions>
-        </Dialog.Content>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );

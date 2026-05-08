@@ -3,14 +3,22 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { TextField } from '@/components/ui/TextField';
-import { Switch } from '@/components/ui/Switch';
-import { Select } from '@/components/ui/Select';
-import { IconButton } from '@/components/ui/IconButton';
-import { Checkbox } from '@/components/ui/Checkbox';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { Pencil, Calendar, Plus, ChevronDown } from 'lucide-react';
+import { Card, CardHeader, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { toast } from 'sonner';
 import { QUESTION_KINDS } from '@/lib/eventtype/validator';
 import type { LocationKind, QuestionKind } from '@/lib/eventtype/validator';
 
@@ -218,8 +226,8 @@ function UrlPreview({
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-2 text-body-m">
-        <span className="text-on-surface-variant">
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2 text-sm">
+        <span className="text-muted-foreground">
           {host ?? ''}
           {host && '/'}
           {username}/
@@ -240,7 +248,7 @@ function UrlPreview({
                 setEditing(false);
               }
             }}
-            className="min-w-[6ch] rounded-shape-xs border border-primary bg-surface px-2 py-0.5 text-body-m text-on-surface outline-none"
+            className="min-w-[6ch] rounded-sm border border-primary bg-card px-2 py-0.5 text-sm text-foreground outline-none"
             aria-label="Edit slug"
           />
         ) : (
@@ -250,17 +258,15 @@ function UrlPreview({
               onManualEdit();
               setEditing(true);
             }}
-            className="group inline-flex items-center gap-1 rounded-shape-xs border border-outline-variant bg-surface-container-low px-2 py-0.5 text-body-m text-on-surface transition-colors hover:bg-surface-container hover:border-outline"
+            className="group inline-flex items-center gap-1 rounded-sm border border-border bg-muted/50 px-2 py-0.5 text-sm text-foreground transition-colors hover:bg-muted hover:border-input"
             title="Click to edit slug"
           >
             <span className="font-mono">{slug || 'your-slug'}</span>
-            <span className="material-symbols-outlined text-[14px] text-on-surface-variant transition-colors group-hover:text-on-surface">
-              edit
-            </span>
+            <Pencil className="h-3 w-3 text-muted-foreground transition-colors group-hover:text-foreground" />
           </button>
         )}
       </div>
-      {error && <p className="text-body-s text-error">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
@@ -280,7 +286,7 @@ function ColorPicker({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-label-m text-on-surface-variant">Color</p>
+      <p className="text-xs font-medium text-muted-foreground">Color</p>
       <div className="flex flex-wrap items-center gap-3">
         {COLOR_SWATCHES.map(({ hex, name }) => {
           const selected = value.toLowerCase() === hex.toLowerCase();
@@ -294,7 +300,7 @@ function ColorPicker({
               aria-pressed={selected}
               className={`h-8 w-8 rounded-full transition-transform hover:scale-110 ${
                 selected
-                  ? 'ring-2 ring-on-surface ring-offset-2 ring-offset-surface-container-low'
+                  ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background'
                   : ''
               }`}
               style={{ backgroundColor: hex }}
@@ -303,18 +309,16 @@ function ColorPicker({
         })}
 
         <label
-          className={`relative inline-flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-outline transition-transform hover:scale-110 ${
+          className={`relative inline-flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-input transition-transform hover:scale-110 ${
             !isPreset
-              ? 'ring-2 ring-on-surface ring-offset-2 ring-offset-surface-container-low'
+              ? 'ring-2 ring-foreground ring-offset-2 ring-offset-background'
               : ''
           }`}
           title="Custom color"
           style={!isPreset ? { backgroundColor: value, borderStyle: 'solid' } : undefined}
         >
           {isPreset && (
-            <span className="material-symbols-outlined text-[18px] text-on-surface-variant">
-              colorize
-            </span>
+            <span className="text-xs text-muted-foreground">+</span>
           )}
           <input
             type="color"
@@ -343,7 +347,6 @@ export function EventTypeForm({
   schedules,
 }: EventTypeFormProps) {
   const router = useRouter();
-  const { show } = useSnackbar();
 
   const [values, setValues] = useState<EventTypeFormValues>({
     ...DEFAULT_VALUES,
@@ -519,14 +522,14 @@ export function EventTypeForm({
           }
           setErrors(fieldErrors);
         }
-        show({ message: d.error ?? 'Failed to save event type' });
+        toast.error(d.error ?? 'Failed to save event type');
         return;
       }
 
-      show({ message: mode === 'create' ? 'Event type created' : 'Event type saved' });
+      toast.success(mode === 'create' ? 'Event type created' : 'Event type saved');
       router.push('/admin/event-types');
     } catch {
-      show({ message: 'Network error — please try again' });
+      toast.error('Network error — please try again');
     } finally {
       setSaving(false);
     }
@@ -543,21 +546,31 @@ export function EventTypeForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 pb-24 md:pb-0">
       {/* ── Section 1: Basics ── */}
-      <Card variant="outlined">
-        <Card.Header>
-          <h2 className="text-headline-s text-on-surface">Basics</h2>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-5">
+      <Card>
+        <CardHeader>
+          <h2 className="text-xl font-semibold text-foreground">Basics</h2>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
           <div className="flex flex-col gap-2">
-            <TextField
-              label="Title"
-              required
-              value={values.title}
-              onChange={(v) => set('title', v)}
-              error={Boolean(errors.title)}
-              helperText={errors.title ?? 'e.g. Discovery Call'}
-              autoFocus={mode === 'create'}
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="title">
+                Title <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="title"
+                value={values.title}
+                onChange={(e) => set('title', e.target.value)}
+                aria-invalid={Boolean(errors.title)}
+                required
+                autoFocus={mode === 'create'}
+                placeholder="e.g. Discovery Call"
+              />
+              {errors.title ? (
+                <p className="text-xs text-destructive">{errors.title}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">e.g. Discovery Call</p>
+              )}
+            </div>
             <UrlPreview
               username={username}
               slug={values.slug}
@@ -567,114 +580,177 @@ export function EventTypeForm({
             />
           </div>
 
-          <TextField
-            label="Description"
-            multiline
-            rows={3}
-            value={values.descriptionMd}
-            onChange={(v) => set('descriptionMd', v)}
-            helperText="Markdown supported. Shown to bookers on the event page."
-          />
+          <div className="grid gap-2">
+            <Label htmlFor="descriptionMd">Description</Label>
+            <Textarea
+              id="descriptionMd"
+              rows={3}
+              value={values.descriptionMd}
+              onChange={(e) => set('descriptionMd', e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Markdown supported. Shown to bookers on the event page.
+            </p>
+          </div>
 
           <ColorPicker value={values.color} onChange={(v) => set('color', v)} />
 
-          <Switch
-            checked={values.hidden}
-            onCheckedChange={(v) => set('hidden', v)}
-            label="Hidden"
-            description="Hidden event types are not shown on your public profile, but bookers can still reach them via direct link."
-          />
-        </Card.Content>
+          <div className="flex items-center gap-3">
+            <Switch
+              id="hidden"
+              checked={values.hidden}
+              onCheckedChange={(v) => set('hidden', v)}
+            />
+            <div className="flex flex-col">
+              <Label htmlFor="hidden">Hidden</Label>
+              <p className="text-xs text-muted-foreground">
+                Hidden event types are not shown on your public profile, but bookers can still reach them via direct link.
+              </p>
+            </div>
+          </div>
+        </CardContent>
       </Card>
 
       {/* ── Section 2: What you offer ── */}
-      <Card variant="outlined">
-        <Card.Header>
-          <h2 className="text-headline-s text-on-surface">What you offer</h2>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <h2 className="text-xl font-semibold text-foreground">What you offer</h2>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Select
-              label="Duration"
-              value={durationMode}
-              onValueChange={(v) => {
-                setDurationMode(v);
-                if (v !== 'custom') set('durationMinutes', Number(v));
-              }}
-              options={DURATION_PRESETS}
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="durationMode">Duration</Label>
+              <Select
+                value={durationMode}
+                onValueChange={(v) => {
+                  setDurationMode(v);
+                  if (v !== 'custom') set('durationMinutes', Number(v));
+                }}
+              >
+                <SelectTrigger id="durationMode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DURATION_PRESETS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {durationMode === 'custom' && (
-              <TextField
-                label="Custom duration (min)"
-                type="number"
-                value={String(values.durationMinutes)}
-                onChange={(v) => set('durationMinutes', v === '' ? '' : Number(v))}
-                error={Boolean(errors.durationMinutes)}
-                helperText={errors.durationMinutes}
-              />
+              <div className="grid gap-2">
+                <Label htmlFor="customDuration">Custom duration (min)</Label>
+                <Input
+                  id="customDuration"
+                  type="number"
+                  value={String(values.durationMinutes)}
+                  onChange={(e) =>
+                    set('durationMinutes', e.target.value === '' ? '' : Number(e.target.value))
+                  }
+                  aria-invalid={Boolean(errors.durationMinutes)}
+                />
+                {errors.durationMinutes && (
+                  <p className="text-xs text-destructive">{errors.durationMinutes}</p>
+                )}
+              </div>
             )}
           </div>
 
-          <Select
-            label="Location"
-            value={values.locationKind}
-            onValueChange={(v) => set('locationKind', v as LocationKind)}
-            options={LOCATION_KIND_OPTIONS}
-          />
+          <div className="grid gap-2">
+            <Label htmlFor="locationKind">Location</Label>
+            <Select
+              value={values.locationKind}
+              onValueChange={(v) => set('locationKind', v as LocationKind)}
+            >
+              <SelectTrigger id="locationKind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOCATION_KIND_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
           {(values.locationKind === 'in_person' || values.locationKind === 'custom_link') && (
-            <div className="duration-200 animate-in fade-in slide-in-from-top-1">
-              <TextField
-                label={values.locationKind === 'in_person' ? 'Address' : 'Meeting URL'}
+            <div className="duration-200 animate-in fade-in slide-in-from-top-1 grid gap-2">
+              <Label htmlFor="locationValue">
+                {values.locationKind === 'in_person' ? 'Address' : 'Meeting URL'}{' '}
+                <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="locationValue"
                 value={values.locationValue}
-                onChange={(v) => set('locationValue', v)}
-                error={Boolean(errors.locationValue)}
-                helperText={errors.locationValue}
+                onChange={(e) => set('locationValue', e.target.value)}
+                aria-invalid={Boolean(errors.locationValue)}
                 required
               />
+              {errors.locationValue && (
+                <p className="text-xs text-destructive">{errors.locationValue}</p>
+              )}
             </div>
           )}
-        </Card.Content>
+        </CardContent>
       </Card>
 
       {/* ── Section 3: Where it lands ── */}
-      <Card variant="outlined">
-        <Card.Header>
-          <h2 className="text-headline-s text-on-surface">Where it lands</h2>
-          <p className="text-body-m text-on-surface-variant">
+      <Card>
+        <CardHeader>
+          <h2 className="text-xl font-semibold text-foreground">Where it lands</h2>
+          <p className="text-sm text-muted-foreground">
             Bookings are created on this calendar.
           </p>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
           {noAccounts ? (
-            <div className="flex flex-col items-start gap-3 rounded-shape-sm border border-dashed border-outline-variant bg-surface-container-low p-5">
-              <p className="text-body-m text-on-surface-variant">
+            <div className="flex flex-col items-start gap-3 rounded-md border border-dashed border-border bg-muted/50 p-5">
+              <p className="text-sm text-muted-foreground">
                 You haven&apos;t connected a Google account yet. Connect one to start
                 receiving bookings.
               </p>
-              <Button asChild variant="tonal" size="sm">
+              <Button asChild variant="secondary" size="sm">
                 <Link href="/admin/calendars">
-                  <span className="material-symbols-outlined mr-1 text-[18px]">
-                    calendar_today
-                  </span>
+                  <Calendar className="mr-1 h-4 w-4" />
                   Connect calendar
                 </Link>
               </Button>
             </div>
           ) : (
             <>
-              <Select
-                label="Account"
-                value={values.destinationAccountId}
-                onValueChange={(v) => set('destinationAccountId', v)}
-                options={accountOptions}
-                error={Boolean(errors.destinationAccountId)}
-                helperText={errors.destinationAccountId}
-                required
-              />
+              <div className="grid gap-2">
+                <Label htmlFor="destinationAccountId">
+                  Account <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={values.destinationAccountId}
+                  onValueChange={(v) => set('destinationAccountId', v)}
+                >
+                  <SelectTrigger
+                    id="destinationAccountId"
+                    aria-invalid={Boolean(errors.destinationAccountId)}
+                  >
+                    <SelectValue placeholder="Select account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accountOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {errors.destinationAccountId && (
+                  <p className="text-xs text-destructive">{errors.destinationAccountId}</p>
+                )}
+              </div>
 
               {noEligibleCalendars ? (
-                <div className="rounded-shape-sm border border-dashed border-outline-variant bg-surface-container-low p-4 text-body-m text-on-surface-variant">
+                <div className="rounded-md border border-dashed border-border bg-muted/50 p-4 text-sm text-muted-foreground">
                   No calendars on this account are marked as a booking destination yet.{' '}
                   <Link
                     href="/admin/calendars"
@@ -685,76 +761,135 @@ export function EventTypeForm({
                   .
                 </div>
               ) : (
-                <Select
-                  label={accountSelected ? 'Calendar' : 'Calendar — pick an account first'}
-                  value={values.destinationCalendarId}
-                  onValueChange={(v) => set('destinationCalendarId', v)}
-                  options={calendarOptions}
-                  disabled={!accountSelected}
-                  error={Boolean(errors.destinationCalendarId)}
-                  helperText={errors.destinationCalendarId}
-                  required
-                />
+                <div className="grid gap-2">
+                  <Label htmlFor="destinationCalendarId">
+                    {accountSelected ? 'Calendar' : 'Calendar — pick an account first'}{' '}
+                    {accountSelected && <span className="text-destructive">*</span>}
+                  </Label>
+                  <Select
+                    value={values.destinationCalendarId}
+                    onValueChange={(v) => set('destinationCalendarId', v)}
+                    disabled={!accountSelected}
+                  >
+                    <SelectTrigger
+                      id="destinationCalendarId"
+                      aria-invalid={Boolean(errors.destinationCalendarId)}
+                    >
+                      <SelectValue placeholder="Select calendar" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {calendarOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {errors.destinationCalendarId && (
+                    <p className="text-xs text-destructive">{errors.destinationCalendarId}</p>
+                  )}
+                </div>
               )}
             </>
           )}
-        </Card.Content>
+        </CardContent>
       </Card>
 
       {/* ── Section 4: Custom questions ── */}
-      <Card variant="outlined">
-        <Card.Header>
-          <h2 className="text-headline-s text-on-surface">Custom questions</h2>
-          <p className="text-body-m text-on-surface-variant">
+      <Card>
+        <CardHeader>
+          <h2 className="text-xl font-semibold text-foreground">Custom questions</h2>
+          <p className="text-sm text-muted-foreground">
             Optional. Ask bookers anything you need before the meeting.
           </p>
-        </Card.Header>
-        <Card.Content className="flex flex-col gap-4">
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
           {values.questions.length === 0 ? (
-            <p className="rounded-shape-sm border border-dashed border-outline-variant bg-surface-container-low px-4 py-6 text-center text-body-m text-on-surface-variant">
+            <p className="rounded-md border border-dashed border-border bg-muted/50 px-4 py-6 text-center text-sm text-muted-foreground">
               Ask bookers anything you need to know — name, project info, phone…
             </p>
           ) : (
             values.questions.map((q, i) => (
               <div
                 key={i}
-                className="flex flex-col gap-3 rounded-shape-sm border border-outline-variant p-3"
+                className="flex flex-col gap-3 rounded-md border border-border p-3"
               >
                 <div className="grid gap-3 sm:grid-cols-[1fr_180px_auto]">
-                  <TextField
-                    label={`Question ${i + 1}`}
-                    required
-                    value={q.label}
-                    onChange={(v) => updateQuestion(i, { label: v })}
-                  />
-                  <Select
-                    label="Type"
-                    value={q.kind}
-                    onValueChange={(v) => updateQuestion(i, { kind: v as QuestionKind })}
-                    options={QUESTION_KIND_OPTIONS}
-                  />
-                  <div className="flex items-center justify-end">
-                    <IconButton
+                  <div className="grid gap-2">
+                    <Label htmlFor={`question-${i}`}>
+                      Question {i + 1} <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id={`question-${i}`}
+                      value={q.label}
+                      onChange={(e) => updateQuestion(i, { label: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor={`question-kind-${i}`}>Type</Label>
+                    <Select
+                      value={q.kind}
+                      onValueChange={(v) => updateQuestion(i, { kind: v as QuestionKind })}
+                    >
+                      <SelectTrigger id={`question-kind-${i}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {QUESTION_KIND_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-end justify-end pb-0.5">
+                    <Button
                       type="button"
-                      variant="standard"
-                      label="Remove question"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Remove question"
                       onClick={() => removeQuestion(i)}
                     >
-                      delete
-                    </IconButton>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                        <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                      </svg>
+                    </Button>
                   </div>
                 </div>
 
                 {(q.kind === 'select' || q.kind === 'radio') && (
-                  <TextField
-                    label="Options (comma-separated)"
-                    value={q.optionsJson}
-                    onChange={(v) => updateQuestion(i, { optionsJson: v })}
-                    helperText='e.g. "Option A, Option B, Option C"'
-                  />
+                  <div className="grid gap-2">
+                    <Label htmlFor={`question-options-${i}`}>Options (comma-separated)</Label>
+                    <Input
+                      id={`question-options-${i}`}
+                      value={q.optionsJson}
+                      onChange={(e) => updateQuestion(i, { optionsJson: e.target.value })}
+                      placeholder='e.g. "Option A, Option B, Option C"'
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      e.g. &quot;Option A, Option B, Option C&quot;
+                    </p>
+                  </div>
                 )}
 
-                <label className="flex cursor-pointer items-center gap-2 text-body-m text-on-surface">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
                   <Checkbox
                     checked={q.required}
                     onCheckedChange={(v) => updateQuestion(i, { required: Boolean(v) })}
@@ -766,160 +901,244 @@ export function EventTypeForm({
           )}
 
           <div>
-            <Button type="button" variant="outlined" size="sm" onClick={addQuestion}>
-              <span className="material-symbols-outlined mr-1 text-[18px]">add</span>
+            <Button type="button" variant="outline" size="sm" onClick={addQuestion}>
+              <Plus className="mr-1 h-4 w-4" />
               Add question
             </Button>
           </div>
-        </Card.Content>
+        </CardContent>
       </Card>
 
       {/* ── Section 5: Advanced (collapsed) ── */}
-      <Card variant="outlined">
+      <Card>
         <details className="group">
-          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-4 text-on-surface transition-colors hover:bg-on-surface/[0.04]">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-4 text-foreground transition-colors hover:bg-foreground/[0.04]">
             <div className="flex flex-col">
-              <span className="text-headline-s">Advanced</span>
-              <span className="text-body-s text-on-surface-variant">
+              <span className="text-xl font-semibold">Advanced</span>
+              <span className="text-xs text-muted-foreground">
                 Buffers, limits, schedule, password, redirect…
               </span>
             </div>
-            <span className="material-symbols-outlined text-[24px] text-on-surface-variant transition-transform group-open:rotate-180">
-              expand_more
-            </span>
+            <ChevronDown className="h-6 w-6 text-muted-foreground transition-transform group-open:rotate-180" />
           </summary>
 
           <div className="flex flex-col gap-5 px-4 pb-4">
             {/* Buffers */}
             <div>
-              <p className="mb-2 text-label-m text-on-surface-variant">Buffers (minutes)</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Buffers (minutes)</p>
               <div className="grid grid-cols-2 gap-3">
-                <TextField
-                  label="Before"
-                  type="number"
-                  value={String(values.bufferBeforeMin)}
-                  onChange={(v) =>
-                    set('bufferBeforeMin', v === '' ? '' : Number(v))
-                  }
-                />
-                <TextField
-                  label="After"
-                  type="number"
-                  value={String(values.bufferAfterMin)}
-                  onChange={(v) =>
-                    set('bufferAfterMin', v === '' ? '' : Number(v))
-                  }
-                />
+                <div className="grid gap-2">
+                  <Label htmlFor="bufferBeforeMin">Before</Label>
+                  <Input
+                    id="bufferBeforeMin"
+                    type="number"
+                    value={String(values.bufferBeforeMin)}
+                    onChange={(e) =>
+                      set('bufferBeforeMin', e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="bufferAfterMin">After</Label>
+                  <Input
+                    id="bufferAfterMin"
+                    type="number"
+                    value={String(values.bufferAfterMin)}
+                    onChange={(e) =>
+                      set('bufferAfterMin', e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                  />
+                </div>
               </div>
             </div>
 
             {/* Min notice */}
             <div>
-              <p className="mb-2 text-label-m text-on-surface-variant">Minimum notice</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Minimum notice</p>
               <div className="grid grid-cols-2 gap-3">
-                <TextField
-                  label="Notice"
-                  type="number"
-                  value={String(noticeDisplay)}
-                  onChange={(v) => {
-                    const n = v === '' ? '' : Number(v);
-                    if (n === '') set('minNoticeMin', '');
-                    else set('minNoticeMin', noticeUnit === 'hours' ? n * 60 : n);
-                  }}
-                />
-                <Select
-                  label="Unit"
-                  value={noticeUnit}
-                  onValueChange={(v) => {
-                    const next = v as 'minutes' | 'hours';
-                    // Re-base the stored minutes when unit changes.
-                    if (typeof values.minNoticeMin === 'number') {
-                      // Keep minute storage stable; just change display.
-                    }
-                    setNoticeUnit(next);
-                  }}
-                  options={MIN_NOTICE_UNITS}
-                />
+                <div className="grid gap-2">
+                  <Label htmlFor="noticeDisplay">Notice</Label>
+                  <Input
+                    id="noticeDisplay"
+                    type="number"
+                    value={String(noticeDisplay)}
+                    onChange={(e) => {
+                      const n = e.target.value === '' ? '' : Number(e.target.value);
+                      if (n === '') set('minNoticeMin', '');
+                      else set('minNoticeMin', noticeUnit === 'hours' ? (n as number) * 60 : (n as number));
+                    }}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="noticeUnit">Unit</Label>
+                  <Select
+                    value={noticeUnit}
+                    onValueChange={(v) => {
+                      setNoticeUnit(v as 'minutes' | 'hours');
+                    }}
+                  >
+                    <SelectTrigger id="noticeUnit">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MIN_NOTICE_UNITS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
             {/* Booking window */}
-            <TextField
-              label="Booking window (days)"
-              type="number"
-              value={String(values.bookingWindowDays)}
-              onChange={(v) => set('bookingWindowDays', v === '' ? '' : Number(v))}
-              helperText="How far into the future bookings can be made"
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="bookingWindowDays">Booking window (days)</Label>
+              <Input
+                id="bookingWindowDays"
+                type="number"
+                value={String(values.bookingWindowDays)}
+                onChange={(e) =>
+                  set('bookingWindowDays', e.target.value === '' ? '' : Number(e.target.value))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                How far into the future bookings can be made
+              </p>
+            </div>
 
             {/* Frequency limits */}
             <div>
-              <p className="mb-2 text-label-m text-on-surface-variant">Frequency limits</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Frequency limits</p>
               <div className="grid grid-cols-2 gap-3">
-                <TextField
-                  label="Max per day"
-                  type="number"
-                  value={String(values.maxPerDay)}
-                  onChange={(v) => set('maxPerDay', v === '' ? '' : Number(v))}
-                  helperText="Blank = unlimited"
-                />
-                <TextField
-                  label="Max per week"
-                  type="number"
-                  value={String(values.maxPerWeek)}
-                  onChange={(v) => set('maxPerWeek', v === '' ? '' : Number(v))}
-                  helperText="Blank = unlimited"
-                />
+                <div className="grid gap-2">
+                  <Label htmlFor="maxPerDay">Max per day</Label>
+                  <Input
+                    id="maxPerDay"
+                    type="number"
+                    value={String(values.maxPerDay)}
+                    onChange={(e) =>
+                      set('maxPerDay', e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    placeholder="Unlimited"
+                  />
+                  <p className="text-xs text-muted-foreground">Blank = unlimited</p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="maxPerWeek">Max per week</Label>
+                  <Input
+                    id="maxPerWeek"
+                    type="number"
+                    value={String(values.maxPerWeek)}
+                    onChange={(e) =>
+                      set('maxPerWeek', e.target.value === '' ? '' : Number(e.target.value))
+                    }
+                    placeholder="Unlimited"
+                  />
+                  <p className="text-xs text-muted-foreground">Blank = unlimited</p>
+                </div>
               </div>
             </div>
 
-            <Select
-              label="Slot interval"
-              value={String(values.slotIntervalMin)}
-              onValueChange={(v) => set('slotIntervalMin', Number(v))}
-              options={SLOT_INTERVAL_OPTIONS}
-              helperText="Granularity of offered start times"
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="slotIntervalMin">Slot interval</Label>
+              <Select
+                value={String(values.slotIntervalMin)}
+                onValueChange={(v) => set('slotIntervalMin', Number(v))}
+              >
+                <SelectTrigger id="slotIntervalMin">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLOT_INTERVAL_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Granularity of offered start times</p>
+            </div>
 
-            <Select
-              label="Schedule"
-              value={values.scheduleId}
-              onValueChange={(v) => set('scheduleId', v)}
-              options={scheduleOptions}
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="scheduleId">Schedule</Label>
+              <Select
+                value={values.scheduleId || '__default__'}
+                onValueChange={(v) => set('scheduleId', v === '__default__' ? '' : v)}
+              >
+                <SelectTrigger id="scheduleId">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {scheduleOptions.map((opt) => (
+                    <SelectItem key={opt.value || '__default__'} value={opt.value || '__default__'}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <TextField
-              label="Confirmation message"
-              multiline
-              rows={3}
-              value={values.confirmationMd}
-              onChange={(v) => set('confirmationMd', v)}
-              helperText="Markdown. Shown after booking and in the confirmation email."
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="confirmationMd">Confirmation message</Label>
+              <Textarea
+                id="confirmationMd"
+                rows={3}
+                value={values.confirmationMd}
+                onChange={(e) => set('confirmationMd', e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Markdown. Shown after booking and in the confirmation email.
+              </p>
+            </div>
 
-            <TextField
-              label="Redirect URL"
-              value={values.redirectUrl}
-              onChange={(v) => set('redirectUrl', v)}
-              error={Boolean(errors.redirectUrl)}
-              helperText={errors.redirectUrl ?? 'Optional. Booker is redirected here after booking.'}
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="redirectUrl">Redirect URL</Label>
+              <Input
+                id="redirectUrl"
+                value={values.redirectUrl}
+                onChange={(e) => set('redirectUrl', e.target.value)}
+                aria-invalid={Boolean(errors.redirectUrl)}
+              />
+              {errors.redirectUrl ? (
+                <p className="text-xs text-destructive">{errors.redirectUrl}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Optional. Booker is redirected here after booking.
+                </p>
+              )}
+            </div>
 
-            <TextField
-              label="Password"
-              type="password"
-              value={values.password}
-              onChange={(v) => set('password', v)}
-              placeholder={mode === 'edit' ? 'Leave blank to keep current' : 'Leave blank for no password'}
-              helperText="If set, bookers must enter this password to view the booking page"
-            />
+            <div className="grid gap-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={values.password}
+                onChange={(e) => set('password', e.target.value)}
+                placeholder={
+                  mode === 'edit' ? 'Leave blank to keep current' : 'Leave blank for no password'
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                If set, bookers must enter this password to view the booking page
+              </p>
+            </div>
 
-            <Switch
-              checked={values.sendReminders}
-              onCheckedChange={(v) => set('sendReminders', v)}
-              label="Send reminder emails"
-              description="Automatically email bookers ahead of the meeting."
-            />
+            <div className="flex items-center gap-3">
+              <Switch
+                id="sendReminders"
+                checked={values.sendReminders}
+                onCheckedChange={(v) => set('sendReminders', v)}
+              />
+              <div className="flex flex-col">
+                <Label htmlFor="sendReminders">Send reminder emails</Label>
+                <p className="text-xs text-muted-foreground">
+                  Automatically email bookers ahead of the meeting.
+                </p>
+              </div>
+            </div>
           </div>
         </details>
       </Card>
@@ -927,20 +1146,20 @@ export function EventTypeForm({
       {/* ── Submit bar ── */}
       <div
         className={
-          'sticky bottom-0 -mx-4 flex items-center justify-end gap-3 border-t border-outline-variant bg-surface-container-low/95 px-4 py-3 backdrop-blur ' +
+          'sticky bottom-0 -mx-4 flex items-center justify-end gap-3 border-t border-border bg-muted/50 px-4 py-3 backdrop-blur ' +
           'md:static md:mx-0 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none'
         }
       >
         <Button
           type="button"
-          variant="text"
+          variant="ghost"
           onClick={() => router.push('/admin/event-types')}
           disabled={saving}
         >
           Cancel
         </Button>
-        <Button type="submit" variant="filled" loading={saving} disabled={saving}>
-          {mode === 'create' ? 'Save event type' : 'Save changes'}
+        <Button type="submit" disabled={saving}>
+          {saving ? 'Saving…' : mode === 'create' ? 'Save event type' : 'Save changes'}
         </Button>
       </div>
     </form>

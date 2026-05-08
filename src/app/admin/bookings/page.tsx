@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { DateTime } from 'luxon';
+import { Download, CalendarOff, Search, ChevronRight } from 'lucide-react';
 
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { Button } from '@/components/ui/Button';
-import { SnackbarProvider } from '@/components/ui/Snackbar';
+import { Button } from '@/components/ui/button';
 
 import { BookingsFilters } from './_components/bookings-filters';
 
@@ -91,132 +91,129 @@ export default async function AdminBookingsPage({ searchParams }: PageProps) {
   }`;
 
   return (
-    <SnackbarProvider>
-      <div className="mx-auto flex max-w-4xl flex-col">
-        <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-display-s text-on-background">Bookings</h1>
-            <p className="mt-1 text-body-l text-on-surface-variant">
-              {total === 0
-                ? 'No bookings yet.'
-                : `${total} total booking${total === 1 ? '' : 's'}${
-                    totalPages > 1 ? ` · page ${page} of ${totalPages}` : ''
-                  }.`}
-            </p>
-          </div>
-          <a href={exportUrl} download>
-            <Button variant="outlined" type="button" leadingIcon={<span className="material-symbols-outlined">download</span>}>
-              Export CSV
-            </Button>
-          </a>
-        </header>
+    <div className="mx-auto flex max-w-4xl flex-col">
+      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Bookings</h1>
+          <p className="mt-1 text-base text-muted-foreground">
+            {total === 0
+              ? 'No bookings yet.'
+              : `${total} total booking${total === 1 ? '' : 's'}${
+                  totalPages > 1 ? ` · page ${page} of ${totalPages}` : ''
+                }.`}
+          </p>
+        </div>
+        <a href={exportUrl} download>
+          <Button variant="outline" type="button">
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+        </a>
+      </header>
 
-        <BookingsFilters
-          status={status}
-          eventTypeId={eventTypeId}
-          from={from}
-          to={to}
-          q={q}
-          eventTypes={ownedEventTypes}
-        />
+      <BookingsFilters
+        status={status}
+        eventTypeId={eventTypeId}
+        from={from}
+        to={to}
+        q={q}
+        eventTypes={ownedEventTypes}
+      />
 
-        <section className="mt-6">
-          {rows.length === 0 ? (
-            hasFilters ? (
-              <EmptyState
-                icon="search_off"
-                title="No bookings match your filters"
-                description="Try widening the date range or clearing filters."
-              />
-            ) : (
-              <EmptyState
-                icon="event_busy"
-                title="No bookings yet"
-                description="Once people book through your link, they'll show up here."
-              />
-            )
+      <section className="mt-6">
+        {rows.length === 0 ? (
+          hasFilters ? (
+            <EmptyState
+              icon="search"
+              title="No bookings match your filters"
+              description="Try widening the date range or clearing filters."
+            />
           ) : (
-            <div className="overflow-hidden rounded-shape-md border border-outline-variant bg-surface">
-              {/* Header row — desktop only */}
-              <div className="hidden border-b border-outline-variant bg-surface-container-low px-5 py-3 text-label-m text-on-surface-variant md:grid md:grid-cols-[1.6fr_1.6fr_1.4fr_auto_40px] md:gap-4">
-                <span>When</span>
-                <span>Booker</span>
-                <span>Event type</span>
-                <span>Status</span>
-                <span aria-hidden="true" />
-              </div>
-              <ul className="flex flex-col">
-                {rows.map((b) => {
-                  const start = DateTime.fromJSDate(b.startAt);
-                  const color = eventTypeColors.get(b.eventType.id) ?? '#888';
-                  return (
-                    <li key={b.id} className="border-b border-outline-variant last:border-b-0">
-                      <Link
-                        href={`/admin/bookings/${b.id}`}
-                        className="grid grid-cols-1 gap-2 px-5 py-4 transition-colors hover:bg-surface-container-low md:grid-cols-[1.6fr_1.6fr_1.4fr_auto_40px] md:items-center md:gap-4"
-                      >
-                        <div className="flex flex-col">
-                          <span className="text-title-m text-on-surface">
-                            {start.toLocaleString(DateTime.DATETIME_MED)}
-                          </span>
-                          <span className="text-body-s text-on-surface-variant">
-                            {b.bookerTimezone}
-                          </span>
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="truncate text-body-m text-on-surface">{b.bookerName}</span>
-                          <span className="truncate text-body-s text-on-surface-variant">
-                            {b.bookerEmail}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className="h-2.5 w-2.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: color }}
-                            aria-hidden="true"
-                          />
-                          <span className="truncate text-body-m text-on-surface">
-                            {b.eventType.title}
-                          </span>
-                        </div>
-                        <div>
-                          <StatusPill status={b.status} noShow={b.noShow} needsSync={b.needsSync} />
-                        </div>
-                        <div className="hidden md:flex md:justify-end">
-                          <span className="material-symbols-outlined text-on-surface-variant">
-                            chevron_right
-                          </span>
-                        </div>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
+            <EmptyState
+              icon="calendar_off"
+              title="No bookings yet"
+              description="Once people book through your link, they'll show up here."
+            />
+          )
+        ) : (
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+            {/* Header row — desktop only */}
+            <div className="hidden border-b border-border bg-muted/50 px-5 py-3 text-xs font-medium text-muted-foreground md:grid md:grid-cols-[1.6fr_1.6fr_1.4fr_auto_40px] md:gap-4">
+              <span>When</span>
+              <span>Booker</span>
+              <span>Event type</span>
+              <span>Status</span>
+              <span aria-hidden="true" />
             </div>
-          )}
-        </section>
-
-        {totalPages > 1 && (
-          <nav className="mt-6 flex items-center justify-center gap-3">
-            <PageLink
-              label="Previous"
-              page={page - 1}
-              disabled={page <= 1}
-              params={searchParams}
-            />
-            <span className="text-body-s text-on-surface-variant">
-              {page} / {totalPages}
-            </span>
-            <PageLink
-              label="Next"
-              page={page + 1}
-              disabled={page >= totalPages}
-              params={searchParams}
-            />
-          </nav>
+            <ul className="flex flex-col">
+              {rows.map((b) => {
+                const start = DateTime.fromJSDate(b.startAt);
+                const color = eventTypeColors.get(b.eventType.id) ?? '#888';
+                return (
+                  <li key={b.id} className="border-b border-border last:border-b-0">
+                    <Link
+                      href={`/admin/bookings/${b.id}`}
+                      className="grid grid-cols-1 gap-2 px-5 py-4 transition-colors hover:bg-muted/50 md:grid-cols-[1.6fr_1.6fr_1.4fr_auto_40px] md:items-center md:gap-4"
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-base font-medium text-foreground">
+                          {start.toLocaleString(DateTime.DATETIME_MED)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {b.bookerTimezone}
+                        </span>
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate text-sm text-foreground">{b.bookerName}</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {b.bookerEmail}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: color }}
+                          aria-hidden="true"
+                        />
+                        <span className="truncate text-sm text-foreground">
+                          {b.eventType.title}
+                        </span>
+                      </div>
+                      <div>
+                        <StatusPill status={b.status} noShow={b.noShow} needsSync={b.needsSync} />
+                      </div>
+                      <div className="hidden md:flex md:justify-end">
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
-      </div>
-    </SnackbarProvider>
+      </section>
+
+      {totalPages > 1 && (
+        <nav className="mt-6 flex items-center justify-center gap-3">
+          <PageLink
+            label="Previous"
+            page={page - 1}
+            disabled={page <= 1}
+            params={searchParams}
+          />
+          <span className="text-xs text-muted-foreground">
+            {page} / {totalPages}
+          </span>
+          <PageLink
+            label="Next"
+            page={page + 1}
+            disabled={page >= totalPages}
+            params={searchParams}
+          />
+        </nav>
+      )}
+    </div>
   );
 }
 
@@ -230,17 +227,17 @@ function StatusPill({
   needsSync: boolean;
 }) {
   const tags: { label: string; tone: string }[] = [];
-  if (status === 'cancelled') tags.push({ label: 'Cancelled', tone: 'bg-error-container text-on-error-container' });
-  else if (status === 'rescheduled') tags.push({ label: 'Rescheduled', tone: 'bg-tertiary-container text-on-tertiary-container' });
-  else tags.push({ label: 'Confirmed', tone: 'bg-secondary-container text-on-secondary-container' });
-  if (noShow) tags.push({ label: 'No-show', tone: 'bg-error-container text-on-error-container' });
-  if (needsSync) tags.push({ label: 'Needs sync', tone: 'bg-tertiary-container text-on-tertiary-container' });
+  if (status === 'cancelled') tags.push({ label: 'Cancelled', tone: 'bg-destructive/10 text-destructive' });
+  else if (status === 'rescheduled') tags.push({ label: 'Rescheduled', tone: 'bg-emerald-100 text-emerald-700' });
+  else tags.push({ label: 'Confirmed', tone: 'bg-secondary text-secondary-foreground' });
+  if (noShow) tags.push({ label: 'No-show', tone: 'bg-destructive/10 text-destructive' });
+  if (needsSync) tags.push({ label: 'Needs sync', tone: 'bg-emerald-100 text-emerald-700' });
   return (
     <span className="flex flex-wrap gap-1">
       {tags.map((t) => (
         <span
           key={t.label}
-          className={`rounded-full px-2 py-0.5 text-label-s ${t.tone}`}
+          className={`rounded-full px-2 py-0.5 text-xs ${t.tone}`}
         >
           {t.label}
         </span>
@@ -258,13 +255,12 @@ function EmptyState({
   title: string;
   description: string;
 }) {
+  const Icon = icon === 'search' ? Search : CalendarOff;
   return (
-    <div className="flex flex-col items-center gap-3 rounded-shape-md bg-surface-container-low px-6 py-16 text-center">
-      <span className="material-symbols-outlined text-[48px] text-on-surface-variant">
-        {icon}
-      </span>
-      <h2 className="text-title-l text-on-surface">{title}</h2>
-      <p className="max-w-sm text-body-m text-on-surface-variant">{description}</p>
+    <div className="flex flex-col items-center gap-3 rounded-lg bg-muted/50 px-6 py-16 text-center">
+      <Icon className="h-12 w-12 text-muted-foreground" />
+      <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+      <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
@@ -287,14 +283,14 @@ function PageLink({
   search.set('page', String(page));
   if (disabled) {
     return (
-      <Button variant="text" type="button" disabled>
+      <Button variant="ghost" type="button" disabled>
         {label}
       </Button>
     );
   }
   return (
     <Link href={`/admin/bookings?${search}`}>
-      <Button variant="text" type="button">
+      <Button variant="ghost" type="button">
         {label}
       </Button>
     </Link>

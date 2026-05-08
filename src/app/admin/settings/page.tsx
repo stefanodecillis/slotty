@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
+import { Clock, Download, Archive, Info, Lock, Webhook, ChevronRight } from 'lucide-react';
 import { GeneralForm } from './general-form';
-import { BrandingForm } from './branding-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,8 +49,8 @@ export default async function SettingsPage({ searchParams }: PageProps) {
   return (
     <div className="mx-auto flex max-w-4xl flex-col">
       <header className="mb-6">
-        <h1 className="text-display-s text-on-background">Settings</h1>
-        <p className="mt-1 text-body-l text-on-surface-variant">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Settings</h1>
+        <p className="mt-1 text-base text-muted-foreground">
           Configure how Slotty works for you.
         </p>
       </header>
@@ -58,7 +58,7 @@ export default async function SettingsPage({ searchParams }: PageProps) {
       {/* Tabs */}
       <nav
         aria-label="Settings tabs"
-        className="mb-8 flex gap-1 overflow-x-auto border-b border-outline-variant"
+        className="mb-8 flex gap-1 overflow-x-auto border-b border-border"
       >
         {tabs.map((t) => {
           const active = t.id === tab;
@@ -68,10 +68,10 @@ export default async function SettingsPage({ searchParams }: PageProps) {
               href={`/admin/settings?tab=${t.id}`}
               scroll={false}
               className={[
-                'inline-flex h-12 items-center whitespace-nowrap border-b-2 px-4 text-label-l transition-colors',
+                'inline-flex h-12 items-center whitespace-nowrap border-b-2 px-4 text-sm font-medium transition-colors',
                 active
                   ? 'border-primary text-primary'
-                  : 'border-transparent text-on-surface-variant hover:text-on-surface',
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
               ].join(' ')}
               aria-current={active ? 'page' : undefined}
             >
@@ -82,13 +82,13 @@ export default async function SettingsPage({ searchParams }: PageProps) {
         <div className="ml-auto hidden items-center gap-3 pb-2 sm:flex">
           <Link
             href="/admin/settings/security"
-            className="text-label-l text-on-surface-variant transition-colors hover:text-on-surface"
+            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             Security →
           </Link>
           <Link
             href="/admin/settings/webhooks"
-            className="text-label-l text-on-surface-variant transition-colors hover:text-on-surface"
+            className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             Webhooks →
           </Link>
@@ -97,11 +97,11 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       {tab === 'general' && (
         <section>
-          <h2 className="text-title-l text-on-surface">General</h2>
-          <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+          <h2 className="text-lg font-semibold text-foreground">General</h2>
+          <p className="mb-4 mt-1 text-sm text-muted-foreground">
             Default timezone and locale preferences.
           </p>
-          <div className="rounded-shape-md bg-surface-container-low p-6">
+          <div className="rounded-lg bg-muted/50 p-6">
             <GeneralForm user={user} timezones={timezones} siteUrl={siteUrl} />
           </div>
         </section>
@@ -109,48 +109,42 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       {tab === 'branding' && (
         <section>
-          <h2 className="text-title-l text-on-surface">Branding</h2>
-          <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
-            Customize the look and feel of your Slotty instance.
+          <h2 className="text-lg font-semibold text-foreground">Branding</h2>
+          <p className="mb-4 mt-1 text-sm text-muted-foreground">
+            Theme appearance for your Slotty instance.
           </p>
-          <div className="rounded-shape-md bg-surface-container-low p-6">
-            <BrandingForm user={user} />
+          <div className="rounded-lg bg-muted/50 p-6">
+            <p className="text-sm text-muted-foreground">
+              Theme is system-controlled (light/dark via OS preference).
+            </p>
           </div>
         </section>
       )}
 
       {tab === 'backup' && (
         <section>
-          <h2 className="text-title-l text-on-surface">Backup &amp; export</h2>
-          <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+          <h2 className="text-lg font-semibold text-foreground">Backup &amp; export</h2>
+          <p className="mb-4 mt-1 text-sm text-muted-foreground">
             Download a snapshot of your database, or export everything as a structured archive.
           </p>
-          <div className="rounded-shape-md bg-surface-container-low p-6">
+          <div className="rounded-lg bg-muted/50 p-6">
             <div className="flex flex-col gap-5">
               {lastBackup && (
-                <p className="text-body-s text-on-surface-variant">
-                  <span className="material-symbols-outlined align-middle text-[16px] mr-1">
-                    schedule
-                  </span>
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Clock className="h-4 w-4" />
                   Last backup: {lastBackup.toISOString().replace('T', ' ').slice(0, 19)} UTC
                 </p>
               )}
               <div className="flex flex-wrap gap-3">
                 <a href="/api/admin/backup/snapshot">
-                  <Button
-                    variant="tonal"
-                    type="button"
-                    leadingIcon={<span className="material-symbols-outlined">download</span>}
-                  >
+                  <Button variant="secondary" type="button">
+                    <Download className="h-4 w-4" />
                     SQLite snapshot
                   </Button>
                 </a>
                 <a href="/api/admin/backup/export">
-                  <Button
-                    variant="outlined"
-                    type="button"
-                    leadingIcon={<span className="material-symbols-outlined">archive</span>}
-                  >
+                  <Button variant="outline" type="button">
+                    <Archive className="h-4 w-4" />
                     Export all data
                   </Button>
                 </a>
@@ -162,14 +156,14 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       {tab === 'notifications' && (
         <section>
-          <h2 className="text-title-l text-on-surface">Notifications</h2>
-          <p className="mb-4 mt-1 text-body-m text-on-surface-variant">
+          <h2 className="text-lg font-semibold text-foreground">Notifications</h2>
+          <p className="mb-4 mt-1 text-sm text-muted-foreground">
             How Slotty handles transactional email.
           </p>
-          <div className="rounded-shape-md bg-surface-container-low p-6">
+          <div className="rounded-lg bg-muted/50 p-6">
             <div className="flex items-start gap-3">
-              <span className="material-symbols-outlined text-on-surface-variant">info</span>
-              <p className="text-body-m text-on-surface-variant">
+              <Info className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground">
                 Slotty does not send transactional emails directly. Google Calendar sends invites,
                 reschedule notices, and cancellations to all attendees automatically when you book
                 through a Google Meet event type. To customize the sender domain or use branded
@@ -182,27 +176,27 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       {/* Always-visible quick links to security/webhooks on mobile */}
       <section className="mt-12 sm:hidden">
-        <h2 className="mb-3 text-title-l text-on-surface">More</h2>
-        <div className="overflow-hidden rounded-shape-md border border-outline-variant bg-surface">
+        <h2 className="mb-3 text-lg font-semibold text-foreground">More</h2>
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
           <Link
             href="/admin/settings/security"
-            className="flex items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-surface-container-low"
+            className="flex items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-muted/50"
           >
             <span className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-on-surface-variant">lock</span>
-              <span className="text-title-m text-on-surface">Security</span>
+              <Lock className="h-5 w-5 text-muted-foreground" />
+              <span className="text-base font-medium text-foreground">Security</span>
             </span>
-            <span className="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </Link>
           <Link
             href="/admin/settings/webhooks"
-            className="flex items-center justify-between gap-3 border-t border-outline-variant px-5 py-4 transition-colors hover:bg-surface-container-low"
+            className="flex items-center justify-between gap-3 border-t border-border px-5 py-4 transition-colors hover:bg-muted/50"
           >
             <span className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-on-surface-variant">webhook</span>
-              <span className="text-title-m text-on-surface">Webhooks</span>
+              <Webhook className="h-5 w-5 text-muted-foreground" />
+              <span className="text-base font-medium text-foreground">Webhooks</span>
             </span>
-            <span className="material-symbols-outlined text-on-surface-variant">chevron_right</span>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </Link>
         </div>
       </section>

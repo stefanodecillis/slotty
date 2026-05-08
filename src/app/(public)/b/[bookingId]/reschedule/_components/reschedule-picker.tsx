@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/Button';
-import { useSnackbar } from '@/components/ui/Snackbar';
+import { Button } from '@/components/ui/button';
 import type { SlotResult } from '@/lib/scheduling/compute-types';
 
 interface Props {
@@ -27,7 +28,6 @@ export function ReschedulePicker({
   currentBookerTz,
 }: Props) {
   const router = useRouter();
-  const { show } = useSnackbar();
 
   const bookerTz = currentBookerTz;
   const [monthAnchor, setMonthAnchor] = useState<Date>(() => startOfMonthLocal(new Date()));
@@ -64,7 +64,7 @@ export function ReschedulePicker({
         setSlotsByDay(map);
       } catch {
         if (!cancelled) {
-          show({ message: 'Could not load slots. Please try again.' });
+          toast.error('Could not load slots. Please try again.');
           setSlotsByDay(new Map());
         }
       } finally {
@@ -75,7 +75,7 @@ export function ReschedulePicker({
     return () => {
       cancelled = true;
     };
-  }, [slug, bookerTz, monthAnchor, show]);
+  }, [slug, bookerTz, monthAnchor]);
 
   const monthGrid = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
 
@@ -93,7 +93,7 @@ export function ReschedulePicker({
       );
       if (res.status === 409) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        show({ message: data.error ?? 'That slot is no longer available.' });
+        toast.error(data.error ?? 'That slot is no longer available.');
         setSubmitting(false);
         return;
       }
@@ -101,10 +101,10 @@ export function ReschedulePicker({
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
-      show({ message: 'Booking rescheduled.' });
+      toast.success('Booking rescheduled.');
       router.push(`/b/${bookingId}?t=${encodeURIComponent(token)}`);
     } catch (err) {
-      show({ message: err instanceof Error ? err.message : 'Reschedule failed' });
+      toast.error(err instanceof Error ? err.message : 'Reschedule failed');
       setSubmitting(false);
     }
   }
@@ -112,7 +112,7 @@ export function ReschedulePicker({
   return (
     <div className="flex flex-col gap-6">
       {/* Calendar */}
-      <div className="rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
+      <div className="rounded-2xl border border-border/60 bg-muted/50 p-5">
         <DateGrid
           monthAnchor={monthAnchor}
           grid={monthGrid}
@@ -129,8 +129,8 @@ export function ReschedulePicker({
 
       {/* Time slots */}
       {selectedDate && (
-        <div className="rounded-shape-xl border border-outline-variant/60 bg-surface-container-low p-5">
-          <p className="mb-3 text-body-s text-on-surface-variant">
+        <div className="rounded-2xl border border-border/60 bg-muted/50 p-5">
+          <p className="mb-3 text-xs text-muted-foreground">
             Times on {formatHumanDate(selectedDate, bookerTz)}
           </p>
           <TimeGrid
@@ -143,12 +143,12 @@ export function ReschedulePicker({
 
       {/* Selected time chip */}
       {selectedSlot && (
-        <div className="rounded-shape-sm bg-primary-container px-4 py-3">
-          <p className="text-body-m font-medium text-on-primary-container">
+        <div className="rounded-md bg-primary/10 px-4 py-3">
+          <p className="text-sm font-medium text-primary">
             New time: {selectedSlot.label}
           </p>
           {selectedDate && (
-            <p className="mt-0.5 text-body-s text-on-primary-container">
+            <p className="mt-0.5 text-xs text-primary">
               {formatHumanDate(selectedDate, bookerTz)}
             </p>
           )}
@@ -158,7 +158,7 @@ export function ReschedulePicker({
       {/* Actions */}
       <div className="flex justify-between gap-2">
         <Button
-          variant="text"
+          variant="ghost"
           type="button"
           onClick={() => router.back()}
           disabled={submitting}
@@ -166,14 +166,12 @@ export function ReschedulePicker({
           Back
         </Button>
         <Button
-          variant="filled"
           type="button"
           size="lg"
           disabled={!selectedSlot || submitting}
-          loading={submitting}
           onClick={handleSubmit}
         >
-          Confirm new time
+          {submitting ? 'Confirming…' : 'Confirm new time'}
         </Button>
       </div>
     </div>
@@ -263,26 +261,26 @@ function DateGrid({
           type="button"
           onClick={onPrev}
           aria-label="Previous month"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <span className="material-symbols-outlined text-[20px]" aria-hidden>chevron_left</span>
+          <ChevronLeft className="h-5 w-5" aria-hidden />
         </button>
-        <span className="text-title-m text-on-surface" aria-live="polite">
+        <span className="text-base font-medium text-foreground" aria-live="polite">
           {monthLabel}
         </span>
         <button
           type="button"
           onClick={onNext}
           aria-label="Next month"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <span className="material-symbols-outlined text-[20px]" aria-hidden>chevron_right</span>
+          <ChevronRight className="h-5 w-5" aria-hidden />
         </button>
       </div>
 
       <div className="grid grid-cols-7 text-center">
         {weekdayLabels.map((w) => (
-          <div key={w} className="py-1 text-label-m text-on-surface-variant">
+          <div key={w} className="py-1 text-xs font-medium text-muted-foreground">
             {w}
           </div>
         ))}
@@ -304,11 +302,11 @@ function DateGrid({
               disabled={!enabled}
               onClick={() => enabled && onPick(key)}
               className={[
-                'relative mx-auto flex h-9 w-9 items-center justify-center rounded-full text-body-m transition-colors',
+                'relative mx-auto flex h-9 w-9 items-center justify-center rounded-full text-sm transition-colors',
                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 enabled
-                  ? 'cursor-pointer bg-primary-container text-on-primary-container font-medium hover:bg-primary hover:text-on-primary'
-                  : 'cursor-default text-on-surface-variant',
+                  ? 'cursor-pointer bg-primary/10 text-primary font-medium hover:bg-primary hover:text-primary-foreground'
+                  : 'cursor-default text-muted-foreground',
                 dim ? 'opacity-30' : '',
                 isToday ? 'ring-1 ring-inset ring-primary' : '',
               ]
@@ -322,7 +320,7 @@ function DateGrid({
       </div>
 
       {loading && (
-        <p className="text-center text-body-s text-on-surface-variant" aria-live="polite">
+        <p className="text-center text-xs text-muted-foreground" aria-live="polite">
           Loading availability...
         </p>
       )}
@@ -343,7 +341,7 @@ function TimeGrid({
 }) {
   if (slots.length === 0) {
     return (
-      <p className="py-6 text-center text-body-m text-on-surface-variant">
+      <p className="py-6 text-center text-sm text-muted-foreground">
         No availability on this day.
       </p>
     );
@@ -358,11 +356,11 @@ function TimeGrid({
             type="button"
             onClick={() => onPick(s)}
             className={[
-              'w-full rounded-shape-md border px-4 py-3 text-left text-body-l transition-colors',
+              'w-full rounded-lg border px-4 py-3 text-left text-base transition-colors',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:text-center',
               isSel
-                ? 'border-primary bg-primary text-on-primary'
-                : 'border-outline text-on-surface hover:border-primary hover:bg-primary-container/50',
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-input text-foreground hover:border-primary hover:bg-primary/5',
             ].join(' ')}
           >
             {s.startInBookerTz}

@@ -1,7 +1,5 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { Card } from '@/components/ui/Card';
-import { SnackbarProvider } from '@/components/ui/Snackbar';
 import { EventTypeForm } from '../_components/event-type-form';
 import type { ConnectedAccountOption, CalendarOption, ScheduleOption } from '../_components/event-type-form';
 import Link from 'next/link';
@@ -49,26 +47,24 @@ export default async function NewEventTypePage() {
   }));
 
   return (
-    <SnackbarProvider>
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        <header className="flex flex-col gap-2">
-          <nav className="text-body-s text-on-surface-variant">
-            <Link href="/admin/event-types" className="hover:text-on-surface">
-              Event Types
-            </Link>{' '}
-            &rsaquo; New
-          </nav>
-          <h1 className="text-display-s text-on-background">New Event Type</h1>
-        </header>
+    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+      <header className="flex flex-col gap-2">
+        <nav className="text-xs text-muted-foreground">
+          <Link href="/admin/event-types" className="hover:text-foreground">
+            Event Types
+          </Link>{' '}
+          &rsaquo; New
+        </nav>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">New Event Type</h1>
+      </header>
 
-        <EventTypeForm
-          mode="create"
-          username={user.username}
-          accounts={accountOptions}
-          allCalendars={calendarOptions}
-          schedules={scheduleOptions}
-        />
-      </div>
-    </SnackbarProvider>
+      <EventTypeForm
+        mode="create"
+        username={user.username}
+        accounts={accountOptions}
+        allCalendars={calendarOptions}
+        schedules={scheduleOptions}
+      />
+    </div>
   );
 }
