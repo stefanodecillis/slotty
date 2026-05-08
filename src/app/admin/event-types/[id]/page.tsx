@@ -84,6 +84,7 @@ export default async function EditEventTypePage({ params }: PageProps) {
     bookingWindowDays: eventType.bookingWindowDays,
     maxPerDay: eventType.maxPerDay ?? '',
     maxPerWeek: eventType.maxPerWeek ?? '',
+    maxGuests: eventType.maxGuests,
     slotIntervalMin: eventType.slotIntervalMin,
     scheduleId: eventType.scheduleId ?? '',
     confirmationMd: eventType.confirmationMd ?? '',

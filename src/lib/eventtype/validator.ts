@@ -88,6 +88,13 @@ export const eventTypeInputSchema = z
     maxPerDay: z.number().int().positive().optional().nullable(),
     maxPerWeek: z.number().int().positive().optional().nullable(),
 
+    maxGuests: z
+      .number()
+      .int()
+      .min(0, 'Max guests cannot be negative')
+      .max(20, 'Max guests cannot exceed 20')
+      .default(3),
+
     slotIntervalMin: z
       .number()
       .int()

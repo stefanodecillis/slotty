@@ -61,6 +61,7 @@ function makeInput(overrides: Record<string, unknown> = {}) {
     minNoticeMin: 60,
     bookingWindowDays: 60,
     slotIntervalMin: 15,
+    maxGuests: 3,
     sendReminders: true,
     questions: [],
     ...overrides,

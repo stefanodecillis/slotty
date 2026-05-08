@@ -40,6 +40,7 @@ interface SeedOpts {
   durationMinutes?: number;
   locationKind?: 'google_meet' | 'phone' | 'in_person' | 'custom_link';
   locationValue?: string | null;
+  maxGuests?: number;
 }
 
 async function seed(opts: SeedOpts = {}) {
@@ -116,6 +117,7 @@ async function seed(opts: SeedOpts = {}) {
       minNoticeMin: 0,
       bookingWindowDays: 60,
       slotIntervalMin: 15,
+      maxGuests: opts.maxGuests ?? 3,
       scheduleId: schedule.id,
       passwordHash,
       sendReminders: true,
@@ -398,5 +400,67 @@ describe('createBooking location handling', () => {
 
     const cd = (captured as { conferenceData?: { createRequest?: unknown } }).conferenceData;
     expect(cd?.createRequest).toBeDefined();
+  });
+});
+
+describe('createBooking guest cap', () => {
+  it('rejects with TOO_MANY_GUESTS when additionalGuests exceeds maxGuests', async () => {
+    const { eventType } = await seed({ maxGuests: 1 });
+    const insertSpy = spyOn(gcal, 'insertEvent').mockResolvedValue({ id: 'g-1' } as never);
+    cleanups.push(() => insertSpy.mockRestore());
+
+    let err: unknown;
+    try {
+      await createBooking({
+        eventTypeSlug: eventType.slug,
+        startAtIso: nextWeekdaySlot().toISOString(),
+        bookerName: 'Host',
+        bookerEmail: 'host@example.com',
+        bookerTimezone: 'UTC',
+        additionalGuests: ['a@example.com', 'b@example.com'],
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeDefined();
+    expect((err as { code?: string }).code).toBe('TOO_MANY_GUESTS');
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it('allows exactly maxGuests additional guests', async () => {
+    const { eventType } = await seed({ maxGuests: 2 });
+    const insertSpy = spyOn(gcal, 'insertEvent').mockResolvedValue({ id: 'g-1' } as never);
+    cleanups.push(() => insertSpy.mockRestore());
+
+    const result = await createBooking({
+      eventTypeSlug: eventType.slug,
+      startAtIso: nextWeekdaySlot().toISOString(),
+      bookerName: 'Host',
+      bookerEmail: 'host@example.com',
+      bookerTimezone: 'UTC',
+      additionalGuests: ['a@example.com', 'b@example.com'],
+    });
+    expect(result.booking.id).toBeDefined();
+  });
+
+  it('rejects any additional guest when maxGuests is 0', async () => {
+    const { eventType } = await seed({ maxGuests: 0 });
+    const insertSpy = spyOn(gcal, 'insertEvent').mockResolvedValue({ id: 'g-1' } as never);
+    cleanups.push(() => insertSpy.mockRestore());
+
+    let err: unknown;
+    try {
+      await createBooking({
+        eventTypeSlug: eventType.slug,
+        startAtIso: nextWeekdaySlot().toISOString(),
+        bookerName: 'Host',
+        bookerEmail: 'host@example.com',
+        bookerTimezone: 'UTC',
+        additionalGuests: ['a@example.com'],
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect((err as { code?: string }).code).toBe('TOO_MANY_GUESTS');
   });
 });

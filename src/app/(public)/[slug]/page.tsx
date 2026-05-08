@@ -40,7 +40,7 @@ export default async function EventTypePage({ params }: PageProps) {
   const eventType = await db.eventType.findUnique({
     where: { slug: params.slug },
     include: {
-      user: { select: { id: true, username: true, displayName: true, avatarPath: true, bio: true, timezone: true } },
+      user: { select: { id: true, username: true, displayName: true, avatarPath: true, bio: true, timezone: true, weekStart: true } },
       questions: { orderBy: { position: 'asc' } },
     },
   });
@@ -67,6 +67,8 @@ export default async function EventTypePage({ params }: PageProps) {
       ownerTimezone={eventType.user.timezone}
       ownerName={eventType.user.displayName}
       ownerAvatarPath={eventType.user.avatarPath}
+      weekStart={eventType.user.weekStart}
+      maxGuests={eventType.maxGuests}
       questions={eventType.questions.map((q) => ({
         id: q.id,
         label: q.label,

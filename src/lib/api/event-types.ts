@@ -42,6 +42,7 @@ export interface EventTypeUpsertPayload {
   bookingWindowDays: number;
   maxPerDay: number | null;
   maxPerWeek: number | null;
+  maxGuests: number;
   slotIntervalMin: number;
   scheduleId: string | null;
   confirmationMd: string | null;

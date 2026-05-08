@@ -79,6 +79,7 @@ export type BookingErrorCode =
   | 'PASSWORD_INVALID'
   | 'SLOT_UNAVAILABLE'
   | 'INVALID_INPUT'
+  | 'TOO_MANY_GUESTS'
   | 'OWNER_MISSING';
 
 const RECHECK_WINDOW_DAYS = 2;
@@ -273,6 +274,17 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     throw new BookingError('Invalid startAt', 'INVALID_INPUT', 400);
   }
   const endAt = new Date(startAt.getTime() + eventType.durationMinutes * 60 * 1000);
+
+  // Enforce the per-event-type guest cap. The endpoint already bounds the array
+  // at 20; this further narrows it to whatever the owner configured (default 3).
+  const guestCount = (input.additionalGuests ?? []).filter((s) => typeof s === 'string' && s).length;
+  if (guestCount > eventType.maxGuests) {
+    throw new BookingError(
+      `This event type allows at most ${eventType.maxGuests} additional guest${eventType.maxGuests === 1 ? '' : 's'}.`,
+      'TOO_MANY_GUESTS',
+      400,
+    );
+  }
 
   // Idempotency: if (eventTypeId, clientRequestId) already exists, return it.
   if (input.clientRequestId) {

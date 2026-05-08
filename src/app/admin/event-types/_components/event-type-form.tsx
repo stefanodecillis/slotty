@@ -79,6 +79,7 @@ export interface EventTypeFormValues {
   bookingWindowDays: number | '';
   maxPerDay: number | '';
   maxPerWeek: number | '';
+  maxGuests: number | '';
   slotIntervalMin: number | '';
   scheduleId: string;
   confirmationMd: string;
@@ -174,6 +175,7 @@ const DEFAULT_VALUES: EventTypeFormValues = {
   bookingWindowDays: 60,
   maxPerDay: '',
   maxPerWeek: '',
+  maxGuests: 3,
   slotIntervalMin: 15,
   scheduleId: '',
   confirmationMd: '',
@@ -513,6 +515,7 @@ export function EventTypeForm({
       bookingWindowDays: Number(values.bookingWindowDays) || 60,
       maxPerDay: values.maxPerDay === '' ? null : Number(values.maxPerDay),
       maxPerWeek: values.maxPerWeek === '' ? null : Number(values.maxPerWeek),
+      maxGuests: values.maxGuests === '' ? 3 : Number(values.maxGuests),
       slotIntervalMin: Number(values.slotIntervalMin) || 15,
       scheduleId: values.scheduleId || null,
       confirmationMd: values.confirmationMd || null,
@@ -1037,6 +1040,29 @@ export function EventTypeForm({
                   <p className="text-xs text-muted-foreground">Blank = unlimited</p>
                 </div>
               </div>
+            </div>
+
+            {/* Guest cap */}
+            <div className="grid gap-2">
+              <Label htmlFor="maxGuests">Max additional guests</Label>
+              <Input
+                id="maxGuests"
+                type="number"
+                min={0}
+                max={20}
+                value={String(values.maxGuests)}
+                onChange={(e) =>
+                  set('maxGuests', e.target.value === '' ? '' : Number(e.target.value))
+                }
+                aria-invalid={Boolean(errors.maxGuests)}
+              />
+              {errors.maxGuests ? (
+                <p className="text-xs text-destructive">{errors.maxGuests}</p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  How many extra people the booker can invite. Set to 0 for 1:1 only.
+                </p>
+              )}
             </div>
 
             <div className="grid gap-2">

@@ -132,6 +132,7 @@ export async function createEventType(userId: string, input: EventTypeInput): Pr
       bookingWindowDays: input.bookingWindowDays,
       maxPerDay: input.maxPerDay ?? null,
       maxPerWeek: input.maxPerWeek ?? null,
+      maxGuests: input.maxGuests,
       slotIntervalMin: input.slotIntervalMin,
       scheduleId: input.scheduleId ?? null,
       passwordHash,
@@ -204,6 +205,7 @@ export async function updateEventType(
         bookingWindowDays: input.bookingWindowDays,
         maxPerDay: input.maxPerDay ?? null,
         maxPerWeek: input.maxPerWeek ?? null,
+        maxGuests: input.maxGuests,
         slotIntervalMin: input.slotIntervalMin,
         scheduleId: input.scheduleId ?? null,
         passwordHash,
@@ -258,6 +260,7 @@ export async function duplicateEventType(eventTypeId: string, userId: string): P
       bookingWindowDays: source.bookingWindowDays,
       maxPerDay: source.maxPerDay,
       maxPerWeek: source.maxPerWeek,
+      maxGuests: source.maxGuests,
       slotIntervalMin: source.slotIntervalMin,
       scheduleId: source.scheduleId,
       passwordHash: null, // do not copy password

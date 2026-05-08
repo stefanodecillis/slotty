@@ -58,6 +58,7 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Re
       slotIntervalMin: true,
       maxPerDay: true,
       maxPerWeek: true,
+      maxGuests: true,
       locationKind: true,
       // Note: locationValue is intentionally excluded for non-custom-link
       // location kinds, since e.g. the owner's phone number is sensitive.

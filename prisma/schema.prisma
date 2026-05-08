@@ -24,6 +24,7 @@ model User {
   avatarPath    String?  @map("avatar_path")
   bio           String?
   timezone      String   @default("UTC")
+  timezoneSet   Boolean  @default(false) @map("timezone_set")
   locale        String   @default("en")
   theme         String   @default("system") // light | dark | system
   seedColor     String   @default("#4F6CFF") @map("seed_color")
@@ -244,6 +245,7 @@ model EventType {
   bookingWindowDays     Int     @default(60) @map("booking_window_days")
   maxPerDay             Int?    @map("max_per_day")
   maxPerWeek            Int?    @map("max_per_week")
+  maxGuests             Int     @default(3) @map("max_guests")
   slotIntervalMin       Int     @default(15) @map("slot_interval_min")
   scheduleId            String? @map("schedule_id")
   passwordHash          String? @map("password_hash")

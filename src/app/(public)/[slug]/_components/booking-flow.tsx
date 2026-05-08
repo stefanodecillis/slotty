@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarOff,
   ChevronLeft,
@@ -9,6 +9,7 @@ import {
   Lock,
   HourglassIcon,
   Video,
+  X,
 } from 'lucide-react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -40,6 +41,8 @@ interface Props {
   ownerTimezone: string;
   ownerName: string;
   ownerAvatarPath: string | null;
+  weekStart: number;
+  maxGuests: number;
   questions: Question[];
   passwordRequired: boolean;
 }
@@ -63,6 +66,8 @@ export function BookingFlow(props: Props) {
     descriptionHtml,
     ownerName,
     ownerAvatarPath,
+    weekStart,
+    maxGuests,
     questions,
     passwordRequired,
   } = props;
@@ -78,7 +83,7 @@ export function BookingFlow(props: Props) {
   );
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [guests, setGuests] = useState('');
+  const [guests, setGuests] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [descExpanded, setDescExpanded] = useState(false);
@@ -131,7 +136,10 @@ export function BookingFlow(props: Props) {
     },
   });
 
-  const monthGrid = useMemo(() => buildMonthGrid(monthAnchor), [monthAnchor]);
+  const monthGrid = useMemo(
+    () => buildMonthGrid(monthAnchor, weekStart),
+    [monthAnchor, weekStart],
+  );
 
   function handlePickDate(dateKey: string) {
     setSelectedDate(dateKey);
@@ -151,6 +159,12 @@ export function BookingFlow(props: Props) {
       toast.error('Please enter a valid email address.');
       return;
     }
+    if (guests.length > maxGuests) {
+      toast.error(
+        `This event allows at most ${maxGuests} additional guest${maxGuests === 1 ? '' : 's'}.`,
+      );
+      return;
+    }
     setStep('submitting');
     const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     submitMutation.mutate({
@@ -159,10 +173,7 @@ export function BookingFlow(props: Props) {
       bookerName: name,
       bookerEmail: email,
       bookerTimezone: bookerTz,
-      additionalGuests: guests
-        .split(',')
-        .map((g) => g.trim())
-        .filter(Boolean),
+      additionalGuests: guests,
       notes,
       answers,
       clientRequestId,
@@ -173,8 +184,8 @@ export function BookingFlow(props: Props) {
   const isPendingOrDone = step === 'pending';
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-5xl flex-col px-4 py-8 sm:px-6 sm:py-12">
-      <div className="flex flex-col gap-8 sm:flex-row sm:items-start sm:gap-10">
+    <div className="mx-auto flex max-w-5xl flex-col px-4 py-6 sm:px-6 sm:py-10">
+      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-10">
         {/* Left summary panel */}
         <aside className="w-full shrink-0 sm:sticky sm:top-10 sm:w-56">
           <div className="flex flex-col gap-5 rounded-2xl border border-border/60 bg-muted/50 p-5">
@@ -301,6 +312,7 @@ export function BookingFlow(props: Props) {
                 grid={monthGrid}
                 slotsByDay={slotsByDay}
                 loading={loadingSlots}
+                weekStart={weekStart}
                 onPrev={() => setMonthAnchor(addMonths(monthAnchor, -1))}
                 onNext={() => setMonthAnchor(addMonths(monthAnchor, 1))}
                 onPick={handlePickDate}
@@ -357,6 +369,7 @@ export function BookingFlow(props: Props) {
                 answers={answers}
                 setAnswers={setAnswers}
                 questions={questions}
+                maxGuests={maxGuests}
                 onSubmit={handleSubmit}
                 submitting={step === 'submitting'}
               />
@@ -423,9 +436,12 @@ function isoDateLocal(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function buildMonthGrid(anchor: Date): { date: Date; key: string; inMonth: boolean }[] {
+function buildMonthGrid(
+  anchor: Date,
+  weekStart: number,
+): { date: Date; key: string; inMonth: boolean }[] {
   const first = startOfMonthLocal(anchor);
-  const offset = first.getDay();
+  const offset = (first.getDay() - weekStart + 7) % 7;
   const start = new Date(first);
   start.setDate(first.getDate() - offset);
   const cells: { date: Date; key: string; inMonth: boolean }[] = [];
@@ -462,6 +478,7 @@ function DateGrid({
   grid,
   slotsByDay,
   loading,
+  weekStart,
   onPrev,
   onNext,
   onPick,
@@ -470,12 +487,14 @@ function DateGrid({
   grid: { date: Date; key: string; inMonth: boolean }[];
   slotsByDay: Map<string, SlotResult['days'][number]['slots']>;
   loading: boolean;
+  weekStart: number;
   onPrev: () => void;
   onNext: () => void;
   onPick: (k: string) => void;
 }) {
   const monthLabel = monthAnchor.toLocaleString(undefined, { month: 'long', year: 'numeric' });
-  const weekdayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const ALL_WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const weekdayLabels = [...ALL_WEEKDAYS.slice(weekStart), ...ALL_WEEKDAYS.slice(0, weekStart)];
   const today = isoDateLocal(new Date());
 
   return (
@@ -568,13 +587,13 @@ function TimeGrid({
     );
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       {slots.map((s) => (
         <button
           key={s.startUtc}
           type="button"
           onClick={() => onPick(s)}
-          className="w-full rounded-lg border border-input bg-transparent px-4 py-3 text-left text-base text-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:text-center"
+          className="w-full rounded-lg border border-input bg-transparent px-3 py-2.5 text-center text-sm font-medium text-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           {s.startInBookerTz}
         </button>
@@ -595,6 +614,7 @@ function DetailsForm({
   answers,
   setAnswers,
   questions,
+  maxGuests,
   onSubmit,
   submitting,
 }: {
@@ -602,47 +622,54 @@ function DetailsForm({
   setName: (v: string) => void;
   email: string;
   setEmail: (v: string) => void;
-  guests: string;
-  setGuests: (v: string) => void;
+  guests: string[];
+  setGuests: (v: string[]) => void;
   notes: string;
   setNotes: (v: string) => void;
   answers: Record<string, string>;
   setAnswers: (a: Record<string, string>) => void;
   questions: Question[];
+  maxGuests: number;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   submitting: boolean;
 }) {
   return (
     <form className="flex flex-col gap-5" onSubmit={onSubmit}>
-      <div className="grid gap-2">
-        <Label htmlFor="booker-name">Your name</Label>
-        <Input
-          id="booker-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
+      <div className="grid gap-5 sm:grid-cols-2">
+        <div className="grid gap-2">
+          <Label htmlFor="booker-name">Your name</Label>
+          <Input
+            id="booker-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="booker-email">Email address</Label>
+          <Input
+            id="booker-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+        </div>
       </div>
-      <div className="grid gap-2">
-        <Label htmlFor="booker-email">Email address</Label>
-        <Input
-          id="booker-email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="booker-guests">Additional guests (optional)</Label>
-        <Input
-          id="booker-guests"
-          value={guests}
-          onChange={(e) => setGuests(e.target.value)}
-          placeholder="alice@example.com, bob@example.com"
-        />
-        <p className="text-xs text-muted-foreground">Comma-separated email addresses</p>
-      </div>
+      {maxGuests > 0 && (
+        <div className="grid gap-2">
+          <Label htmlFor="booker-guests">
+            Additional guests (optional)
+            <span className="ml-1 font-normal text-muted-foreground">
+              — up to {maxGuests}
+            </span>
+          </Label>
+          <GuestChipInput value={guests} onChange={setGuests} max={maxGuests} />
+          <p className="text-xs text-muted-foreground">
+            Type an email and press comma or Enter to add.
+          </p>
+        </div>
+      )}
       <div className="grid gap-2">
         <Label htmlFor="booker-notes">Notes (optional)</Label>
         <textarea
@@ -678,6 +705,135 @@ function DetailsForm({
         </p>
       </div>
     </form>
+  );
+}
+
+function GuestChipInput({
+  value,
+  onChange,
+  max,
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  max: number;
+}) {
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const atCapacity = value.length >= max;
+
+  function commitDraft(raw: string): boolean {
+    const candidate = raw.trim().replace(/,+$/, '').trim();
+    if (!candidate) return true;
+    if (!emailLooksValid(candidate)) {
+      toast.error(`"${candidate}" is not a valid email address.`);
+      return false;
+    }
+    if (value.includes(candidate)) {
+      setDraft('');
+      return true;
+    }
+    if (value.length >= max) {
+      toast.error(`You can add at most ${max} additional guest${max === 1 ? '' : 's'}.`);
+      return false;
+    }
+    onChange([...value, candidate]);
+    setDraft('');
+    return true;
+  }
+
+  function handleChange(next: string) {
+    if (next.includes(',')) {
+      const parts = next.split(',');
+      const last = parts.pop() ?? '';
+      let allOk = true;
+      for (const part of parts) {
+        if (!commitDraft(part)) {
+          allOk = false;
+          setDraft(part.trim());
+          return;
+        }
+      }
+      if (allOk) setDraft(last);
+      return;
+    }
+    setDraft(next);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') {
+      if (draft.trim()) {
+        e.preventDefault();
+        commitDraft(draft);
+      }
+      return;
+    }
+    if (e.key === 'Backspace' && draft === '' && value.length > 0) {
+      e.preventDefault();
+      const next = value.slice(0, -1);
+      onChange(next);
+      setDraft(value[value.length - 1] ?? '');
+    }
+  }
+
+  function removeAt(index: number) {
+    onChange(value.filter((_, i) => i !== index));
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div
+      className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-input bg-transparent px-2 py-1.5 text-sm transition-colors focus-within:border-primary focus-within:ring-1 focus-within:ring-primary"
+      onClick={() => inputRef.current?.focus()}
+    >
+      {value.map((g, i) => (
+        <span
+          key={g}
+          className="inline-flex items-center gap-1 rounded-md bg-primary/10 py-0.5 pl-2 pr-1 text-xs font-medium text-primary"
+        >
+          {g}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              removeAt(i);
+            }}
+            className="flex h-4 w-4 items-center justify-center rounded-sm text-primary/70 transition-colors hover:bg-primary/20 hover:text-primary focus:outline-none"
+            aria-label={`Remove ${g}`}
+          >
+            <X className="h-3 w-3" aria-hidden />
+          </button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={(e) => handleChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => {
+          if (draft.trim()) commitDraft(draft);
+        }}
+        onPaste={(e) => {
+          const text = e.clipboardData.getData('text');
+          if (text.includes(',') || text.includes('\n')) {
+            e.preventDefault();
+            const parts = text.split(/[,\n]/);
+            for (const part of parts) {
+              if (!commitDraft(part)) return;
+            }
+          }
+        }}
+        disabled={atCapacity}
+        placeholder={
+          atCapacity
+            ? `Limit reached (${max})`
+            : value.length === 0
+              ? 'alice@example.com, bob@example.com'
+              : ''
+        }
+        className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none disabled:cursor-not-allowed"
+      />
+    </div>
   );
 }
 

@@ -230,6 +230,34 @@ describe('durationMinutes', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
+// maxGuests
+// ─────────────────────────────────────────────────────────────
+
+describe('maxGuests', () => {
+  it('defaults to 3 when omitted', () => {
+    const result = parse({});
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.maxGuests).toBe(3);
+  });
+
+  it('accepts 0 (no additional guests allowed)', () => {
+    expect(parse({ maxGuests: 0 }).success).toBe(true);
+  });
+
+  it('accepts 20 (upper bound)', () => {
+    expect(parse({ maxGuests: 20 }).success).toBe(true);
+  });
+
+  it('rejects negative values', () => {
+    expect(parse({ maxGuests: -1 }).success).toBe(false);
+  });
+
+  it('rejects values above 20', () => {
+    expect(parse({ maxGuests: 21 }).success).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
 // slotIntervalMin
 // ─────────────────────────────────────────────────────────────
 
