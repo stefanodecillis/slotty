@@ -97,8 +97,12 @@ function pruneBackups(dir: string, keepDaily: number, keepWeekly: number): void 
   }
 }
 
-export async function runDailyBackup(): Promise<void> {
-  const root = process.cwd();
+export interface BackupOptions {
+  root?: string;
+}
+
+export async function runDailyBackup(options: BackupOptions = {}): Promise<void> {
+  const root = options.root ?? process.cwd();
   const dbPath = join(root, 'data', 'slotty.db');
   const backupsDir = join(root, 'backups');
 

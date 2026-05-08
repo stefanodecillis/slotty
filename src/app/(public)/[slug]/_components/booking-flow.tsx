@@ -235,7 +235,7 @@ export function BookingFlow(props: Props) {
                   ]
                     .filter(Boolean)
                     .join(' ')}
-                  /* Content is sanitized via renderMarkdown / DOMPurify before reaching this component */
+                  /* audit-skip: descriptionHtml is sanitized via renderMarkdown / DOMPurify in the parent page.tsx before being passed in */
                   // eslint-disable-next-line react/no-danger
                   dangerouslySetInnerHTML={{ __html: descriptionHtml }}
                 />

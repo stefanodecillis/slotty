@@ -2,7 +2,7 @@
  * Job scheduler unit tests.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -120,62 +120,67 @@ describe('job scheduler', () => {
 });
 
 // ─── Daily backup job tests ───────────────────────────────────────────────────
+//
+// Use an isolated tmp `root` so we never touch the repo's real `data/` or
+// `backups/` directories. `runDailyBackup({ root })` reads from
+// `<root>/data/slotty.db` and writes to `<root>/backups/`.
 
 describe('daily backup job', () => {
+  let testRoot: string;
+  let dbPath: string;
+  let backupsDir: string;
+
+  beforeEach(() => {
+    testRoot = join(tmpdir(), `slotty-backup-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(testRoot, 'data'), { recursive: true });
+    dbPath = join(testRoot, 'data', 'slotty.db');
+    backupsDir = join(testRoot, 'backups');
+    // Stub DB file with deterministic content so we can verify byte-for-byte copy.
+    writeFileSync(dbPath, 'SQLITE-STUB-BYTES');
+  });
+
+  afterEach(() => {
+    rmSync(testRoot, { recursive: true, force: true });
+  });
+
   it('runDailyBackup creates a .db file in backups/', async () => {
     const { runDailyBackup } = await import('@/lib/jobs/backup');
 
-    // Use a real temp directory for the test.
-    const backupsDir = join(process.cwd(), 'backups');
-    if (!existsSync(backupsDir)) {
-      mkdirSync(backupsDir, { recursive: true });
-    }
+    await runDailyBackup({ root: testRoot });
 
-    const before = existsSync(backupsDir) ? readdirSync(backupsDir).filter((f) => f.endsWith('.db')) : [];
-
-    await runDailyBackup();
-
-    const after = readdirSync(backupsDir).filter((f) => f.endsWith('.db'));
-    expect(after.length).toBeGreaterThan(before.length);
-
-    // Clean up the created file.
-    const newFiles = after.filter((f) => !before.includes(f));
-    for (const f of newFiles) {
-      unlinkSync(join(backupsDir, f));
-    }
+    const created = readdirSync(backupsDir).filter((f) => f.endsWith('.db'));
+    expect(created.length).toBe(1);
+    expect(created[0]).toMatch(/^slotty-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.db$/);
   });
 
   it('runDailyBackup prunes backups exceeding retention', async () => {
     const { runDailyBackup } = await import('@/lib/jobs/backup');
 
-    const backupsDir = join(process.cwd(), 'backups');
-    if (!existsSync(backupsDir)) {
-      mkdirSync(backupsDir, { recursive: true });
-    }
+    mkdirSync(backupsDir, { recursive: true });
 
-    // Create 8 fake old backup files (exceeds keep=7 daily).
-    const fakeFiles: string[] = [];
+    // Create 8 fake old daily backups dated Jan 1–8, 2020. Retention keeps
+    // the 7 most-recent dailies + one weekly, so the oldest must be pruned.
+    const pad = (n: number) => String(n).padStart(2, '0');
     for (let i = 0; i < 8; i++) {
       const d = new Date(2020, 0, i + 1, 3, 0, 0);
-      const pad = (n: number) => String(n).padStart(2, '0');
       const name = `slotty-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}.db`;
-      const path = join(backupsDir, name);
-      // Write empty file.
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(path, '');
-      fakeFiles.push(path);
+      writeFileSync(join(backupsDir, name), '');
     }
 
-    await runDailyBackup();
+    await runDailyBackup({ root: testRoot });
 
-    // After pruning, the old fake files from 2020 may be pruned.
-    // We just verify the backup dir still exists and today's backup was created.
-    const remaining = readdirSync(backupsDir).filter((f) => f.endsWith('.db'));
-    expect(remaining.length).toBeGreaterThan(0);
-
-    // Clean up everything.
-    for (const f of readdirSync(backupsDir).filter((f) => f.endsWith('.db'))) {
-      try { unlinkSync(join(backupsDir, f)); } catch { /* ignore */ }
-    }
+    // TODO(user): write 5–8 lines that assert the *retention contract*:
+    //   - today's backup was created (matches `slotty-<YYYY-MM-DD>T...db`);
+    //   - we keep the 7 most-recent dailies (the 7 newest from 2020 plus today
+    //     would normally be 8, but oldest 2020 entry is pruned);
+    //   - exactly one of the 2020 files was deleted (`slotty-2020-01-01T...db`).
+    //
+    // Trade-off to consider: a strict `expect(remaining).toEqual([...])` is
+    // precise but couples tests to retention math; a looser `expect(...length)`
+    // check is more resilient if KEEP_DAILY/KEEP_WEEKLY change. Pick whichever
+    // matches how stable you expect that policy to be. The `remaining` array
+    // is sorted alphabetically — wrap in `.sort()` for deterministic order.
+    const remaining = readdirSync(backupsDir).filter((f) => f.endsWith('.db')).sort();
+    expect(remaining.length).toBeGreaterThan(0); // placeholder
   });
 });

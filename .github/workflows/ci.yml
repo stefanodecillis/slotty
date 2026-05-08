@@ -54,7 +54,7 @@ jobs:
         run: bun run typecheck
 
       - name: Test
-        run: bun test
+        run: bun run test
         env:
           SLOTTY_DATABASE_URL: "file:./test.db"
 

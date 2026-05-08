@@ -178,7 +178,15 @@ for (const file of tsxFiles) {
     const lineStart = src.lastIndexOf('\n', m.index) + 1;
     const lineEnd = src.indexOf('\n', m.index);
     const line = src.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
-    if (/audit-skip/.test(line)) continue;
+    // Accept `audit-skip` on the same line OR within the 3 lines above —
+    // JSX doesn't permit trailing comments after a prop, so reviewers often
+    // document the exemption in a sibling JSX comment one line up.
+    let windowStart = lineStart;
+    for (let i = 0; i < 3 && windowStart > 0; i++) {
+      windowStart = src.lastIndexOf('\n', windowStart - 2) + 1;
+    }
+    const window = src.slice(windowStart, lineEnd === -1 ? undefined : lineEnd);
+    if (/audit-skip/.test(window)) continue;
 
     // Allow when the file imports renderMarkdown — bio / confirmation
     // markdown is sanitized by that helper before it reaches the DOM.
