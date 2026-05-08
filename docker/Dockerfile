@@ -75,6 +75,12 @@ COPY --from=builder --chown=slotty:slotty /build/node_modules/.prisma ./node_mod
 COPY --from=builder --chown=slotty:slotty /build/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=slotty:slotty /build/node_modules/prisma ./node_modules/prisma
 
+# .bin contains the symlinks bunx/npx resolve to (./node_modules/.bin/prisma).
+# Without this, `bunx prisma` falls back to the npm registry and pulls the
+# latest major (currently 7.x), which has breaking changes vs the 5.x the
+# schema is written for.
+COPY --from=builder --chown=slotty:slotty /build/node_modules/.bin ./node_modules/.bin
+
 # SQLite database lives on a mounted volume so data survives container restarts.
 VOLUME ["/app/data"]
 
