@@ -3,6 +3,21 @@ import type { NextRequest } from 'next/server';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 
+/**
+ * Master switch for the Origin/Referer-based CSRF check.
+ *
+ * Disabled while the self-hosted deployment is being accessed from
+ * multiple hostnames (e.g. http://truenas:3210 on the LAN AND
+ * https://book.example.com once the reverse proxy lands) — keeping the
+ * Origin-vs-PUBLIC_URL match active in that state rejects legitimate
+ * submissions whenever the access URL doesn't exactly equal PUBLIC_URL.
+ *
+ * Flip back to `true` once the deployment is stable behind a single
+ * public URL. The rest of validateOrigin() is intact and resumes
+ * enforcement the same instant.
+ */
+const CSRF_ORIGIN_CHECK_ENABLED = false;
+
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 function publicHost(): string {
@@ -30,6 +45,8 @@ function originHost(value: string | null): string | null {
  * matches the public-URL host — this lets a reverse proxy terminate TLS.
  */
 export function validateOrigin(request: Request | NextRequest): boolean {
+  if (!CSRF_ORIGIN_CHECK_ENABLED) return true;
+
   const method = request.method.toUpperCase();
   if (SAFE_METHODS.has(method)) return true;
 
