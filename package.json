@@ -8,9 +8,9 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "dev": "prisma migrate deploy && bun --bun next dev",
+    "dev": "prisma generate && prisma migrate deploy && bun --bun next dev",
     "build": "prisma generate && next build",
-    "start": "prisma migrate deploy && bun --bun next start",
+    "start": "prisma generate && prisma migrate deploy && bun --bun next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "bun test tests/unit tests/integration",
