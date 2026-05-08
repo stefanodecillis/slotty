@@ -1,15 +1,11 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
 
 import { Toaster } from '@/components/ui/sonner';
 import { QueryProvider } from '@/lib/query-client';
 import { BRAND } from '@/lib/brand';
-import { cn } from '@/lib/utils';
 
 import './globals.css';
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
 
 export const metadata: Metadata = {
   title: { default: BRAND.name, template: `%s · ${BRAND.name}` },
@@ -31,7 +27,20 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={cn('min-h-dvh bg-background font-sans text-foreground antialiased', inter.variable)}>
+      <head>
+        {/* Inter via plain <link> — using next/font/google triggers a webpack
+            cache-pack lstat warning about the bundled `node-fetch` reference
+            inside next's compiled font loader. The font stack in
+            tailwind.config.ts already includes a clean system-font fallback
+            so the page renders before Inter loads. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+        />
+      </head>
+      <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <QueryProvider>
             {children}
