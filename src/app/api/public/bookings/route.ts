@@ -27,18 +27,27 @@ export const dynamic = 'force-dynamic';
 
 const RATE_LIMIT = { capacity: 10, windowMs: 60_000 };
 
-const bodySchema = z.object({
-  eventTypeSlug: z.string().min(1).max(100),
-  startAt: z.string().min(1),
-  bookerName: z.string().trim().min(1).max(200),
-  bookerEmail: z.string().trim().email().max(320),
-  bookerTimezone: z.string().min(1).max(100),
-  additionalGuests: z.array(z.string().trim().email().max(320)).max(20).optional(),
-  notes: z.string().max(5000).optional(),
-  answers: z.record(z.string(), z.string().max(5000)).optional(),
-  clientRequestId: z.string().max(100).optional(),
-  password: z.string().max(500).optional(),
-});
+const bodySchema = z
+  .object({
+    // Either eventTypeSlug or inviteToken must be present (refined below).
+    // When inviteToken is present, the slug is ignored and the password gate
+    // is bypassed — the token is the credential.
+    eventTypeSlug: z.string().min(1).max(100).optional(),
+    inviteToken: z.string().min(1).max(200).optional(),
+    startAt: z.string().min(1),
+    bookerName: z.string().trim().min(1).max(200),
+    bookerEmail: z.string().trim().email().max(320),
+    bookerTimezone: z.string().min(1).max(100),
+    additionalGuests: z.array(z.string().trim().email().max(320)).max(20).optional(),
+    notes: z.string().max(5000).optional(),
+    answers: z.record(z.string(), z.string().max(5000)).optional(),
+    clientRequestId: z.string().max(100).optional(),
+    password: z.string().max(500).optional(),
+  })
+  .refine((d) => Boolean(d.eventTypeSlug) || Boolean(d.inviteToken), {
+    message: 'Either eventTypeSlug or inviteToken is required',
+    path: ['eventTypeSlug'],
+  });
 
 export async function POST(req: NextRequest): Promise<Response> {
   const ip = getClientIp(req.headers);
@@ -77,6 +86,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   try {
     const result = await createBooking({
       eventTypeSlug: input.eventTypeSlug,
+      inviteToken: input.inviteToken,
       startAtIso: input.startAt,
       bookerName: input.bookerName,
       bookerEmail: input.bookerEmail,
@@ -92,7 +102,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     // response did. We still return enough for the client to navigate to the
     // confirmation page (without `t=` they'll see the read-only view).
     if (result.idempotentReplay) {
-      const base = makeManageUrl(result.booking.id, '');
+      const base = await makeManageUrl(result.booking.id, '');
       return NextResponse.json({
         id: result.booking.id,
         status: result.booking.status,
@@ -106,7 +116,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return NextResponse.json({
       id: result.booking.id,
       status: result.booking.status,
-      manageUrl: makeManageUrl(result.booking.id, result.rawRescheduleToken),
+      manageUrl: await makeManageUrl(result.booking.id, result.rawRescheduleToken),
       cancelToken: result.rawCancelToken,
       rescheduleToken: result.rawRescheduleToken,
       meetingUrl: result.booking.meetingUrl,

@@ -1,6 +1,6 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
-import { env } from '@/lib/env';
+import { getPublicUrl } from '@/lib/site-url/store';
 import { Button } from '@/components/ui/button';
 import { CalendarPlus, Plus } from 'lucide-react';
 import { EventTypesList } from './_components/event-types-list';
@@ -79,7 +79,7 @@ export default async function EventTypesPage() {
         <EventTypesList
           active={active}
           archived={archived}
-          siteUrl={env.SLOTTY_PUBLIC_URL.replace(/\/$/, '')}
+          siteUrl={await getPublicUrl()}
         />
       )}
     </div>

@@ -17,6 +17,7 @@ const RESERVED_SLUGS = new Set([
   'setup',
   'api',
   'b',
+  'i',
   'avatars',
   '_next',
   'favicon.ico',
@@ -50,6 +51,13 @@ export default async function EventTypePage({ params }: PageProps) {
   if (!eventType || eventType.archived) {
     const userByUsername = await db.user.findUnique({ where: { username: params.slug } });
     if (userByUsername) redirect('/');
+    notFound();
+  }
+
+  // Invite-only event types are reachable exclusively via /i/[token]. The slug
+  // page returns 404 even though the row exists — this is what stops a third
+  // party from polling slots after seeing the booker visit the booking URL.
+  if (eventType.inviteOnly) {
     notFound();
   }
 

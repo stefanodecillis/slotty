@@ -1,14 +1,25 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, AlertTriangle, XCircle, RefreshCw, Info } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2, AlertTriangle, XCircle, RefreshCw, Info, RotateCcw } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import type { SiteUrlDiagnostic, IssueSeverity } from '@/lib/site-url/diagnose';
 
+interface SiteUrlState {
+  override: string | null;
+  envValue: string;
+  effective: string;
+}
+
 const siteUrlKeys = {
   diagnose: ['site-url', 'diagnose'] as const,
+  state: ['site-url', 'state'] as const,
 };
 
 async function fetchDiagnostic(): Promise<SiteUrlDiagnostic> {
@@ -17,6 +28,29 @@ async function fetchDiagnostic(): Promise<SiteUrlDiagnostic> {
     credentials: 'same-origin',
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function fetchState(): Promise<SiteUrlState> {
+  const res = await fetch('/api/admin/site-url', {
+    cache: 'no-store',
+    credentials: 'same-origin',
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function saveOverride(url: string): Promise<SiteUrlState> {
+  const res = await fetch('/api/admin/site-url', {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error ?? `HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -61,11 +95,44 @@ function Row({ label, value, mono = false }: RowProps) {
 }
 
 export function SiteUrlPanel() {
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: siteUrlKeys.diagnose,
     queryFn: fetchDiagnostic,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
+  });
+  const stateQuery = useQuery({
+    queryKey: siteUrlKeys.state,
+    queryFn: fetchState,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const [draft, setDraft] = useState('');
+
+  // Hydrate the input once the override loads. Re-syncs whenever the
+  // server-side state changes (e.g. after a successful save).
+  useEffect(() => {
+    if (stateQuery.data) {
+      setDraft(stateQuery.data.override ?? stateQuery.data.envValue);
+    }
+  }, [stateQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: saveOverride,
+    onSuccess: (next) => {
+      toast.success(
+        next.override
+          ? 'Public URL override saved'
+          : 'Override cleared — falling back to env value',
+      );
+      queryClient.setQueryData(siteUrlKeys.state, next);
+      void queryClient.invalidateQueries({ queryKey: siteUrlKeys.diagnose });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to save');
+    },
   });
 
   const data = query.data;
@@ -73,20 +140,85 @@ export function SiteUrlPanel() {
   const issues = data?.issues ?? [];
   const hasErrors = issues.some((i) => i.severity === 'error');
 
+  const state = stateQuery.data;
+  const usingOverride = Boolean(state?.override);
+  const dirty = state ? draft.trim() !== (state.override ?? state.envValue) : false;
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <p className="text-xs font-medium text-muted-foreground">Public site URL</p>
-          <p className="text-base font-mono text-foreground">
-            {data?.configured ?? <span className="text-muted-foreground">loading…</span>}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Set via <code className="font-mono">SLOTTY_PUBLIC_URL</code>. Required at boot — change
-            this in your env / docker-compose, then restart the container. Also update your Google
-            Cloud Console OAuth redirect URI if the host changed.
-          </p>
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-background px-4 py-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="text-sm font-medium text-foreground">Public site URL</p>
+          {usingOverride ? (
+            <Badge variant="secondary">Override active</Badge>
+          ) : (
+            <Badge variant="outline">Using env</Badge>
+          )}
         </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="public-url" className="text-xs">
+            URL handed to bookers
+          </Label>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              id="public-url"
+              type="url"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={state?.envValue ?? 'https://book.example.com'}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="font-mono text-sm"
+              disabled={!state || saveMutation.isPending}
+            />
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                onClick={() => saveMutation.mutate(draft.trim())}
+                disabled={!state || !dirty || saveMutation.isPending}
+              >
+                {saveMutation.isPending ? 'Saving…' : 'Save'}
+              </Button>
+              {usingOverride && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => saveMutation.mutate('')}
+                  disabled={saveMutation.isPending}
+                  title="Clear override and revert to env value"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Used for invite links, the booker’s manage URL, and the “copy public link” button. <strong className="font-medium text-foreground">Doesn’t change</strong> Google OAuth redirect URI, calendar webhook channel address, or cookie security flags — those still come from <code className="font-mono">SLOTTY_PUBLIC_URL</code> at boot. Update env + restart the container if you change the host the app is actually served from.
+        </p>
+
+        {state && (
+          <div className="flex flex-col gap-1 rounded-sm bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex justify-between">
+              <span>Effective URL</span>
+              <span className="font-mono text-foreground">{state.effective}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Env value (boot fallback)</span>
+              <span className="font-mono">{state.envValue}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Diagnostics check the effective URL above against the live request and the configured upstream.
+        </p>
         <Button
           type="button"
           variant="outline"

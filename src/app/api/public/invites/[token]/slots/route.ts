@@ -1,3 +1,18 @@
+/**
+ * GET /api/public/invites/[token]/slots?from=...&to=...&tz=...
+ *
+ * Slot availability for an invite-token-keyed booking flow.
+ *
+ * Mirrors `/api/public/event-types/[slug]/slots` but resolves the event type
+ * via a one-time invite token instead of a slug. Used by BookingFlow when
+ * rendered under `/i/[token]` for an invite-only event type — the slug-keyed
+ * route would 404 in that case.
+ *
+ * The token still has to resolve to an unused, non-revoked, non-expired
+ * invite. This intentionally means: once the invite is consumed, the URL
+ * stops returning slots too — third parties who learned the URL from a
+ * shoulder-surf can't keep polling availability.
+ */
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { DateTime } from 'luxon';
@@ -6,11 +21,12 @@ import { db } from '@/lib/db';
 import { getClientIp } from '@/lib/http/client-ip';
 import { computeSlots, validateSlotsWindow } from '@/lib/scheduling/compute';
 import { consume } from '@/lib/ratelimit';
+import { resolveInviteByRawToken } from '@/lib/booking/invite';
 
 export const dynamic = 'force-dynamic';
 
 interface RouteParams {
-  params: { slug: string };
+  params: { token: string };
 }
 
 const RATE_LIMIT = { capacity: 60, windowMs: 60_000 };
@@ -25,16 +41,9 @@ function isValidIanaTz(tz: string): boolean {
   }
 }
 
-/**
- * GET /api/public/event-types/[slug]/slots?from=...&to=...&tz=...
- *
- * Returns bookable slots for the given window. Per-IP rate limit of 60 RPM
- * to deter scraping. Inputs are validated strictly: malformed dates, bad
- * timezones, inverted ranges, or windows greater than 90 days yield 400.
- */
 export async function GET(req: NextRequest, { params }: RouteParams): Promise<Response> {
   const ip = getClientIp(req.headers);
-  const decision = consume('public-slots', ip, RATE_LIMIT);
+  const decision = consume('public-invite-slots', ip, RATE_LIMIT);
   if (!decision.allowed) {
     return NextResponse.json(
       { error: 'Rate limit exceeded' },
@@ -74,24 +83,21 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Re
     );
   }
 
-  const eventType = await db.eventType.findUnique({
-    where: { slug: params.slug },
-  });
-  // Invite-only events deliberately don't expose slots over the slug-keyed
-  // route — that's what prevents the recipient (or anyone) from scraping
-  // availability after a single visit. The /i/[token] page renders slots
-  // through computeSlots directly without going through this API.
-  if (!eventType || eventType.archived || eventType.inviteOnly) {
+  const resolved = await resolveInviteByRawToken(params.token);
+  if (resolved.status !== 'ok' || !resolved.eventType) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+  if (resolved.eventType.archived) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const user = await db.user.findUnique({ where: { id: eventType.userId } });
+  const user = await db.user.findUnique({ where: { id: resolved.eventType.userId } });
   if (!user) {
     return NextResponse.json({ error: 'Owner missing' }, { status: 404 });
   }
 
   const result = await computeSlots({
-    eventType,
+    eventType: resolved.eventType,
     user,
     from: new Date(fromMs),
     to: new Date(toMs),

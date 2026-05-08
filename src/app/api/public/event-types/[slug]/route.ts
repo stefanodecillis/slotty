@@ -67,6 +67,7 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Re
       locationValue: true,
       archived: true,
       hidden: true,
+      inviteOnly: true,
       passwordHash: true,
       questions: {
         orderBy: { position: 'asc' },
@@ -83,7 +84,9 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Re
     },
   });
 
-  if (!eventType || eventType.archived) {
+  // Slug access is rejected for invite-only events — only /i/[token] can
+  // reach the booking flow, and that path doesn't go through this API.
+  if (!eventType || eventType.archived || eventType.inviteOnly) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
@@ -93,8 +96,9 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Re
   const safeLocationValue =
     eventType.locationKind === 'custom_link' ? eventType.locationValue : null;
 
-  const { passwordHash: _passwordHash, ...rest } = eventType;
+  const { passwordHash: _passwordHash, inviteOnly: _inviteOnly, ...rest } = eventType;
   void _passwordHash;
+  void _inviteOnly;
 
   return NextResponse.json({
     eventType: {

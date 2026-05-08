@@ -31,6 +31,7 @@ export interface EventTypeUpsertPayload {
   descriptionMd: string | null;
   color: string;
   hidden: boolean;
+  inviteOnly: boolean;
   durationMinutes: number;
   locationKind: string;
   locationValue: string | null;
@@ -99,5 +100,56 @@ export function reorderEventTypes(ids: string[]): Promise<unknown> {
   return http('/api/admin/event-types/reorder', {
     method: 'PUT',
     body: JSON.stringify({ ids }),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// One-time invite links
+// ─────────────────────────────────────────────────────────────
+
+export interface InviteListItem {
+  id: string;
+  note: string | null;
+  createdAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+  expiresAt: string | null;
+  status: 'unused' | 'used' | 'revoked' | 'expired';
+  usedBy: { bookingId: string; bookerEmail: string; startAt: string; status: string } | null;
+}
+
+export interface CreatedInvite {
+  id: string;
+  /** Raw invite token. Surfaced exactly once at creation; not retrievable later. */
+  token: string;
+  /** Full shareable URL. Same lifecycle as `token`. */
+  url: string;
+  note: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+}
+
+export const inviteKeys = {
+  all: ['eventTypeInvites'] as const,
+  list: (eventTypeId: string) => [...inviteKeys.all, eventTypeId] as const,
+};
+
+export function listInvites(eventTypeId: string): Promise<{ invites: InviteListItem[] }> {
+  return http(`/api/admin/event-types/${eventTypeId}/invites`);
+}
+
+export function createInvite(
+  eventTypeId: string,
+  payload: { note?: string; expiresAt?: string } = {},
+): Promise<CreatedInvite> {
+  return http(`/api/admin/event-types/${eventTypeId}/invites`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function revokeInvite(eventTypeId: string, inviteId: string): Promise<unknown> {
+  return http(`/api/admin/event-types/${eventTypeId}/invites/${inviteId}`, {
+    method: 'DELETE',
   });
 }

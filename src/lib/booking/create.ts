@@ -34,13 +34,17 @@ import { verifyPassword } from '@/lib/auth/password';
 import { computeSlots } from '@/lib/scheduling/compute';
 import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
 import { insertEvent, extractMeetingUrl } from '@/lib/google/calendar';
-import { env } from '@/lib/env';
 import { emit } from '@/lib/webhooks/emit';
+import { getPublicUrl } from '@/lib/site-url/store';
+import { resolveInviteByRawToken, claimInviteAtomically } from './invite';
 
 export type EventTypeWithQuestions = EventType & { questions: EventTypeQuestion[] };
 
 export interface CreateBookingInput {
-  eventTypeSlug: string;
+  /** Either eventTypeSlug or inviteToken must be provided. */
+  eventTypeSlug?: string;
+  /** Raw one-time invite token. When present, slug is ignored and the password gate is skipped. */
+  inviteToken?: string;
   startAtIso: string;
   bookerName: string;
   bookerEmail: string;
@@ -80,12 +84,15 @@ export type BookingErrorCode =
   | 'SLOT_UNAVAILABLE'
   | 'INVALID_INPUT'
   | 'TOO_MANY_GUESTS'
-  | 'OWNER_MISSING';
+  | 'OWNER_MISSING'
+  | 'INVITE_NOT_FOUND'
+  | 'INVITE_UNAVAILABLE'
+  | 'INVITE_ONLY';
 
 const RECHECK_WINDOW_DAYS = 2;
 
-function makeManageUrl(bookingId: string, rescheduleToken: string): string {
-  const base = env.SLOTTY_PUBLIC_URL.replace(/\/$/, '');
+async function makeManageUrl(bookingId: string, rescheduleToken: string): Promise<string> {
+  const base = await getPublicUrl();
   return `${base}/b/${bookingId}?t=${rescheduleToken}`;
 }
 
@@ -244,23 +251,53 @@ async function assertSlotStillAvailable(
  * not re-shape the input.
  */
 export async function createBooking(input: CreateBookingInput): Promise<CreatedBooking> {
-  const eventType = await db.eventType.findUnique({
-    where: { slug: input.eventTypeSlug },
-    include: { questions: { orderBy: { position: 'asc' } } },
-  });
+  // Resolve via invite token first (if provided) — the token replaces both
+  // slug-based lookup and the password gate. Slug presence on an invite-mode
+  // request is ignored.
+  let eventType: (EventType & { questions: EventTypeQuestion[] }) | null = null;
+  let inviteId: string | null = null;
+
+  if (input.inviteToken) {
+    const resolved = await resolveInviteByRawToken(input.inviteToken);
+    if (resolved.status !== 'ok' || !resolved.invite || !resolved.eventType) {
+      // Distinguish "this token never existed" (NOT_FOUND, 404) from
+      // "this token exists but is no longer usable" (UNAVAILABLE, 410).
+      if (resolved.status === 'not_found') {
+        throw new BookingError('Invite link not found', 'INVITE_NOT_FOUND', 404);
+      }
+      throw new BookingError('This invite link is no longer available.', 'INVITE_UNAVAILABLE', 410);
+    }
+    eventType = resolved.eventType;
+    inviteId = resolved.invite.id;
+  } else {
+    if (!input.eventTypeSlug) {
+      throw new BookingError('Missing eventTypeSlug or inviteToken', 'INVALID_INPUT', 400);
+    }
+    eventType = await db.eventType.findUnique({
+      where: { slug: input.eventTypeSlug },
+      include: { questions: { orderBy: { position: 'asc' } } },
+    });
+    if (!eventType || eventType.archived) {
+      throw new BookingError('Event type not found', 'EVENT_TYPE_NOT_FOUND', 404);
+    }
+    // Slug-based access is rejected when the event type is invite-only —
+    // the only legitimate path is /i/<token> with a valid invite.
+    if (eventType.inviteOnly) {
+      throw new BookingError('This event type is invite-only.', 'INVITE_ONLY', 404);
+    }
+    // Password gate (skipped on invite-mode requests; the token is the credential).
+    if (eventType.passwordHash) {
+      if (!input.password) {
+        throw new BookingError('Password required', 'PASSWORD_REQUIRED', 401);
+      }
+      const ok = await verifyPassword(eventType.passwordHash, input.password);
+      if (!ok) {
+        throw new BookingError('Invalid password', 'PASSWORD_INVALID', 401);
+      }
+    }
+  }
   if (!eventType || eventType.archived) {
     throw new BookingError('Event type not found', 'EVENT_TYPE_NOT_FOUND', 404);
-  }
-
-  // Password gate.
-  if (eventType.passwordHash) {
-    if (!input.password) {
-      throw new BookingError('Password required', 'PASSWORD_REQUIRED', 401);
-    }
-    const ok = await verifyPassword(eventType.passwordHash, input.password);
-    if (!ok) {
-      throw new BookingError('Invalid password', 'PASSWORD_INVALID', 401);
-    }
   }
 
   // Owner — needed both for slot computation and to set organizer on Google.
@@ -319,18 +356,19 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   const additionalGuests = (input.additionalGuests ?? []).filter((s) => typeof s === 'string' && s);
   const answers = input.answers ?? {};
 
+  const eventTypeForTx = eventType;
   const booking = await db.$transaction(async (tx) => {
     // We use the live `db` client for the slot re-check because computeSlots
     // pulls from many tables — the read-after-write race is closed by the
     // unique index on (eventTypeId, clientRequestId) and by the cache
     // invalidation that happens at the end of this function.
-    await assertSlotStillAvailable(eventType, owner, startAt, input.bookerTimezone);
+    await assertSlotStillAvailable(eventTypeForTx, owner, startAt, input.bookerTimezone);
 
-    return tx.booking.create({
+    const created = await tx.booking.create({
       data: {
-        eventTypeId: eventType.id,
-        googleAccountId: eventType.destinationAccountId,
-        googleCalendarId: eventType.destinationCalendarId,
+        eventTypeId: eventTypeForTx.id,
+        googleAccountId: eventTypeForTx.destinationAccountId,
+        googleCalendarId: eventTypeForTx.destinationCalendarId,
         startAt,
         endAt,
         status: 'confirmed',
@@ -346,6 +384,15 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
         needsSync: false,
       },
     });
+
+    // Atomic single-use claim. If a concurrent booking already claimed this
+    // invite, updateMany returns count=0 and the helper throws — rolling back
+    // the booking insert above so we don't leave an orphan row.
+    if (inviteId) {
+      await claimInviteAtomically(tx, inviteId, created.id);
+    }
+
+    return created;
   });
 
   // Best-effort Google insert. We resolve the actual googleCalendarId from
@@ -360,7 +407,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     (await db.connectedAccount.findUnique({ where: { id: eventType.destinationAccountId } }))
       ?.googleUserEmail ?? owner.email;
 
-  const manageUrl = makeManageUrl(booking.id, rescheduleTok.token);
+  const manageUrl = await makeManageUrl(booking.id, rescheduleTok.token);
   const googlePayload = buildGoogleEventPayload({
     eventType,
     ownerEmail: ownerEmailForOrganizer,
@@ -458,7 +505,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   // Emit webhook event.
   void emit(owner.id, 'booking.created', {
     bookingId: updated.id,
-    eventTypeSlug: input.eventTypeSlug,
+    eventTypeSlug: eventType.slug,
     bookerName: input.bookerName,
     bookerEmail: input.bookerEmail,
     startAt: startAt.toISOString(),

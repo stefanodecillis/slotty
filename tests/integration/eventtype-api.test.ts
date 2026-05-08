@@ -56,6 +56,7 @@ function baseInput(overrides: Record<string, unknown> = {}) {
     slug: `int-${randomBytes(3).toString('hex')}`,
     color: '#4F6CFF',
     hidden: false,
+    inviteOnly: false,
     durationMinutes: 30,
     locationKind: 'google_meet' as const,
     destinationAccountId: '',

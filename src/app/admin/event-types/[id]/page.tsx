@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { EventTypeForm } from '../_components/event-type-form';
+import { InviteLinksPanel } from '../_components/invite-links-panel';
 import type {
   ConnectedAccountOption,
   CalendarOption,
@@ -73,6 +74,7 @@ export default async function EditEventTypePage({ params }: PageProps) {
     descriptionMd: eventType.descriptionMd ?? '',
     color: eventType.color,
     hidden: eventType.hidden,
+    inviteOnly: eventType.inviteOnly,
     durationMinutes: eventType.durationMinutes,
     locationKind: eventType.locationKind as LocationKind,
     locationValue: eventType.locationValue ?? '',
@@ -123,6 +125,8 @@ export default async function EditEventTypePage({ params }: PageProps) {
         allCalendars={calendarOptions}
         schedules={scheduleOptions}
       />
+
+      <InviteLinksPanel eventTypeId={eventType.id} />
     </div>
   );
 }

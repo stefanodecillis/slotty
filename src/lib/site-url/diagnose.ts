@@ -143,7 +143,12 @@ export function classifyMismatch(input: ClassifyInput): DiagnosticIssue[] {
 }
 
 export async function diagnoseSiteUrl(headers: Headers): Promise<SiteUrlDiagnostic> {
-  const configuredRaw = env.SLOTTY_PUBLIC_URL;
+  // Reflect the *effective* URL (DB override falls back to env) — that's
+  // what user-facing links resolve to and what the reachability probe
+  // should target. The settings UI surfaces the env value separately so
+  // the admin can see the boot-time fallback.
+  const { getPublicUrl } = await import('./store');
+  const configuredRaw = await getPublicUrl();
   const configured = new URL(configuredRaw);
   const observed = inspectIncomingRequest(headers);
   const trustProxy = Boolean(env.SLOTTY_TRUST_PROXY);

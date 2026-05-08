@@ -9,10 +9,18 @@ export interface SlotsQueryArgs {
   toIso: string;
   /** Booker IANA timezone, used as part of the cache key. */
   tz: string;
+  /**
+   * One-time invite token. When set, slot fetches go through the invite-keyed
+   * route (which works even for invite-only event types whose slug-keyed
+   * route 404s). The token is used as the lookup key on the server.
+   */
+  inviteToken?: string;
 }
 
 export interface CreateBookingPayload {
-  eventTypeSlug: string;
+  /** Either eventTypeSlug or inviteToken must be provided. */
+  eventTypeSlug?: string;
+  inviteToken?: string;
   startAt: string;
   bookerName: string;
   bookerEmail: string;
@@ -44,11 +52,21 @@ export interface RescheduleBookingPayload {
 export const publicKeys = {
   all: ['public'] as const,
   slots: (args: SlotsQueryArgs) =>
-    [...publicKeys.all, 'slots', args.slug, args.tz, args.fromIso, args.toIso] as const,
+    [
+      ...publicKeys.all,
+      'slots',
+      args.inviteToken ? `invite:${args.inviteToken}` : `slug:${args.slug}`,
+      args.tz,
+      args.fromIso,
+      args.toIso,
+    ] as const,
 };
 
-export function getSlots({ slug, fromIso, toIso, tz }: SlotsQueryArgs): Promise<SlotResult> {
-  const url = new URL(`/api/public/event-types/${slug}/slots`, window.location.origin);
+export function getSlots({ slug, fromIso, toIso, tz, inviteToken }: SlotsQueryArgs): Promise<SlotResult> {
+  const path = inviteToken
+    ? `/api/public/invites/${encodeURIComponent(inviteToken)}/slots`
+    : `/api/public/event-types/${slug}/slots`;
+  const url = new URL(path, window.location.origin);
   url.searchParams.set('from', fromIso);
   url.searchParams.set('to', toIso);
   url.searchParams.set('tz', tz);

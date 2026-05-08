@@ -8,6 +8,7 @@ const RESERVED_SLUGS = new Set([
   'setup',
   'api',
   'b',
+  'i',
   'avatars',
   '_next',
   'static',
@@ -54,6 +55,11 @@ export const eventTypeInputSchema = z
       .default('#4F6CFF'),
 
     hidden: z.boolean().default(false),
+
+    // When true, the slug-keyed public page and APIs return 404. The only
+    // way in is /i/<token> with a valid one-time invite. Pairs with `hidden`
+    // for full lockdown.
+    inviteOnly: z.boolean().default(false),
 
     durationMinutes: z
       .number()

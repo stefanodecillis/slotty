@@ -68,6 +68,7 @@ export interface EventTypeFormValues {
   descriptionMd: string;
   color: string;
   hidden: boolean;
+  inviteOnly: boolean;
   durationMinutes: number | '';
   locationKind: LocationKind;
   locationValue: string;
@@ -164,6 +165,7 @@ const DEFAULT_VALUES: EventTypeFormValues = {
   descriptionMd: '',
   color: '#4F6CFF',
   hidden: false,
+  inviteOnly: false,
   durationMinutes: 30,
   locationKind: 'google_meet',
   locationValue: '',
@@ -504,6 +506,7 @@ export function EventTypeForm({
       descriptionMd: values.descriptionMd || null,
       color: values.color,
       hidden: values.hidden,
+      inviteOnly: values.inviteOnly,
       durationMinutes,
       locationKind: values.locationKind,
       locationValue: values.locationValue || null,
@@ -606,6 +609,20 @@ export function EventTypeForm({
               <Label htmlFor="hidden">Hidden</Label>
               <p className="text-xs text-muted-foreground">
                 Hidden event types are not shown on your public profile, but bookers can still reach them via direct link.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Switch
+              id="inviteOnly"
+              checked={values.inviteOnly}
+              onCheckedChange={(v) => set('inviteOnly', v)}
+            />
+            <div className="flex flex-col">
+              <Label htmlFor="inviteOnly">Invite-only</Label>
+              <p className="text-xs text-muted-foreground">
+                Block the slug URL completely. Bookings can only happen through one-time invite links you generate below — no one can scrape availability without a fresh token.
               </p>
             </div>
           </div>

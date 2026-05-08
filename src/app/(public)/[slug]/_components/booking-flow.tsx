@@ -45,6 +45,13 @@ interface Props {
   maxGuests: number;
   questions: Question[];
   passwordRequired: boolean;
+  /**
+   * One-time invite token. When set, this BookingFlow runs in invite mode:
+   *  - slot fetches go through /api/public/invites/[token]/slots
+   *  - the booking POST sends inviteToken instead of eventTypeSlug
+   *  - the password banner is suppressed (the token is the credential)
+   */
+  inviteToken?: string;
 }
 
 type Step = 'date' | 'time' | 'details' | 'submitting' | 'pending';
@@ -70,6 +77,7 @@ export function BookingFlow(props: Props) {
     maxGuests,
     questions,
     passwordRequired,
+    inviteToken,
   } = props;
 
   const [bookerTz, setBookerTz] = useState<string>('UTC');
@@ -102,8 +110,8 @@ export function BookingFlow(props: Props) {
   }, [monthAnchor]);
 
   const slotsQuery = useQuery({
-    queryKey: publicKeys.slots({ slug, tz: bookerTz, fromIso, toIso }),
-    queryFn: () => getSlots({ slug, tz: bookerTz, fromIso, toIso }),
+    queryKey: publicKeys.slots({ slug, tz: bookerTz, fromIso, toIso, inviteToken }),
+    queryFn: () => getSlots({ slug, tz: bookerTz, fromIso, toIso, inviteToken }),
   });
 
   const slotsByDay = useMemo(() => {
@@ -168,7 +176,10 @@ export function BookingFlow(props: Props) {
     setStep('submitting');
     const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     submitMutation.mutate({
-      eventTypeSlug: slug,
+      // In invite mode the token IS the credential; we omit slug so the
+      // server doesn't conflate the two paths in its Zod refinement.
+      eventTypeSlug: inviteToken ? undefined : slug,
+      inviteToken,
       startAt: selectedSlot.startUtc,
       bookerName: name,
       bookerEmail: email,
@@ -292,7 +303,7 @@ export function BookingFlow(props: Props) {
             </div>
           )}
 
-          {passwordRequired && (
+          {passwordRequired && !inviteToken && (
             <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-muted px-4 py-3">
               <Lock className="mt-0.5 h-4 w-4 text-emerald-600" aria-hidden />
               <p className="text-xs text-muted-foreground">
