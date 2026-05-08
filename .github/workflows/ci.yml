@@ -37,6 +37,16 @@ jobs:
       - name: Generate Prisma client
         run: bunx prisma generate
 
+      # Apply every migration to a fresh SQLite DB. This catches broken
+      # migration SQL at PR time, independent of whether a test happens to
+      # exercise the affected table. Production deploys run the same command
+      # at container start (see docker/Dockerfile CMD), so a failure here
+      # means the image would have failed to boot.
+      - name: Migrate sanity check
+        run: bunx prisma migrate deploy
+        env:
+          SLOTTY_DATABASE_URL: "file:./ci-migrate-check.db"
+
       - name: Lint
         run: bun run lint
 
