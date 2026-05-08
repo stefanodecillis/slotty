@@ -51,7 +51,11 @@ RUN bun run build
 FROM oven/bun:1.3.8-alpine AS runtime
 
 # tini reaps zombie processes and forwards signals properly (PID 1 safety).
-RUN apk add --no-cache tini
+# openssl provides the libssl3 that Prisma's schema engine binary links
+# against — without it Prisma can't even detect its OpenSSL version, falls
+# back to a 1.1.x engine binary that doesn't run on Alpine 3.x, and crashes
+# with "Could not parse schema engine response" before any migration runs.
+RUN apk add --no-cache tini openssl
 
 # Create a non-root user for the application process.
 RUN addgroup -S slotty && adduser -S slotty -G slotty
