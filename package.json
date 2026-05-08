@@ -96,6 +96,7 @@
     "seed": "bun run prisma/seed.ts"
   },
   "trustedDependencies": [
+    "argon2",
     "sharp",
     "unrs-resolver"
   ]
