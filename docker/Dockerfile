@@ -4,7 +4,7 @@
 # Install production + dev dependencies and generate the Prisma client.
 # Using Bun for fast, reproducible installs (bun.lock enforced).
 # ─────────────────────────────────────────────────────────────────────────────
-FROM oven/bun:1.3-alpine AS deps
+FROM oven/bun:1.3.8-alpine AS deps
 
 WORKDIR /build
 
@@ -21,7 +21,7 @@ RUN bunx prisma generate
 # Stage 2 — build
 # Compile the Next.js application using the standalone output preset.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM oven/bun:1.3-alpine AS builder
+FROM oven/bun:1.3.8-alpine AS builder
 
 WORKDIR /build
 
@@ -48,7 +48,7 @@ RUN bun run build
 # Bun runtime: handles googleapis / pino / native node:* imports cleanly
 # without the bundler-externalization gymnastics that Node + webpack require.
 # ─────────────────────────────────────────────────────────────────────────────
-FROM oven/bun:1.3-alpine AS runtime
+FROM oven/bun:1.3.8-alpine AS runtime
 
 # tini reaps zombie processes and forwards signals properly (PID 1 safety).
 RUN apk add --no-cache tini
