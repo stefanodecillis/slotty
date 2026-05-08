@@ -102,10 +102,16 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     SLOTTY_DATABASE_URL=file:/app/data/slotty.db
 
-# Health check — the /api/health endpoint should return 200.
-# Initial delay allows migrations to run before the first probe.
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD wget -qO- http://localhost:3000/api/health || exit 1
+# Healthcheck intentionally not declared at image level. On TrueNAS
+# Community Edition the on-disk Health.Log never gets flushed during
+# runtime, so the container reads as `Health.Status=starting` for hours
+# even when the app is fully serving traffic — TrueNAS then surfaces the
+# whole app as DEPLOYING/starting and never transitions to RUNNING.
+#
+# Probe the /api/health endpoint at the compose / orchestrator level
+# instead (where you control how strictly to interpret the result), or
+# rely on the `running` state of the container itself. /api/health still
+# exists and returns the same JSON for any external monitoring.
 
 USER slotty
 
