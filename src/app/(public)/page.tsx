@@ -91,7 +91,7 @@ export default async function PublicHomePage() {
 
                   {/* Title + duration */}
                   <div className="flex-1 min-w-0">
-                    <p className="text-lg font-semibold text-foreground">{et.title}</p>
+                    <h2 className="text-lg font-semibold text-foreground">{et.title}</h2>
                     <p className="mt-0.5 text-sm text-muted-foreground">
                       {durationLabel(et.durationMinutes)}
                     </p>
