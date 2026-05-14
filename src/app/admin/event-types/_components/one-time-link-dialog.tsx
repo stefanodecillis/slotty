@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { GuestChipInput } from '@/components/ui/guest-chip-input';
+import { copyToClipboard } from '@/lib/clipboard';
 import { createOneTimeLink, eventTypeKeys, type OneTimeLinkResult } from '@/lib/api/event-types';
 import { ApiError } from '@/lib/api/http';
 import type {
@@ -149,10 +150,10 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
   async function copyUrl() {
     if (!result) return;
     try {
-      await navigator.clipboard.writeText(result.url);
+      await copyToClipboard(result.url);
       toast.success('Link copied to clipboard.');
     } catch {
-      toast.error('Could not copy link — copy it manually.');
+      toast.error('Could not copy automatically — select the URL above and copy it.');
     }
   }
 

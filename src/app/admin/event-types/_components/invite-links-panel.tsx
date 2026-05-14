@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { GuestChipInput } from '@/components/ui/guest-chip-input';
+import { copyToClipboard } from '@/lib/clipboard';
 import {
   createInvite,
   inviteKeys,
@@ -95,7 +96,7 @@ export function InviteLinksPanel({ eventTypeId, eventTypeHiddenGuestsCount = 0 }
   async function handleCopy() {
     if (!createdInvite) return;
     try {
-      await navigator.clipboard.writeText(createdInvite.url);
+      await copyToClipboard(createdInvite.url);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {

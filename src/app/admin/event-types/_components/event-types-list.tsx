@@ -50,6 +50,7 @@ import {
   DialogHeader,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { copyToClipboard } from '@/lib/clipboard';
 import {
   archiveEventType,
   deleteEventType,
@@ -112,7 +113,7 @@ function SortableItem({
 
   async function handleCopyLink() {
     try {
-      await navigator.clipboard.writeText(publicUrl);
+      await copyToClipboard(publicUrl);
       setCopied(true);
       toast.success('Public link copied');
       setTimeout(() => setCopied(false), 1500);
