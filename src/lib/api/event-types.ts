@@ -172,6 +172,18 @@ export interface OneTimeLinkPayload {
   hiddenGuests?: string[];
   note?: string;
   expiresAt?: string;
+  // Advanced (all optional — server defaults preserve the streamlined behavior)
+  descriptionMd?: string;
+  locationKind?: 'google_meet' | 'phone' | 'in_person' | 'custom_link';
+  locationValue?: string;
+  bufferBeforeMin?: number;
+  bufferAfterMin?: number;
+  minNoticeMin?: number;
+  bookingWindowDays?: number;
+  slotIntervalMin?: number;
+  maxGuests?: number;
+  confirmationMd?: string;
+  sendReminders?: boolean;
 }
 
 export interface OneTimeLinkResult {

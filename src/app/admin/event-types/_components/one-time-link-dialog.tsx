@@ -20,6 +20,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +43,7 @@ import {
   createOneTimeLink,
   eventTypeKeys,
   oneTimeLinkKeys,
+  type OneTimeLinkPayload,
   type OneTimeLinkResult,
 } from '@/lib/api/event-types';
 import { ApiError } from '@/lib/api/http';
@@ -57,6 +60,26 @@ interface OneTimeLinkDialogProps {
 }
 
 const DURATION_OPTIONS = [15, 30, 45, 60, 90];
+
+const LOCATION_KIND_OPTIONS: { value: NonNullable<OneTimeLinkPayload['locationKind']>; label: string }[] = [
+  { value: 'google_meet', label: 'Google Meet' },
+  { value: 'phone', label: 'Phone call' },
+  { value: 'in_person', label: 'In person' },
+  { value: 'custom_link', label: 'Custom link' },
+];
+
+const SLOT_INTERVAL_OPTIONS = [5, 10, 15, 20, 30, 60];
+
+// Server-side defaults (must mirror src/app/api/admin/event-types/one-time/route.ts).
+const DEFAULTS = {
+  bookingWindowDays: 60,
+  minNoticeMin: 60,
+  bufferBeforeMin: 0,
+  bufferAfterMin: 0,
+  slotIntervalMin: 15,
+  maxGuests: 3,
+  sendReminders: true,
+} as const;
 
 export function OneTimeLinkDialog({ accounts, calendars, schedules }: OneTimeLinkDialogProps) {
   const [open, setOpen] = useState(false);
@@ -100,6 +123,24 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
   const [expiresInDays, setExpiresInDays] = useState<string>(''); // '', '1', '7', '30'
   const [result, setResult] = useState<OneTimeLinkResult | null>(null);
 
+  // Advanced settings (all start at server defaults; only sent if the admin opens
+  // the disclosure and changes something — we still always send them since the
+  // server treats them as optional with the same defaults).
+  const [descriptionMd, setDescriptionMd] = useState('');
+  const [locationKind, setLocationKind] = useState<NonNullable<OneTimeLinkPayload['locationKind']>>(
+    'google_meet',
+  );
+  const [locationValue, setLocationValue] = useState('');
+  const [bookingWindowDays, setBookingWindowDays] = useState<number>(DEFAULTS.bookingWindowDays);
+  const [minNoticeValue, setMinNoticeValue] = useState<number>(60);
+  const [minNoticeUnit, setMinNoticeUnit] = useState<'minutes' | 'hours'>('minutes');
+  const [bufferBeforeMin, setBufferBeforeMin] = useState<number>(DEFAULTS.bufferBeforeMin);
+  const [bufferAfterMin, setBufferAfterMin] = useState<number>(DEFAULTS.bufferAfterMin);
+  const [slotIntervalMin, setSlotIntervalMin] = useState<number>(DEFAULTS.slotIntervalMin);
+  const [maxGuests, setMaxGuests] = useState<number>(DEFAULTS.maxGuests);
+  const [confirmationMd, setConfirmationMd] = useState('');
+  const [sendReminders, setSendReminders] = useState<boolean>(DEFAULTS.sendReminders);
+
   // Keep calendar selection in sync when the account changes.
   function handleAccountChange(next: string) {
     setAccountId(next);
@@ -141,6 +182,20 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
       if (!Number.isFinite(days) || days <= 0) return undefined;
       return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
     })();
+    // Translate min-notice into the canonical minutes the server expects.
+    const minNoticeMin = minNoticeUnit === 'hours' ? minNoticeValue * 60 : minNoticeValue;
+
+    // Conditional location value — only meaningful for in_person / custom_link.
+    const needsLocationValue = locationKind === 'in_person' || locationKind === 'custom_link';
+    if (needsLocationValue && !locationValue.trim()) {
+      toast.error(
+        locationKind === 'in_person'
+          ? 'Address is required for in-person events.'
+          : 'URL is required for custom-link events.',
+      );
+      return;
+    }
+
     mutation.mutate({
       title: title.trim(),
       durationMinutes,
@@ -150,6 +205,19 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
       hiddenGuests: hiddenGuests.length ? hiddenGuests : undefined,
       note: note.trim() || undefined,
       expiresAt,
+      // Advanced — server defaults to the same numbers if these are omitted,
+      // so it's safe to always forward.
+      descriptionMd: descriptionMd.trim() || undefined,
+      locationKind,
+      locationValue: needsLocationValue ? locationValue.trim() : undefined,
+      bookingWindowDays,
+      minNoticeMin,
+      bufferBeforeMin,
+      bufferAfterMin,
+      slotIntervalMin,
+      maxGuests,
+      confirmationMd: confirmationMd.trim() || undefined,
+      sendReminders,
     });
   }
 
@@ -169,7 +237,7 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
 
   return (
     <Dialog open onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         {result ? (
           <>
             <DialogHeader>
@@ -338,6 +406,209 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
                 Single-use either way — this just adds a deadline.
               </p>
             </div>
+
+            <details className="group rounded-lg border border-input bg-background">
+              <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/40">
+                <span>Advanced settings</span>
+                <span className="text-xs text-muted-foreground group-open:hidden">Optional</span>
+                <span className="hidden text-xs text-muted-foreground group-open:inline">
+                  Hide
+                </span>
+              </summary>
+              <div className="flex flex-col gap-4 border-t border-input px-3 py-3">
+                {/* Description shown on the booking page */}
+                <div className="grid gap-2">
+                  <Label htmlFor="ot-description">Description</Label>
+                  <Textarea
+                    id="ot-description"
+                    rows={3}
+                    value={descriptionMd}
+                    onChange={(e) => setDescriptionMd(e.target.value)}
+                    placeholder="Markdown supported. Shown to the booker on the event page."
+                  />
+                </div>
+
+                {/* Location */}
+                <div className="grid gap-2">
+                  <Label htmlFor="ot-location-kind">Location</Label>
+                  <Select
+                    value={locationKind}
+                    onValueChange={(v) =>
+                      setLocationKind(v as NonNullable<OneTimeLinkPayload['locationKind']>)
+                    }
+                  >
+                    <SelectTrigger id="ot-location-kind">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LOCATION_KIND_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {(locationKind === 'in_person' || locationKind === 'custom_link') && (
+                    <Input
+                      value={locationValue}
+                      onChange={(e) => setLocationValue(e.target.value)}
+                      placeholder={
+                        locationKind === 'in_person'
+                          ? '123 Main St, San Francisco'
+                          : 'https://zoom.us/j/…'
+                      }
+                    />
+                  )}
+                </div>
+
+                {/* Booking window — "how far ahead can the client book" */}
+                <div className="grid gap-2">
+                  <Label htmlFor="ot-booking-window">Booking window</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="ot-booking-window"
+                      type="number"
+                      min={1}
+                      max={365}
+                      value={String(bookingWindowDays)}
+                      onChange={(e) =>
+                        setBookingWindowDays(
+                          Math.max(1, Math.min(365, Number(e.target.value) || 1)),
+                        )
+                      }
+                      className="w-24"
+                    />
+                    <span className="text-sm text-muted-foreground">days into the future</span>
+                  </div>
+                </div>
+
+                {/* Minimum notice */}
+                <div className="grid gap-2">
+                  <Label htmlFor="ot-min-notice">Minimum notice</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="ot-min-notice"
+                      type="number"
+                      min={0}
+                      value={String(minNoticeValue)}
+                      onChange={(e) =>
+                        setMinNoticeValue(Math.max(0, Number(e.target.value) || 0))
+                      }
+                      className="w-24"
+                    />
+                    <Select
+                      value={minNoticeUnit}
+                      onValueChange={(v) => setMinNoticeUnit(v as 'minutes' | 'hours')}
+                    >
+                      <SelectTrigger className="w-32">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="minutes">minutes</SelectItem>
+                        <SelectItem value="hours">hours</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="text-sm text-muted-foreground">before each slot</span>
+                  </div>
+                </div>
+
+                {/* Buffers */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="ot-buffer-before">Buffer before (min)</Label>
+                    <Input
+                      id="ot-buffer-before"
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={String(bufferBeforeMin)}
+                      onChange={(e) =>
+                        setBufferBeforeMin(
+                          Math.max(0, Math.min(120, Number(e.target.value) || 0)),
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="ot-buffer-after">Buffer after (min)</Label>
+                    <Input
+                      id="ot-buffer-after"
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={String(bufferAfterMin)}
+                      onChange={(e) =>
+                        setBufferAfterMin(
+                          Math.max(0, Math.min(120, Number(e.target.value) || 0)),
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* Slot interval + max guests */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="ot-slot-interval">Slot interval</Label>
+                    <Select
+                      value={String(slotIntervalMin)}
+                      onValueChange={(v) => setSlotIntervalMin(Number(v))}
+                    >
+                      <SelectTrigger id="ot-slot-interval">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SLOT_INTERVAL_OPTIONS.map((m) => (
+                          <SelectItem key={m} value={String(m)}>
+                            {m} minutes
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="ot-max-guests">Max additional guests</Label>
+                    <Input
+                      id="ot-max-guests"
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={String(maxGuests)}
+                      onChange={(e) =>
+                        setMaxGuests(Math.max(0, Math.min(20, Number(e.target.value) || 0)))
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* Confirmation message */}
+                <div className="grid gap-2">
+                  <Label htmlFor="ot-confirmation">Confirmation message</Label>
+                  <Textarea
+                    id="ot-confirmation"
+                    rows={2}
+                    value={confirmationMd}
+                    onChange={(e) => setConfirmationMd(e.target.value)}
+                    placeholder="Markdown. Shown after booking and in the confirmation email."
+                  />
+                </div>
+
+                {/* Reminders */}
+                <div className="flex items-center justify-between gap-3 rounded-md border border-input px-3 py-2">
+                  <div className="flex flex-col">
+                    <Label htmlFor="ot-send-reminders">Send reminders</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Automatic reminder emails before the meeting.
+                    </p>
+                  </div>
+                  <Switch
+                    id="ot-send-reminders"
+                    checked={sendReminders}
+                    onCheckedChange={setSendReminders}
+                  />
+                </div>
+              </div>
+            </details>
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>

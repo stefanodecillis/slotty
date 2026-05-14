@@ -26,19 +26,63 @@ import { getPublicUrl } from '@/lib/site-url/store';
 
 export const dynamic = 'force-dynamic';
 
-const oneTimeSchema = z.object({
-  title: z.string().trim().min(1).max(100),
-  durationMinutes: z.number().int().positive().max(1440).default(30),
-  destinationAccountId: z.string().min(1),
-  destinationCalendarId: z.string().min(1),
-  scheduleId: z.string().optional(),
-  hiddenGuests: z
-    .array(z.string().trim().toLowerCase().email().max(320))
-    .max(20)
-    .optional(),
-  note: z.string().trim().max(200).optional(),
-  expiresAt: z.string().datetime().optional(),
-});
+const LOCATION_KINDS = ['google_meet', 'phone', 'in_person', 'custom_link'] as const;
+
+const oneTimeSchema = z
+  .object({
+    title: z.string().trim().min(1).max(100),
+    durationMinutes: z.number().int().positive().max(1440).default(30),
+    destinationAccountId: z.string().min(1),
+    destinationCalendarId: z.string().min(1),
+    scheduleId: z.string().optional(),
+    hiddenGuests: z
+      .array(z.string().trim().toLowerCase().email().max(320))
+      .max(20)
+      .optional(),
+    note: z.string().trim().max(200).optional(),
+    expiresAt: z.string().datetime().optional(),
+    // Advanced (all optional — server keeps the same defaults as before when
+    // these are omitted, so existing callers don't have to change).
+    descriptionMd: z.string().max(5000).optional(),
+    locationKind: z.enum(LOCATION_KINDS).optional(),
+    locationValue: z.string().max(2000).optional(),
+    bufferBeforeMin: z.number().int().min(0).max(120).optional(),
+    bufferAfterMin: z.number().int().min(0).max(120).optional(),
+    minNoticeMin: z.number().int().min(0).max(43200).optional(),
+    bookingWindowDays: z.number().int().min(1).max(365).optional(),
+    slotIntervalMin: z.number().int().positive().max(240).optional(),
+    maxGuests: z.number().int().min(0).max(20).optional(),
+    confirmationMd: z.string().max(5000).optional(),
+    sendReminders: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.locationKind === 'in_person' && !data.locationValue?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['locationValue'],
+        message: 'Address is required for in-person events',
+      });
+    }
+    if (data.locationKind === 'custom_link') {
+      if (!data.locationValue?.trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['locationValue'],
+          message: 'URL is required for custom-link events',
+        });
+      } else {
+        try {
+          new URL(data.locationValue);
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['locationValue'],
+            message: 'Location value must be a valid URL',
+          });
+        }
+      }
+    }
+  });
 
 function canonicalizeEmails(emails: readonly string[] = []): string[] {
   const seen = new Set<string>();
@@ -138,6 +182,12 @@ async function postHandler(req: NextRequest): Promise<Response> {
   const hiddenGuests = canonicalizeEmails(input.hiddenGuests);
   const { token: rawToken, hash: tokenHash } = generateToken(32);
 
+  const locationKind = input.locationKind ?? 'google_meet';
+  const locationValue =
+    locationKind === 'in_person' || locationKind === 'custom_link'
+      ? input.locationValue?.trim() || null
+      : null;
+
   const { eventType, invite } = await db.$transaction(async (tx) => {
     const et = await tx.eventType.create({
       data: {
@@ -145,21 +195,24 @@ async function postHandler(req: NextRequest): Promise<Response> {
         title: input.title,
         slug,
         color: '#4F6CFF',
+        descriptionMd: input.descriptionMd?.trim() || null,
         hidden: true,
         inviteOnly: true,
         isOneTime: true,
         durationMinutes: input.durationMinutes,
         destinationAccountId: input.destinationAccountId,
         destinationCalendarId: input.destinationCalendarId,
-        locationKind: 'google_meet',
-        bufferBeforeMin: 0,
-        bufferAfterMin: 0,
-        minNoticeMin: 60,
-        bookingWindowDays: 60,
-        maxGuests: 3,
-        slotIntervalMin: 15,
+        locationKind,
+        locationValue,
+        bufferBeforeMin: input.bufferBeforeMin ?? 0,
+        bufferAfterMin: input.bufferAfterMin ?? 0,
+        minNoticeMin: input.minNoticeMin ?? 60,
+        bookingWindowDays: input.bookingWindowDays ?? 60,
+        maxGuests: input.maxGuests ?? 3,
+        slotIntervalMin: input.slotIntervalMin ?? 15,
         scheduleId,
-        sendReminders: true,
+        confirmationMd: input.confirmationMd?.trim() || null,
+        sendReminders: input.sendReminders ?? true,
         hiddenGuestsJson: JSON.stringify(hiddenGuests),
         position: 0,
         archived: false,
