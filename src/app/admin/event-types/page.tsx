@@ -5,6 +5,12 @@ import { Button } from '@/components/ui/button';
 import { CalendarPlus, Plus } from 'lucide-react';
 import { EventTypesList } from './_components/event-types-list';
 import type { EventTypeRow } from './_components/event-types-list';
+import { OneTimeLinkDialog } from './_components/one-time-link-dialog';
+import type {
+  CalendarOption,
+  ConnectedAccountOption,
+  ScheduleOption,
+} from './_components/event-type-form';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -12,13 +18,40 @@ export const dynamic = 'force-dynamic';
 export default async function EventTypesPage() {
   const user = await requireUserOrRedirect('/admin/login?next=%2Fadmin%2Fevent-types');
 
-  const all = await db.eventType.findMany({
-    where: { userId: user.id },
-    orderBy: [{ archived: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
-    include: {
-      destinationCalendar: { select: { name: true } },
-    },
-  });
+  const [all, accountRows, calendarRows, scheduleRows] = await Promise.all([
+    db.eventType.findMany({
+      where: { userId: user.id },
+      orderBy: [{ archived: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
+      include: { destinationCalendar: { select: { name: true } } },
+    }),
+    db.connectedAccount.findMany({
+      where: { status: 'active' },
+      select: { id: true, googleUserEmail: true },
+    }),
+    db.calendar.findMany({
+      select: { id: true, connectedAccountId: true, name: true, isDestinationEligible: true },
+    }),
+    db.schedule.findMany({
+      where: { userId: user.id },
+      select: { id: true, name: true, isDefault: true },
+    }),
+  ]);
+
+  const accountOptions: ConnectedAccountOption[] = accountRows.map((a) => ({
+    id: a.id,
+    googleUserEmail: a.googleUserEmail,
+  }));
+  const calendarOptions: CalendarOption[] = calendarRows.map((c) => ({
+    id: c.id,
+    connectedAccountId: c.connectedAccountId,
+    name: c.name,
+    isDestinationEligible: c.isDestinationEligible,
+  }));
+  const scheduleOptions: ScheduleOption[] = scheduleRows.map((s) => ({
+    id: s.id,
+    name: s.name,
+    isDefault: s.isDefault,
+  }));
 
   const active: EventTypeRow[] = all
     .filter((e) => !e.archived)
@@ -55,12 +88,19 @@ export default async function EventTypesPage() {
             Bookable offerings on your public profile.
           </p>
         </div>
-        <Link href="/admin/event-types/new">
-          <Button>
-            <Plus className="h-4 w-4" />
-            New event type
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <OneTimeLinkDialog
+            accounts={accountOptions}
+            calendars={calendarOptions}
+            schedules={scheduleOptions}
+          />
+          <Link href="/admin/event-types/new">
+            <Button>
+              <Plus className="h-4 w-4" />
+              New event type
+            </Button>
+          </Link>
+        </div>
       </header>
 
       {active.length === 0 && archived.length === 0 ? (

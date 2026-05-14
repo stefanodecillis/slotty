@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { GuestChipInput } from '@/components/ui/guest-chip-input';
 import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { QUESTION_KINDS } from '@/lib/eventtype/validator';
@@ -87,6 +88,7 @@ export interface EventTypeFormValues {
   redirectUrl: string;
   password: string;
   sendReminders: boolean;
+  hiddenGuests: string[];
   questions: QuestionFormValue[];
 }
 
@@ -184,6 +186,7 @@ const DEFAULT_VALUES: EventTypeFormValues = {
   redirectUrl: '',
   password: '',
   sendReminders: true,
+  hiddenGuests: [],
   questions: [],
 };
 
@@ -525,6 +528,7 @@ export function EventTypeForm({
       redirectUrl: values.redirectUrl || null,
       password: values.password || null,
       sendReminders: values.sendReminders,
+      hiddenGuests: values.hiddenGuests,
       questions: values.questions.map((q, i) => ({
         id: q.id,
         label: q.label,
@@ -1080,6 +1084,22 @@ export function EventTypeForm({
                   How many extra people the booker can invite. Set to 0 for 1:1 only.
                 </p>
               )}
+            </div>
+
+            {/* Silent / "hidden" guests: cc list the owner attaches to every booking
+                without exposing the addresses to the booker on the form. */}
+            <div className="grid gap-2">
+              <Label htmlFor="hiddenGuests">Always invite (hidden from booker)</Label>
+              <GuestChipInput
+                id="hiddenGuests"
+                value={values.hiddenGuests}
+                onChange={(next) => set('hiddenGuests', next)}
+                max={20}
+                placeholder="cc@yourcompany.com"
+              />
+              <p className="text-xs text-muted-foreground">
+                These addresses are added as attendees to every booking on this event type. The booker never sees them in the booking form.
+              </p>
             </div>
 
             <div className="grid gap-2">

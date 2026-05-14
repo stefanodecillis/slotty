@@ -50,6 +50,7 @@ export interface EventTypeUpsertPayload {
   redirectUrl: string | null;
   password: string | null;
   sendReminders: boolean;
+  hiddenGuests: string[];
   questions: EventTypeQuestionPayload[];
 }
 
@@ -115,6 +116,7 @@ export interface InviteListItem {
   revokedAt: string | null;
   expiresAt: string | null;
   status: 'unused' | 'used' | 'revoked' | 'expired';
+  hiddenGuestsCount: number;
   usedBy: { bookingId: string; bookerEmail: string; startAt: string; status: string } | null;
 }
 
@@ -127,6 +129,7 @@ export interface CreatedInvite {
   note: string | null;
   createdAt: string;
   expiresAt: string | null;
+  hiddenGuestsCount: number;
 }
 
 export const inviteKeys = {
@@ -140,7 +143,7 @@ export function listInvites(eventTypeId: string): Promise<{ invites: InviteListI
 
 export function createInvite(
   eventTypeId: string,
-  payload: { note?: string; expiresAt?: string } = {},
+  payload: { note?: string; expiresAt?: string; hiddenGuests?: string[] } = {},
 ): Promise<CreatedInvite> {
   return http(`/api/admin/event-types/${eventTypeId}/invites`, {
     method: 'POST',
@@ -151,5 +154,40 @@ export function createInvite(
 export function revokeInvite(eventTypeId: string, inviteId: string): Promise<unknown> {
   return http(`/api/admin/event-types/${eventTypeId}/invites/${inviteId}`, {
     method: 'DELETE',
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// One-time event type — creates a hidden+inviteOnly EventType AND
+// immediately mints a BookingInvite for it. The raw token is returned
+// exactly once.
+// ─────────────────────────────────────────────────────────────
+
+export interface OneTimeLinkPayload {
+  title: string;
+  durationMinutes: number;
+  destinationAccountId: string;
+  destinationCalendarId: string;
+  scheduleId?: string;
+  hiddenGuests?: string[];
+  note?: string;
+  expiresAt?: string;
+}
+
+export interface OneTimeLinkResult {
+  eventTypeId: string;
+  slug: string;
+  inviteId: string;
+  /** Raw token, shown once. */
+  token: string;
+  /** Full shareable URL, shown once. */
+  url: string;
+  expiresAt: string | null;
+}
+
+export function createOneTimeLink(payload: OneTimeLinkPayload): Promise<OneTimeLinkResult> {
+  return http('/api/admin/event-types/one-time', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }

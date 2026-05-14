@@ -255,7 +255,8 @@ function SortableItem({
             <DialogHeader>
               <DialogTitle>Delete event type?</DialogTitle>
               <DialogDescription>
-                Permanently delete <strong>{eventType.title}</strong>? This cannot be undone.
+                Permanently delete <strong>{eventType.title}</strong>? Every booking and
+                booking-history entry for this event type will also be deleted. This cannot be undone.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
+import { parseHiddenGuests } from '@/lib/eventtype/service';
 import { EventTypeForm } from '../_components/event-type-form';
 import { InviteLinksPanel } from '../_components/invite-links-panel';
 import type {
@@ -93,6 +94,7 @@ export default async function EditEventTypePage({ params }: PageProps) {
     redirectUrl: eventType.redirectUrl ?? '',
     password: '',
     sendReminders: eventType.sendReminders,
+    hiddenGuests: parseHiddenGuests(eventType.hiddenGuestsJson),
     questions: eventType.questions.map((q) => ({
       id: q.id,
       label: q.label,
@@ -126,7 +128,10 @@ export default async function EditEventTypePage({ params }: PageProps) {
         schedules={scheduleOptions}
       />
 
-      <InviteLinksPanel eventTypeId={eventType.id} />
+      <InviteLinksPanel
+        eventTypeId={eventType.id}
+        eventTypeHiddenGuestsCount={parseHiddenGuests(eventType.hiddenGuestsJson).length}
+      />
     </div>
   );
 }

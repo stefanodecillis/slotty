@@ -37,6 +37,7 @@ import { insertEvent, extractMeetingUrl } from '@/lib/google/calendar';
 import { emit } from '@/lib/webhooks/emit';
 import { getPublicUrl } from '@/lib/site-url/store';
 import { resolveInviteByRawToken, claimInviteAtomically } from './invite';
+import { parseHiddenGuests } from '@/lib/eventtype/service';
 
 export type EventTypeWithQuestions = EventType & { questions: EventTypeQuestion[] };
 
@@ -256,6 +257,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   // request is ignored.
   let eventType: (EventType & { questions: EventTypeQuestion[] }) | null = null;
   let inviteId: string | null = null;
+  let inviteHiddenGuestsJson: string | null = null;
 
   if (input.inviteToken) {
     const resolved = await resolveInviteByRawToken(input.inviteToken);
@@ -269,6 +271,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     }
     eventType = resolved.eventType;
     inviteId = resolved.invite.id;
+    inviteHiddenGuestsJson = resolved.invite.hiddenGuestsJson;
   } else {
     if (!input.eventTypeSlug) {
       throw new BookingError('Missing eventTypeSlug or inviteToken', 'INVALID_INPUT', 400);
@@ -353,7 +356,31 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   const rescheduleTok = generateToken(32);
 
   // Slot re-check + insert in one transaction.
-  const additionalGuests = (input.additionalGuests ?? []).filter((s) => typeof s === 'string' && s);
+  // Merge guest sources: booker-typed (visible) + event-type defaults + invite-specific
+  // override. The latter two are silent — the booker never sees them on the form —
+  // but they all end up as Google Calendar attendees and on the booking row's
+  // additional_guests_json. Order: booker-typed first (preserves their input),
+  // then owner-configured. Case-insensitive dedupe; booker's own email filtered out.
+  const eventHiddenGuests = parseHiddenGuests(eventType.hiddenGuestsJson);
+  const inviteHiddenGuests = parseHiddenGuests(inviteHiddenGuestsJson);
+  const bookerEmailKey = input.bookerEmail.trim().toLowerCase();
+  const seen = new Set<string>([bookerEmailKey]);
+  const additionalGuests: string[] = [];
+  const HIDDEN_MERGE_HARD_CAP = 20;
+  const pushIfNew = (raw: string): void => {
+    if (additionalGuests.length >= HIDDEN_MERGE_HARD_CAP) return;
+    if (typeof raw !== 'string') return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    additionalGuests.push(trimmed);
+  };
+  for (const g of input.additionalGuests ?? []) pushIfNew(g);
+  for (const g of eventHiddenGuests) pushIfNew(g);
+  for (const g of inviteHiddenGuests) pushIfNew(g);
+
   const answers = input.answers ?? {};
 
   const eventTypeForTx = eventType;

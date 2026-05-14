@@ -120,6 +120,14 @@ export const eventTypeInputSchema = z
 
     sendReminders: z.boolean().default(true),
 
+    // Emails silently added as attendees to every booking on this event type.
+    // The booker never sees these in the booking form; the server merges them
+    // into Booking.additional_guests_json on submit.
+    hiddenGuests: z
+      .array(z.string().trim().toLowerCase().email('Each hidden guest must be a valid email').max(320))
+      .max(20, 'No more than 20 hidden guests')
+      .default([]),
+
     questions: z.array(questionSchema).default([]),
   })
   .superRefine((data, ctx) => {

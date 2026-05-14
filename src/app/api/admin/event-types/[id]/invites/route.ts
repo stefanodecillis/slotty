@@ -30,7 +30,30 @@ interface InviteListItem {
   revokedAt: string | null;
   expiresAt: string | null;
   status: 'unused' | 'used' | 'revoked' | 'expired';
+  hiddenGuestsCount: number;
   usedBy: { bookingId: string; bookerEmail: string; startAt: string; status: string } | null;
+}
+
+function parseHiddenGuestsCount(json: string | null | undefined): number {
+  if (!json) return 0;
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    return Array.isArray(parsed) ? parsed.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function canonicalizeEmails(emails: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of emails) {
+    const e = raw.trim().toLowerCase();
+    if (!e || seen.has(e)) continue;
+    seen.add(e);
+    out.push(e);
+  }
+  return out;
 }
 
 function deriveStatus(
@@ -71,6 +94,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext): Promise<
     revokedAt: i.revokedAt ? i.revokedAt.toISOString() : null,
     expiresAt: i.expiresAt ? i.expiresAt.toISOString() : null,
     status: deriveStatus(i),
+    hiddenGuestsCount: parseHiddenGuestsCount(i.hiddenGuestsJson),
     usedBy: i.usedBy
       ? {
           bookingId: i.usedBy.id,
@@ -88,6 +112,12 @@ const createSchema = z.object({
   note: z.string().trim().max(200).optional(),
   // ISO instant. Optional: enforcement deferred but the column is here.
   expiresAt: z.string().datetime().optional(),
+  // Silent attendees attached to the booking this invite produces. Booker
+  // never sees them in the form; server merges into Booking.additional_guests_json.
+  hiddenGuests: z
+    .array(z.string().trim().toLowerCase().email().max(320))
+    .max(20)
+    .optional(),
 });
 
 async function postHandler(req: NextRequest, { params }: RouteContext): Promise<Response> {
@@ -116,12 +146,14 @@ async function postHandler(req: NextRequest, { params }: RouteContext): Promise<
   }
 
   const { token: rawToken, hash } = generateToken(32);
+  const hiddenGuests = canonicalizeEmails(parsed.data.hiddenGuests ?? []);
   const invite = await db.bookingInvite.create({
     data: {
       eventTypeId: eventType.id,
       tokenHash: hash,
       note: parsed.data.note ?? null,
       expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
+      hiddenGuestsJson: JSON.stringify(hiddenGuests),
     },
   });
 
@@ -136,6 +168,7 @@ async function postHandler(req: NextRequest, { params }: RouteContext): Promise<
       note: invite.note,
       createdAt: invite.createdAt.toISOString(),
       expiresAt: invite.expiresAt ? invite.expiresAt.toISOString() : null,
+      hiddenGuestsCount: hiddenGuests.length,
     },
     { status: 201 },
   );

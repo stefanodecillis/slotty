@@ -321,3 +321,79 @@ describe('createBooking invite race', () => {
     expect(claimed?.usedByBookingId).toBe(bookings[0]!.id);
   });
 });
+
+describe('hidden guests merge into the booking', () => {
+  it('merges event-type defaults, invite-specific guests, and booker-typed guests; dedupes; excludes booker email', async () => {
+    const { db } = await import('@/lib/db');
+    const { eventType } = await seed();
+
+    // Set event-type-level hidden guests.
+    await db.eventType.update({
+      where: { id: eventType.id },
+      data: {
+        hiddenGuestsJson: JSON.stringify(['ops@example.com', 'cto@example.com']),
+      },
+    });
+
+    // Create an invite with its own hidden list (one new, one duplicating the
+    // event-type list, and one matching the booker — should be dropped).
+    const { token, hash } = generateToken(32);
+    const invite = await db.bookingInvite.create({
+      data: {
+        eventTypeId: eventType.id,
+        tokenHash: hash,
+        hiddenGuestsJson: JSON.stringify(['cc@example.com', 'ops@example.com', 'alice@example.com']),
+      },
+    });
+    mockInsertEventOk();
+
+    const result = await createBooking({
+      inviteToken: token,
+      startAtIso: nextWeekdaySlot().toISOString(),
+      bookerName: 'Alice',
+      bookerEmail: 'alice@example.com',
+      bookerTimezone: 'UTC',
+      // Booker types one of their own + one that duplicates the event default.
+      additionalGuests: ['friend@example.com', 'CTO@example.com'],
+    });
+
+    const booking = await db.booking.findUniqueOrThrow({ where: { id: result.booking.id } });
+    const merged = JSON.parse(booking.additionalGuestsJson) as string[];
+    // Booker-typed entries come first (preserving their input order), then
+    // event-type defaults, then invite-specific. Case-insensitive dedupe.
+    // alice@example.com (booker) is dropped from invite-hidden.
+    expect(merged).toEqual([
+      'friend@example.com',
+      'CTO@example.com',
+      'ops@example.com',
+      'cc@example.com',
+    ]);
+
+    // Sanity: invite still exists and is now used.
+    const claimed = await db.bookingInvite.findUnique({ where: { id: invite.id } });
+    expect(claimed?.usedAt).toBeTruthy();
+  });
+
+  it('still merges event-type hidden guests when booking via slug (no invite)', async () => {
+    const { db } = await import('@/lib/db');
+    const { eventType } = await seed({ inviteOnly: false, hidden: false });
+
+    await db.eventType.update({
+      where: { id: eventType.id },
+      data: { hiddenGuestsJson: JSON.stringify(['silent@example.com']) },
+    });
+    mockInsertEventOk();
+
+    const result = await createBooking({
+      eventTypeSlug: eventType.slug,
+      startAtIso: nextWeekdaySlot().toISOString(),
+      bookerName: 'Alice',
+      bookerEmail: 'alice@example.com',
+      bookerTimezone: 'UTC',
+    });
+
+    const booking = await db.booking.findUniqueOrThrow({ where: { id: result.booking.id } });
+    const merged = JSON.parse(booking.additionalGuestsJson) as string[];
+    expect(merged).toEqual(['silent@example.com']);
+  });
+});

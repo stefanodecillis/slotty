@@ -68,6 +68,7 @@ function baseInput(overrides: Record<string, unknown> = {}) {
     slotIntervalMin: 15,
     maxGuests: 3,
     sendReminders: true,
+    hiddenGuests: [],
     questions: [],
     ...overrides,
   };

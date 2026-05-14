@@ -104,9 +104,9 @@ model Schedule {
 model ScheduleRule {
   id          String @id @default(cuid())
   scheduleId  String @map("schedule_id")
-  weekday     Int    // 0 = Sunday, 6 = Saturday
+  weekday     Int // 0 = Sunday, 6 = Saturday
   startMinute Int    @map("start_minute") // minutes from midnight, 0-1439
-  endMinute   Int    @map("end_minute")   // exclusive
+  endMinute   Int    @map("end_minute") // exclusive
 
   schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
@@ -122,7 +122,7 @@ model DateOverride {
   startMinute Int?     @map("start_minute")
   endMinute   Int?     @map("end_minute")
   source      String   @default("manual") // "manual" | "holiday-import"
-  label       String?  // for holidays
+  label       String? // for holidays
   createdAt   DateTime @default(now()) @map("created_at")
 
   schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
@@ -160,44 +160,44 @@ model Job {
 // in the booking hot path.
 // ─────────────────────────────────────────────────────────────
 model ConnectedAccount {
-  id               String    @id @default(cuid())
-  provider         String    // "google"
-  googleUserEmail  String    @map("google_user_email")
-  accessTokenEnc   String    @map("access_token_enc")
-  refreshTokenEnc  String    @map("refresh_token_enc")
-  scopes           String    // space-delimited
-  expiresAt        DateTime  @map("expires_at")
-  status           String    @default("active") // active | needs_reauth | disconnected
-  lastSyncedAt     DateTime? @map("last_synced_at")
-  lastSyncError    String?   @map("last_sync_error")
-  createdAt        DateTime  @default(now()) @map("created_at")
+  id              String    @id @default(cuid())
+  provider        String // "google"
+  googleUserEmail String    @map("google_user_email")
+  accessTokenEnc  String    @map("access_token_enc")
+  refreshTokenEnc String    @map("refresh_token_enc")
+  scopes          String // space-delimited
+  expiresAt       DateTime  @map("expires_at")
+  status          String    @default("active") // active | needs_reauth | disconnected
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  lastSyncError   String?   @map("last_sync_error")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
-  calendars        Calendar[]
-  destinationFor   EventType[]
-  bookings         Booking[]
+  calendars      Calendar[]
+  destinationFor EventType[]
+  bookings       Booking[]
 
   @@unique([provider, googleUserEmail])
   @@map("connected_accounts")
 }
 
 model Calendar {
-  id                       String    @id @default(cuid())
-  connectedAccountId       String    @map("connected_account_id")
-  googleCalendarId         String    @map("google_calendar_id")
-  name                     String
-  description              String?
-  timezone                 String?
-  backgroundColor          String?   @map("background_color")
-  isPrimary                Boolean   @default(false) @map("is_primary")
-  isBusySource             Boolean   @default(true) @map("is_busy_source")
-  isDestinationEligible    Boolean   @default(false) @map("is_destination_eligible")
-  syncToken                String?   @map("sync_token")
-  watchChannelId           String?   @map("watch_channel_id")
-  watchResourceId          String?   @map("watch_resource_id")
-  watchExpiresAt           DateTime? @map("watch_expires_at")
-  lastIncrementalSyncAt    DateTime? @map("last_incremental_sync_at")
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
+  id                    String    @id @default(cuid())
+  connectedAccountId    String    @map("connected_account_id")
+  googleCalendarId      String    @map("google_calendar_id")
+  name                  String
+  description           String?
+  timezone              String?
+  backgroundColor       String?   @map("background_color")
+  isPrimary             Boolean   @default(false) @map("is_primary")
+  isBusySource          Boolean   @default(true) @map("is_busy_source")
+  isDestinationEligible Boolean   @default(false) @map("is_destination_eligible")
+  syncToken             String?   @map("sync_token")
+  watchChannelId        String?   @map("watch_channel_id")
+  watchResourceId       String?   @map("watch_resource_id")
+  watchExpiresAt        DateTime? @map("watch_expires_at")
+  lastIncrementalSyncAt DateTime? @map("last_incremental_sync_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
 
   connectedAccount ConnectedAccount @relation(fields: [connectedAccountId], references: [id], onDelete: Cascade)
   busyEvents       BusyEvent[]
@@ -208,16 +208,16 @@ model Calendar {
 }
 
 model BusyEvent {
-  id                String   @id @default(cuid())
-  calendarId        String   @map("calendar_id")
-  googleEventId     String   @map("google_event_id")
-  startAt           DateTime @map("start_at")
-  endAt             DateTime @map("end_at")
-  status            String   // "confirmed" | "tentative" | "cancelled"
-  isAllDay          Boolean  @default(false) @map("is_all_day")
-  transparency      String   @default("opaque") // "opaque" | "transparent"
-  recurringEventId  String?  @map("recurring_event_id")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(cuid())
+  calendarId       String   @map("calendar_id")
+  googleEventId    String   @map("google_event_id")
+  startAt          DateTime @map("start_at")
+  endAt            DateTime @map("end_at")
+  status           String // "confirmed" | "tentative" | "cancelled"
+  isAllDay         Boolean  @default(false) @map("is_all_day")
+  transparency     String   @default("opaque") // "opaque" | "transparent"
+  recurringEventId String?  @map("recurring_event_id")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   calendar Calendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
 
@@ -232,44 +232,45 @@ model BusyEvent {
 // Each EventType is a bookable offering the owner publishes.
 // ─────────────────────────────────────────────────────────────
 model EventType {
-  id                    String  @id @default(cuid())
-  userId                String  @map("user_id")
+  id                    String   @id @default(cuid())
+  userId                String   @map("user_id")
   title                 String
-  slug                  String  @unique
-  descriptionMd         String? @map("description_md")
-  color                 String  @default("#4F6CFF")
-  hidden                Boolean @default(false)
-  durationMinutes       Int     @map("duration_minutes")
-  destinationAccountId  String  @map("destination_account_id")
-  destinationCalendarId String  @map("destination_calendar_id")
-  locationKind          String  @map("location_kind") // google_meet | phone | in_person | custom_link
-  locationValue         String? @map("location_value")
-  bufferBeforeMin       Int     @default(0) @map("buffer_before_min")
-  bufferAfterMin        Int     @default(0) @map("buffer_after_min")
-  minNoticeMin          Int     @default(60) @map("min_notice_min")
-  bookingWindowDays     Int     @default(60) @map("booking_window_days")
-  maxPerDay             Int?    @map("max_per_day")
-  maxPerWeek            Int?    @map("max_per_week")
-  maxGuests             Int     @default(3) @map("max_guests")
-  slotIntervalMin       Int     @default(15) @map("slot_interval_min")
-  scheduleId            String? @map("schedule_id")
-  passwordHash          String? @map("password_hash")
-  confirmationMd        String? @map("confirmation_md")
-  redirectUrl           String? @map("redirect_url")
-  sendReminders         Boolean @default(true) @map("send_reminders")
-  position              Int     @default(0)
-  archived              Boolean @default(false)
-  inviteOnly            Boolean @default(false) @map("invite_only")
+  slug                  String   @unique
+  descriptionMd         String?  @map("description_md")
+  color                 String   @default("#4F6CFF")
+  hidden                Boolean  @default(false)
+  durationMinutes       Int      @map("duration_minutes")
+  destinationAccountId  String   @map("destination_account_id")
+  destinationCalendarId String   @map("destination_calendar_id")
+  locationKind          String   @map("location_kind") // google_meet | phone | in_person | custom_link
+  locationValue         String?  @map("location_value")
+  bufferBeforeMin       Int      @default(0) @map("buffer_before_min")
+  bufferAfterMin        Int      @default(0) @map("buffer_after_min")
+  minNoticeMin          Int      @default(60) @map("min_notice_min")
+  bookingWindowDays     Int      @default(60) @map("booking_window_days")
+  maxPerDay             Int?     @map("max_per_day")
+  maxPerWeek            Int?     @map("max_per_week")
+  maxGuests             Int      @default(3) @map("max_guests")
+  slotIntervalMin       Int      @default(15) @map("slot_interval_min")
+  scheduleId            String?  @map("schedule_id")
+  passwordHash          String?  @map("password_hash")
+  confirmationMd        String?  @map("confirmation_md")
+  redirectUrl           String?  @map("redirect_url")
+  sendReminders         Boolean  @default(true) @map("send_reminders")
+  position              Int      @default(0)
+  archived              Boolean  @default(false)
+  inviteOnly            Boolean  @default(false) @map("invite_only")
+  hiddenGuestsJson      String   @default("[]") @map("hidden_guests_json") // JSON array of emails silently added to every booking
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
-  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  destinationAccount ConnectedAccount  @relation(fields: [destinationAccountId], references: [id], onDelete: Restrict)
-  destinationCalendar Calendar         @relation(fields: [destinationCalendarId], references: [id], onDelete: Restrict)
-  schedule           Schedule?         @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-  questions          EventTypeQuestion[]
-  bookings           Booking[]
-  invites            BookingInvite[]
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  destinationAccount  ConnectedAccount    @relation(fields: [destinationAccountId], references: [id], onDelete: Restrict)
+  destinationCalendar Calendar            @relation(fields: [destinationCalendarId], references: [id], onDelete: Restrict)
+  schedule            Schedule?           @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  questions           EventTypeQuestion[]
+  bookings            Booking[]
+  invites             BookingInvite[]
 
   @@index([userId, archived, hidden])
   @@index([slug])
@@ -281,7 +282,7 @@ model EventTypeQuestion {
   eventTypeId String  @map("event_type_id")
   label       String
   helperText  String? @map("helper_text")
-  kind        String  // text | textarea | select | checkbox | radio
+  kind        String // text | textarea | select | checkbox | radio
   required    Boolean @default(false)
   optionsJson String? @map("options_json") // JSON array for select/radio: ["a","b"]
   position    Int     @default(0)
@@ -300,36 +301,36 @@ model EventTypeQuestion {
 // page and the admin can retry. `clientRequestId` provides idempotent replay.
 // ─────────────────────────────────────────────────────────────
 model Booking {
-  id                  String    @id @default(cuid())
-  eventTypeId         String    @map("event_type_id")
-  googleAccountId     String    @map("google_account_id")
-  googleCalendarId    String    @map("google_calendar_id")
-  googleEventId       String?   @map("google_event_id") // null until Google insert succeeds
-  startAt             DateTime  @map("start_at")
-  endAt               DateTime  @map("end_at")
-  status              String    @default("confirmed") // confirmed | cancelled | rescheduled
-  bookerName          String    @map("booker_name")
-  bookerEmail         String    @map("booker_email")
-  bookerTimezone      String    @map("booker_timezone")
-  additionalGuestsJson String   @default("[]") @map("additional_guests_json") // JSON array of email strings
-  notes               String?
-  answersJson         String    @default("{}") @map("answers_json") // map of questionId -> answer value
-  cancelTokenHash     String    @map("cancel_token_hash") // sha256 of the cancel token
-  rescheduleTokenHash String    @map("reschedule_token_hash")
-  meetingUrl          String?   @map("meeting_url") // for Google Meet (or custom_link copy, in_person address, phone, etc.)
-  noShow              Boolean   @default(false) @map("no_show")
-  clientRequestId     String?   @map("client_request_id") // idempotency
-  needsSync           Boolean   @default(false) @map("needs_sync") // true if Google insert failed
-  syncError           String?   @map("sync_error")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  cancelledAt         DateTime? @map("cancelled_at")
-  cancelReason        String?   @map("cancel_reason")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(cuid())
+  eventTypeId          String    @map("event_type_id")
+  googleAccountId      String    @map("google_account_id")
+  googleCalendarId     String    @map("google_calendar_id")
+  googleEventId        String?   @map("google_event_id") // null until Google insert succeeds
+  startAt              DateTime  @map("start_at")
+  endAt                DateTime  @map("end_at")
+  status               String    @default("confirmed") // confirmed | cancelled | rescheduled
+  bookerName           String    @map("booker_name")
+  bookerEmail          String    @map("booker_email")
+  bookerTimezone       String    @map("booker_timezone")
+  additionalGuestsJson String    @default("[]") @map("additional_guests_json") // JSON array of email strings
+  notes                String?
+  answersJson          String    @default("{}") @map("answers_json") // map of questionId -> answer value
+  cancelTokenHash      String    @map("cancel_token_hash") // sha256 of the cancel token
+  rescheduleTokenHash  String    @map("reschedule_token_hash")
+  meetingUrl           String?   @map("meeting_url") // for Google Meet (or custom_link copy, in_person address, phone, etc.)
+  noShow               Boolean   @default(false) @map("no_show")
+  clientRequestId      String?   @map("client_request_id") // idempotency
+  needsSync            Boolean   @default(false) @map("needs_sync") // true if Google insert failed
+  syncError            String?   @map("sync_error")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  cancelledAt          DateTime? @map("cancelled_at")
+  cancelReason         String?   @map("cancel_reason")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  eventType        EventType         @relation(fields: [eventTypeId], references: [id], onDelete: Restrict)
-  googleAccount    ConnectedAccount  @relation(fields: [googleAccountId], references: [id], onDelete: Restrict)
-  history          BookingHistory[]
-  invite           BookingInvite?    @relation("BookingInviteUse")
+  eventType     EventType        @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
+  googleAccount ConnectedAccount @relation(fields: [googleAccountId], references: [id], onDelete: Restrict)
+  history       BookingHistory[]
+  invite        BookingInvite?   @relation("BookingInviteUse")
 
   @@unique([eventTypeId, clientRequestId]) // idempotency dedupe
   @@index([startAt, endAt])
@@ -341,9 +342,9 @@ model Booking {
 model BookingHistory {
   id          String   @id @default(cuid())
   bookingId   String   @map("booking_id")
-  action      String   // created | rescheduled | cancelled | no_show_marked | no_show_cleared
+  action      String // created | rescheduled | cancelled | no_show_marked | no_show_cleared
   payloadJson String   @default("{}") @map("payload_json") // before/after snapshots
-  actor       String   // "booker" | "owner" | "system"
+  actor       String // "booker" | "owner" | "system"
   createdAt   DateTime @default(now()) @map("created_at")
 
   booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -362,15 +363,16 @@ model BookingHistory {
 // and stay set even if the booking is later cancelled (regenerate to share again).
 // ─────────────────────────────────────────────────────────────
 model BookingInvite {
-  id              String    @id @default(cuid())
-  eventTypeId     String    @map("event_type_id")
-  tokenHash       String    @unique @map("token_hash") // sha256(rawToken)
-  note            String?   // admin-only label e.g. "Sarah at Acme"
-  expiresAt       DateTime? @map("expires_at")
-  usedAt          DateTime? @map("used_at")
-  usedByBookingId String?   @unique @map("used_by_booking_id")
-  revokedAt       DateTime? @map("revoked_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id               String    @id @default(cuid())
+  eventTypeId      String    @map("event_type_id")
+  tokenHash        String    @unique @map("token_hash") // sha256(rawToken)
+  note             String? // admin-only label e.g. "Sarah at Acme"
+  expiresAt        DateTime? @map("expires_at")
+  usedAt           DateTime? @map("used_at")
+  usedByBookingId  String?   @unique @map("used_by_booking_id")
+  revokedAt        DateTime? @map("revoked_at")
+  hiddenGuestsJson String    @default("[]") @map("hidden_guests_json") // JSON array of emails silently added to the booking that consumes this invite
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   eventType EventType @relation(fields: [eventTypeId], references: [id], onDelete: Cascade)
   usedBy    Booking?  @relation("BookingInviteUse", fields: [usedByBookingId], references: [id], onDelete: SetNull)
@@ -387,8 +389,8 @@ model BookingInvite {
 model AuditLog {
   id           String   @id @default(cuid())
   userId       String?  @map("user_id")
-  actor        String   // "owner" | "system"
-  action       String   // login | logout | settings.update | event_type.create | etc.
+  actor        String // "owner" | "system"
+  action       String // login | logout | settings.update | event_type.create | etc.
   targetType   String?  @map("target_type")
   targetId     String?  @map("target_id")
   metadataJson String   @default("{}") @map("metadata_json")

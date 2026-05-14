@@ -29,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { GuestChipInput } from '@/components/ui/guest-chip-input';
 import {
   createInvite,
   inviteKeys,
@@ -40,12 +41,19 @@ import {
 
 interface Props {
   eventTypeId: string;
+  /**
+   * How many hidden guests the EventType itself already attaches to every
+   * booking. Shown as helper text on the create-invite form so the admin
+   * understands the merge behaviour.
+   */
+  eventTypeHiddenGuestsCount?: number;
 }
 
-export function InviteLinksPanel({ eventTypeId }: Props) {
+export function InviteLinksPanel({ eventTypeId, eventTypeHiddenGuestsCount = 0 }: Props) {
   const queryClient = useQueryClient();
   const [generateOpen, setGenerateOpen] = useState(false);
   const [note, setNote] = useState('');
+  const [hiddenGuests, setHiddenGuests] = useState<string[]>([]);
   const [createdInvite, setCreatedInvite] = useState<CreatedInvite | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -55,10 +63,15 @@ export function InviteLinksPanel({ eventTypeId }: Props) {
   });
 
   const createMutation = useMutation({
-    mutationFn: (n: string | undefined) => createInvite(eventTypeId, n ? { note: n } : {}),
+    mutationFn: (vars: { note?: string; hiddenGuests?: string[] }) =>
+      createInvite(eventTypeId, {
+        ...(vars.note ? { note: vars.note } : {}),
+        ...(vars.hiddenGuests && vars.hiddenGuests.length ? { hiddenGuests: vars.hiddenGuests } : {}),
+      }),
     onSuccess: (data) => {
       setCreatedInvite(data);
       setNote('');
+      setHiddenGuests([]);
       void queryClient.invalidateQueries({ queryKey: inviteKeys.list(eventTypeId) });
     },
     onError: (err) => {
@@ -97,6 +110,7 @@ export function InviteLinksPanel({ eventTypeId }: Props) {
     setTimeout(() => {
       setCreatedInvite(null);
       setNote('');
+      setHiddenGuests([]);
       setCopied(false);
     }, 200);
   }
@@ -179,12 +193,35 @@ export function InviteLinksPanel({ eventTypeId }: Props) {
                 />
               </div>
 
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="invite-hidden-guests">Extra hidden guests for this link</Label>
+                <GuestChipInput
+                  id="invite-hidden-guests"
+                  value={hiddenGuests}
+                  onChange={setHiddenGuests}
+                  max={20}
+                  placeholder="extra-cc@example.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Added on top of any defaults from the event type
+                  {eventTypeHiddenGuestsCount > 0
+                    ? ` (${eventTypeHiddenGuestsCount} already configured)`
+                    : ''}
+                  . The booker never sees them.
+                </p>
+              </div>
+
               <DialogFooter>
                 <Button variant="outline" onClick={closeDialog}>
                   Cancel
                 </Button>
                 <Button
-                  onClick={() => createMutation.mutate(note.trim() || undefined)}
+                  onClick={() =>
+                    createMutation.mutate({
+                      note: note.trim() || undefined,
+                      hiddenGuests: hiddenGuests.length ? hiddenGuests : undefined,
+                    })
+                  }
                   disabled={createMutation.isPending}
                 >
                   {createMutation.isPending ? 'Generating…' : 'Generate'}
@@ -237,6 +274,9 @@ function InviteRow({
             : invite.status === 'revoked' && invite.revokedAt
               ? `Revoked ${new Date(invite.revokedAt).toLocaleDateString()}`
               : `Created ${new Date(invite.createdAt).toLocaleDateString()}`}
+          {invite.hiddenGuestsCount > 0
+            ? ` · +${invite.hiddenGuestsCount} hidden guest${invite.hiddenGuestsCount === 1 ? '' : 's'}`
+            : ''}
         </div>
       </div>
 

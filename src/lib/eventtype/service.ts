@@ -89,6 +89,21 @@ async function validateDestination(
   }
 }
 
+// Canonicalize a list of emails: trim, lowercase, drop blanks, dedupe.
+// Order is preserved (first occurrence wins) so the admin sees their own
+// ordering in the chip input after a round-trip.
+function canonicalizeEmails(emails: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of emails) {
+    const e = raw.trim().toLowerCase();
+    if (!e || seen.has(e)) continue;
+    seen.add(e);
+    out.push(e);
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Error type
 // ─────────────────────────────────────────────────────────────
@@ -140,6 +155,7 @@ export async function createEventType(userId: string, input: EventTypeInput): Pr
       confirmationMd: input.confirmationMd ?? null,
       redirectUrl: input.redirectUrl ?? null,
       sendReminders: input.sendReminders,
+      hiddenGuestsJson: JSON.stringify(canonicalizeEmails(input.hiddenGuests)),
       position: 0,
       archived: false,
       questions: {
@@ -214,6 +230,7 @@ export async function updateEventType(
         confirmationMd: input.confirmationMd ?? null,
         redirectUrl: input.redirectUrl ?? null,
         sendReminders: input.sendReminders,
+        hiddenGuestsJson: JSON.stringify(canonicalizeEmails(input.hiddenGuests)),
         questions: {
           create: (input.questions ?? []).map((q, i) => ({
             label: q.label,
@@ -270,6 +287,7 @@ export async function duplicateEventType(eventTypeId: string, userId: string): P
       confirmationMd: source.confirmationMd,
       redirectUrl: source.redirectUrl,
       sendReminders: source.sendReminders,
+      hiddenGuestsJson: source.hiddenGuestsJson,
       position: 0,
       archived: false,
       questions: {
@@ -316,7 +334,8 @@ export async function deleteEventType(eventTypeId: string, userId: string): Prom
   if (!existing || existing.userId !== userId) {
     throw new ServiceError('Event type not found', 'NOT_FOUND');
   }
-  // Phase 7 will add a Booking model guard here.
+  // Bookings and their history (and any BookingInvites) cascade-delete with
+  // the EventType — declared at the DB layer via the FK on `bookings`.
   await db.eventType.delete({ where: { id: eventTypeId } });
 }
 
@@ -375,6 +394,26 @@ export async function archiveEventTypesForAccount(accountId: string): Promise<nu
   }
 
   return result.count;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Hidden guests helpers
+// ─────────────────────────────────────────────────────────────
+
+// Parse a stored `hidden_guests_json` payload back into an email[]. Bad input
+// (malformed JSON, wrong shape) collapses to [] — the column is admin-supplied
+// and round-tripped through `canonicalizeEmails`, so a parse failure means
+// a manual edit or a future schema drift; either way it's safer to skip the
+// silent attendees than to crash the booking flow.
+export function parseHiddenGuests(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === 'string');
+  } catch {
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -64,6 +64,7 @@ function makeInput(overrides: Record<string, unknown> = {}) {
     slotIntervalMin: 15,
     maxGuests: 3,
     sendReminders: true,
+    hiddenGuests: [],
     questions: [],
     ...overrides,
   };
@@ -354,5 +355,166 @@ describe('reorderEventTypes', () => {
     expect(rows[0]?.id).toBe(c.id);
     expect(rows[1]?.id).toBe(a.id);
     expect(rows[2]?.id).toBe(b.id);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// hiddenGuests round-trip
+// ─────────────────────────────────────────────────────────────
+
+describe('hiddenGuests round-trip', () => {
+  it('canonicalizes (lowercases, dedupes) on create and parses back on read', async () => {
+    const { createEventType, parseHiddenGuests } = await import('@/lib/eventtype/service');
+    const { db } = await import('@/lib/db');
+
+    const user = await createTestUser();
+    const account = await createTestAccount(user.id);
+    const calendar = await createTestCalendar(account.id);
+
+    const created = await createEventType(
+      user.id,
+      makeInput({
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        // Mixed case + a duplicate to ensure canonicalization.
+        hiddenGuests: ['Ops@Example.com', 'cto@example.com', 'OPS@example.com'],
+      }),
+    );
+
+    const row = await db.eventType.findUniqueOrThrow({ where: { id: created.id } });
+    const parsed = parseHiddenGuests(row.hiddenGuestsJson);
+    expect(parsed).toEqual(['ops@example.com', 'cto@example.com']);
+  });
+
+  it('updates the stored hidden guests list on update', async () => {
+    const { createEventType, updateEventType, parseHiddenGuests } = await import(
+      '@/lib/eventtype/service'
+    );
+    const { db } = await import('@/lib/db');
+
+    const user = await createTestUser();
+    const account = await createTestAccount(user.id);
+    const calendar = await createTestCalendar(account.id);
+
+    const created = await createEventType(
+      user.id,
+      makeInput({
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        hiddenGuests: ['a@example.com'],
+      }),
+    );
+
+    await updateEventType(
+      created.id,
+      user.id,
+      makeInput({
+        slug: created.slug,
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        hiddenGuests: ['b@example.com', 'c@example.com'],
+      }),
+    );
+
+    const row = await db.eventType.findUniqueOrThrow({ where: { id: created.id } });
+    expect(parseHiddenGuests(row.hiddenGuestsJson)).toEqual(['b@example.com', 'c@example.com']);
+  });
+
+  it('preserves hidden guests on duplicate', async () => {
+    const { createEventType, duplicateEventType, parseHiddenGuests } = await import(
+      '@/lib/eventtype/service'
+    );
+    const { db } = await import('@/lib/db');
+
+    const user = await createTestUser();
+    const account = await createTestAccount(user.id);
+    const calendar = await createTestCalendar(account.id);
+
+    const created = await createEventType(
+      user.id,
+      makeInput({
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        hiddenGuests: ['copyme@example.com'],
+      }),
+    );
+
+    const dup = await duplicateEventType(created.id, user.id);
+    const row = await db.eventType.findUniqueOrThrow({ where: { id: dup.id } });
+    expect(parseHiddenGuests(row.hiddenGuestsJson)).toEqual(['copyme@example.com']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// deleteEventType — cascade behaviour
+// ─────────────────────────────────────────────────────────────
+
+describe('deleteEventType cascades bookings + history + invites', () => {
+  it('drops bookings, booking-history rows, and invites when the event type is deleted', async () => {
+    const { createEventType, deleteEventType } = await import('@/lib/eventtype/service');
+    const { db } = await import('@/lib/db');
+
+    const user = await createTestUser();
+    const account = await createTestAccount(user.id);
+    const calendar = await createTestCalendar(account.id);
+
+    const et = await createEventType(
+      user.id,
+      makeInput({ destinationAccountId: account.id, destinationCalendarId: calendar.id }),
+    );
+
+    // Seed two bookings + history + an invite.
+    const bookingA = await db.booking.create({
+      data: {
+        eventTypeId: et.id,
+        googleAccountId: account.id,
+        googleCalendarId: calendar.id,
+        startAt: new Date(Date.now() + 24 * 3600 * 1000),
+        endAt: new Date(Date.now() + 25 * 3600 * 1000),
+        bookerName: 'Alice',
+        bookerEmail: 'alice@example.com',
+        bookerTimezone: 'UTC',
+        cancelTokenHash: 'cancel-a',
+        rescheduleTokenHash: 'resched-a',
+      },
+    });
+    const bookingB = await db.booking.create({
+      data: {
+        eventTypeId: et.id,
+        googleAccountId: account.id,
+        googleCalendarId: calendar.id,
+        startAt: new Date(Date.now() + 48 * 3600 * 1000),
+        endAt: new Date(Date.now() + 49 * 3600 * 1000),
+        bookerName: 'Bob',
+        bookerEmail: 'bob@example.com',
+        bookerTimezone: 'UTC',
+        cancelTokenHash: 'cancel-b',
+        rescheduleTokenHash: 'resched-b',
+      },
+    });
+    await db.bookingHistory.create({
+      data: { bookingId: bookingA.id, action: 'created', actor: 'booker' },
+    });
+    await db.bookingHistory.create({
+      data: { bookingId: bookingB.id, action: 'created', actor: 'booker' },
+    });
+    const invite = await db.bookingInvite.create({
+      data: { eventTypeId: et.id, tokenHash: 'hash-' + randomBytes(4).toString('hex') },
+    });
+
+    await deleteEventType(et.id, user.id);
+
+    expect(await db.eventType.findUnique({ where: { id: et.id } })).toBeNull();
+    expect(
+      await db.booking.findMany({ where: { id: { in: [bookingA.id, bookingB.id] } } }),
+    ).toEqual([]);
+    expect(
+      await db.bookingHistory.findMany({ where: { bookingId: { in: [bookingA.id, bookingB.id] } } }),
+    ).toEqual([]);
+    expect(await db.bookingInvite.findUnique({ where: { id: invite.id } })).toBeNull();
+
+    // ConnectedAccount and Calendar are untouched.
+    expect(await db.connectedAccount.findUnique({ where: { id: account.id } })).not.toBeNull();
+    expect(await db.calendar.findUnique({ where: { id: calendar.id } })).not.toBeNull();
   });
 });
