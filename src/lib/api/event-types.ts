@@ -191,3 +191,31 @@ export function createOneTimeLink(payload: OneTimeLinkPayload): Promise<OneTimeL
     body: JSON.stringify(payload),
   });
 }
+
+// ─────────────────────────────────────────────────────────────
+// Pending one-time links — admin dashboard view.
+// Each row pairs an `isOneTime` EventType with its single still-usable
+// BookingInvite. Used / revoked / expired entries drop out of this list
+// and are pruned after a retention window.
+// ─────────────────────────────────────────────────────────────
+
+export interface PendingOneTimeLink {
+  eventTypeId: string;
+  title: string;
+  durationMinutes: number;
+  color: string;
+  inviteId: string;
+  note: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  hiddenGuestsCount: number;
+}
+
+export const oneTimeLinkKeys = {
+  all: ['oneTimeLinks'] as const,
+  list: () => [...oneTimeLinkKeys.all, 'list'] as const,
+};
+
+export function listOneTimeLinks(): Promise<{ links: PendingOneTimeLink[] }> {
+  return http('/api/admin/one-time-links');
+}

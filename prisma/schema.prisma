@@ -260,6 +260,10 @@ model EventType {
   position              Int      @default(0)
   archived              Boolean  @default(false)
   inviteOnly            Boolean  @default(false) @map("invite_only")
+  // True for EventTypes created via the "New one-time link" flow. These are
+  // managed in a separate UI section and pruned after their single invite
+  // is consumed (or expires/is revoked) plus a retention window.
+  isOneTime             Boolean  @default(false) @map("is_one_time")
   hiddenGuestsJson      String   @default("[]") @map("hidden_guests_json") // JSON array of emails silently added to every booking
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
@@ -273,6 +277,7 @@ model EventType {
   invites             BookingInvite[]
 
   @@index([userId, archived, hidden])
+  @@index([userId, isOneTime, archived])
   @@index([slug])
   @@map("event_types")
 }

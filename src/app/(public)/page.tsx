@@ -24,7 +24,7 @@ export default async function PublicHomePage() {
   if (!user) redirect('/setup');
 
   const eventTypes = await db.eventType.findMany({
-    where: { userId: user.id, archived: false, hidden: false },
+    where: { userId: user.id, archived: false, hidden: false, isOneTime: false },
     orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     select: {
       id: true,

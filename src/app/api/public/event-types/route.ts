@@ -43,7 +43,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   const types = await db.eventType.findMany({
-    where: { archived: false, hidden: false },
+    where: { archived: false, hidden: false, isOneTime: false },
     orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     select: {
       id: true,

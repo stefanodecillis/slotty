@@ -518,3 +518,26 @@ describe('deleteEventType cascades bookings + history + invites', () => {
     expect(await db.calendar.findUnique({ where: { id: calendar.id } })).not.toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// isOneTime flag — default + correctness
+// ─────────────────────────────────────────────────────────────
+
+describe('isOneTime defaults to false for normal createEventType', () => {
+  it('createEventType leaves isOneTime=false (default) when not set', async () => {
+    const { createEventType } = await import('@/lib/eventtype/service');
+    const { db } = await import('@/lib/db');
+
+    const user = await createTestUser();
+    const account = await createTestAccount(user.id);
+    const calendar = await createTestCalendar(account.id);
+
+    const et = await createEventType(
+      user.id,
+      makeInput({ destinationAccountId: account.id, destinationCalendarId: calendar.id }),
+    );
+
+    const row = await db.eventType.findUniqueOrThrow({ where: { id: et.id } });
+    expect(row.isOneTime).toBe(false);
+  });
+});

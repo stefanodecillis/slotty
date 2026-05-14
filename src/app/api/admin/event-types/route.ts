@@ -14,10 +14,12 @@ export async function GET(req: NextRequest): Promise<Response> {
   const { searchParams } = new URL(req.url);
   const archivedParam = searchParams.get('archived');
 
+  // isOneTime EventTypes are managed in their own admin section
+  // (GET /api/admin/one-time-links). Keep them out of the normal list.
   const where =
     archivedParam === 'true'
-      ? { userId: user.id, archived: true }
-      : { userId: user.id, archived: false };
+      ? { userId: user.id, archived: true, isOneTime: false }
+      : { userId: user.id, archived: false, isOneTime: false };
 
   const eventTypes = await db.eventType.findMany({
     where,

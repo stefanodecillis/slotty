@@ -308,6 +308,14 @@ export async function startJobScheduler(): Promise<void> {
     logger.error({ event: 'scheduler.webhook_handler_init_error', err }, 'failed to register webhook handler');
   }
 
+  // Daily retention sweep — drops invites that are used/revoked/expired
+  // beyond the retention window plus any orphan one-time EventTypes.
+  registerHandler('prune_booking_invites', async () => {
+    const { pruneOldBookingInvites } = await import('@/lib/jobs/prune-invites');
+    await pruneOldBookingInvites();
+  }, { maxAttempts: 3, retryOnError: true });
+  scheduleRecurring('prune_booking_invites', 24 * 60 * 60 * 1000);
+
   runScheduler(5_000);
   logger.info({ event: 'scheduler.started' }, 'job scheduler started');
 }

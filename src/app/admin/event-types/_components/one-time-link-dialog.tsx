@@ -37,7 +37,12 @@ import {
 } from '@/components/ui/select';
 import { GuestChipInput } from '@/components/ui/guest-chip-input';
 import { copyToClipboard } from '@/lib/clipboard';
-import { createOneTimeLink, eventTypeKeys, type OneTimeLinkResult } from '@/lib/api/event-types';
+import {
+  createOneTimeLink,
+  eventTypeKeys,
+  oneTimeLinkKeys,
+  type OneTimeLinkResult,
+} from '@/lib/api/event-types';
 import { ApiError } from '@/lib/api/http';
 import type {
   CalendarOption,
@@ -107,6 +112,7 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
     onSuccess: (data) => {
       setResult(data);
       queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
+      queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.all });
     },
     onError: (err) => {
       if (err instanceof ApiError) {

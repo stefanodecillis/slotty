@@ -147,6 +147,7 @@ async function postHandler(req: NextRequest): Promise<Response> {
         color: '#4F6CFF',
         hidden: true,
         inviteOnly: true,
+        isOneTime: true,
         durationMinutes: input.durationMinutes,
         destinationAccountId: input.destinationAccountId,
         destinationCalendarId: input.destinationCalendarId,

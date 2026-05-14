@@ -234,3 +234,146 @@ describe('slug uniqueness', () => {
     expect(second.slug).toBe(`${slug}-2`);
   });
 });
+
+// ─────────────────────────────────────────────────────────────
+// isOneTime filtering
+// ─────────────────────────────────────────────────────────────
+
+describe('isOneTime filter on admin event-types listing', () => {
+  it('GET /api/admin/event-types returns only isOneTime=false rows', async () => {
+    const { db } = await import('@/lib/db');
+    const { createEventType } = await import('@/lib/eventtype/service');
+
+    const user = await createUser();
+    const account = await createAccount();
+    const calendar = await createCalendar(account.id, true);
+
+    // A normal event type.
+    const normal = await createEventType(
+      user.id,
+      baseInput({ destinationAccountId: account.id, destinationCalendarId: calendar.id }),
+    );
+    // A one-time event type — created the same way the route would.
+    const oneTime = await db.eventType.create({
+      data: {
+        userId: user.id,
+        title: 'OT',
+        slug: `ot-${Math.random().toString(36).slice(2, 10)}`,
+        durationMinutes: 30,
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        locationKind: 'google_meet',
+        hidden: true,
+        inviteOnly: true,
+        isOneTime: true,
+      },
+    });
+
+    // Mirror the route's WHERE.
+    const rows = await db.eventType.findMany({
+      where: { userId: user.id, archived: false, isOneTime: false },
+      select: { id: true },
+    });
+    const ids = new Set(rows.map((r) => r.id));
+    expect(ids.has(normal.id)).toBe(true);
+    expect(ids.has(oneTime.id)).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// One-time links endpoint — pending filter
+// ─────────────────────────────────────────────────────────────
+
+describe('one-time-links pending query', () => {
+  it('returns only EventTypes that have a still-usable invite', async () => {
+    const { db } = await import('@/lib/db');
+
+    const user = await createUser();
+    const account = await createAccount();
+    const calendar = await createCalendar(account.id, true);
+
+    async function makeOneTime(label: string) {
+      return db.eventType.create({
+        data: {
+          userId: user.id,
+          title: label,
+          slug: `ot-${Math.random().toString(36).slice(2, 10)}`,
+          durationMinutes: 30,
+          destinationAccountId: account.id,
+          destinationCalendarId: calendar.id,
+          locationKind: 'google_meet',
+          hidden: true,
+          inviteOnly: true,
+          isOneTime: true,
+        },
+      });
+    }
+
+    const tokenHash = (n: string) => `h-${n}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Pending → should appear
+    const a = await makeOneTime('A');
+    await db.bookingInvite.create({ data: { eventTypeId: a.id, tokenHash: tokenHash('a') } });
+
+    // Used → should NOT appear
+    const b = await makeOneTime('B');
+    await db.bookingInvite.create({
+      data: { eventTypeId: b.id, tokenHash: tokenHash('b'), usedAt: new Date() },
+    });
+
+    // Revoked → should NOT appear
+    const c = await makeOneTime('C');
+    await db.bookingInvite.create({
+      data: { eventTypeId: c.id, tokenHash: tokenHash('c'), revokedAt: new Date() },
+    });
+
+    // Expired → should NOT appear
+    const d = await makeOneTime('D');
+    await db.bookingInvite.create({
+      data: {
+        eventTypeId: d.id,
+        tokenHash: tokenHash('d'),
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    // Normal EventType with a pending invite → should NOT appear (isOneTime=false)
+    const z = await db.eventType.create({
+      data: {
+        userId: user.id,
+        title: 'Z normal',
+        slug: `z-${Math.random().toString(36).slice(2, 10)}`,
+        durationMinutes: 30,
+        destinationAccountId: account.id,
+        destinationCalendarId: calendar.id,
+        locationKind: 'google_meet',
+        inviteOnly: true,
+        isOneTime: false,
+      },
+    });
+    await db.bookingInvite.create({ data: { eventTypeId: z.id, tokenHash: tokenHash('z') } });
+
+    const now = new Date();
+    const rows = await db.eventType.findMany({
+      where: {
+        userId: user.id,
+        isOneTime: true,
+        archived: false,
+        invites: {
+          some: {
+            usedAt: null,
+            revokedAt: null,
+            OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          },
+        },
+      },
+      select: { id: true, title: true },
+    });
+    const titles = new Set(rows.map((r) => r.title));
+    expect(titles.has('A')).toBe(true);
+    expect(titles.has('B')).toBe(false);
+    expect(titles.has('C')).toBe(false);
+    expect(titles.has('D')).toBe(false);
+    expect(titles.has('Z normal')).toBe(false);
+  });
+});
