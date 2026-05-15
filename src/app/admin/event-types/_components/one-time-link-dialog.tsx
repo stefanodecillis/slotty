@@ -48,6 +48,7 @@ import {
 } from '@/lib/api/event-types';
 import { ApiError } from '@/lib/api/http';
 import type {
+  BrandOption,
   CalendarOption,
   ConnectedAccountOption,
   ScheduleOption,
@@ -57,6 +58,9 @@ interface OneTimeLinkDialogProps {
   accounts: ConnectedAccountOption[];
   calendars: CalendarOption[];
   schedules: ScheduleOption[];
+  brands: BrandOption[];
+  /** User's default brand id (or null). Prefilled into the form. */
+  defaultBrandId: string | null;
 }
 
 const DURATION_OPTIONS = [15, 30, 45, 60, 90];
@@ -81,7 +85,13 @@ const DEFAULTS = {
   sendReminders: true,
 } as const;
 
-export function OneTimeLinkDialog({ accounts, calendars, schedules }: OneTimeLinkDialogProps) {
+export function OneTimeLinkDialog({
+  accounts,
+  calendars,
+  schedules,
+  brands,
+  defaultBrandId,
+}: OneTimeLinkDialogProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -95,6 +105,8 @@ export function OneTimeLinkDialog({ accounts, calendars, schedules }: OneTimeLin
           accounts={accounts}
           calendars={calendars}
           schedules={schedules}
+          brands={brands}
+          defaultBrandId={defaultBrandId}
           onClose={() => setOpen(false)}
         />
       ) : null}
@@ -106,10 +118,18 @@ interface BodyProps extends OneTimeLinkDialogProps {
   onClose: () => void;
 }
 
-function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: BodyProps) {
+function OneTimeLinkDialogBody({
+  accounts,
+  calendars,
+  schedules,
+  brands,
+  defaultBrandId,
+  onClose,
+}: BodyProps) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [durationMinutes, setDurationMinutes] = useState<number>(30);
+  const [brandId, setBrandId] = useState<string>(defaultBrandId ?? '');
   const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? '');
   // Default to the first eligible calendar on the selected account.
   const eligibleCalendars = useMemo(
@@ -218,6 +238,7 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
       maxGuests,
       confirmationMd: confirmationMd.trim() || undefined,
       sendReminders,
+      brandId: brandId || null,
     });
   }
 
@@ -342,6 +363,38 @@ function OneTimeLinkDialogBody({ accounts, calendars, schedules, onClose }: Body
                 </>
               )}
             </div>
+
+            {brands.length > 0 && (
+              <div className="grid gap-2">
+                <Label htmlFor="ot-brand">Brand</Label>
+                <Select
+                  value={brandId || '__none__'}
+                  onValueChange={(v) => setBrandId(v === '__none__' ? '' : v)}
+                >
+                  <SelectTrigger id="ot-brand">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No brand</SelectItem>
+                    {brands.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        <span className="inline-flex items-center gap-2">
+                          <span
+                            aria-hidden
+                            className="inline-block h-3 w-3 rounded-full border border-border"
+                            style={{ backgroundColor: b.primaryColor }}
+                          />
+                          {b.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Shown to the invitee on the booking page (logo, colors, favicon).
+                </p>
+              </div>
+            )}
 
             {schedules.length > 1 && (
               <div className="grid gap-2">

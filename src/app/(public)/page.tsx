@@ -33,6 +33,7 @@ export default async function PublicHomePage() {
       durationMinutes: true,
       color: true,
       descriptionMd: true,
+      brand: { select: { primaryColor: true } },
     },
   });
 
@@ -82,11 +83,11 @@ export default async function PublicHomePage() {
                   href={`/${et.slug}`}
                   className="group flex items-center gap-4 rounded-md px-3 py-4 transition-colors hover:bg-muted/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
-                  {/* Color dot */}
+                  {/* Color dot — brand primary takes precedence when attached */}
                   <span
                     aria-hidden
                     className="mt-0.5 inline-block h-3 w-3 flex-shrink-0 rounded-full"
-                    style={{ backgroundColor: et.color }}
+                    style={{ backgroundColor: et.brand?.primaryColor ?? et.color }}
                   />
 
                   {/* Title + duration */}

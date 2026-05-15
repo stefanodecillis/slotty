@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { GuestChipInput, emailLooksValid } from '@/components/ui/guest-chip-input';
 import type { SlotResult } from '@/lib/scheduling/compute-types';
 import { createBooking, getSlots, publicKeys } from '@/lib/api/public';
+import { hexToHsl, readableForegroundHsl } from '@/lib/brand/css';
 
 import { TzSelector, getInitialBookerTz } from './tz-selector';
 
@@ -29,6 +30,13 @@ interface Question {
   kind: string;
   required: boolean;
   optionsJson: string | null;
+}
+
+interface BrandProp {
+  name: string;
+  primaryColor: string;
+  accentColor: string;
+  logoPath: string | null;
 }
 
 interface Props {
@@ -45,6 +53,11 @@ interface Props {
   maxGuests: number;
   questions: Question[];
   passwordRequired: boolean;
+  /**
+   * Optional brand override. When set, the logo replaces the owner avatar and
+   * the primary/accent colors override the theme via CSS variables.
+   */
+  brand?: BrandProp | null;
   /**
    * One-time invite token. When set, this BookingFlow runs in invite mode:
    *  - slot fetches go through /api/public/invites/[token]/slots
@@ -77,8 +90,24 @@ export function BookingFlow(props: Props) {
     maxGuests,
     questions,
     passwordRequired,
+    brand,
     inviteToken,
   } = props;
+
+  // When a brand is attached, override the theme's --primary / --accent on a
+  // wrapper so Tailwind's bg-primary/text-primary utilities used throughout
+  // the flow pick up the brand colors automatically (no per-component edits).
+  // Also override --primary-foreground so text on the brand color stays readable.
+  const brandStyle: React.CSSProperties | undefined = brand
+    ? ({
+        '--primary': hexToHsl(brand.primaryColor),
+        '--primary-foreground': readableForegroundHsl(brand.primaryColor),
+        '--accent': hexToHsl(brand.accentColor),
+        '--ring': hexToHsl(brand.primaryColor),
+      } as React.CSSProperties)
+    : undefined;
+
+  const titleColor = brand?.primaryColor ?? color;
 
   const [bookerTz, setBookerTz] = useState<string>('UTC');
   useEffect(() => setBookerTz(getInitialBookerTz()), []);
@@ -194,34 +223,48 @@ export function BookingFlow(props: Props) {
   const stepIndex = STEP_INDEX[step];
   const isPendingOrDone = step === 'pending';
 
+  // Branded view replaces the owner avatar with the brand logo while still
+  // showing the owner's name underneath; unbranded view is unchanged.
+  const headerImageSrc = brand?.logoPath ?? ownerAvatarPath;
+  const headerLabel = brand?.name ?? ownerName;
+  const headerSecondary = brand ? ownerName : null;
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col px-4 py-6 sm:px-6 sm:py-10">
+    <div
+      className="mx-auto flex max-w-5xl flex-col px-4 py-6 sm:px-6 sm:py-10"
+      style={brandStyle}
+    >
       <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:gap-10">
         {/* Left summary panel */}
         <aside className="w-full shrink-0 sm:sticky sm:top-10 sm:w-56">
           <div className="flex flex-col gap-5 rounded-2xl border border-border/60 bg-muted/50 p-5">
             <div className="flex items-center gap-3">
-              {ownerAvatarPath ? (
+              {headerImageSrc ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={ownerAvatarPath}
-                  alt={ownerName}
+                  src={headerImageSrc}
+                  alt={headerLabel}
                   className="h-10 w-10 shrink-0 rounded-full border border-border object-cover"
                 />
               ) : (
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
                   <span className="text-base font-medium select-none">
-                    {ownerName.slice(0, 1).toUpperCase()}
+                    {headerLabel.slice(0, 1).toUpperCase()}
                   </span>
                 </div>
               )}
-              <span className="text-sm text-muted-foreground">{ownerName}</span>
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-sm font-medium text-foreground">{headerLabel}</span>
+                {headerSecondary ? (
+                  <span className="truncate text-xs text-muted-foreground">{headerSecondary}</span>
+                ) : null}
+              </div>
             </div>
 
             <div className="border-t border-border/40" />
 
             <div>
-              <h1 className="text-lg font-semibold text-foreground" style={{ color }}>
+              <h1 className="text-lg font-semibold text-foreground" style={{ color: titleColor }}>
                 {title}
               </h1>
             </div>

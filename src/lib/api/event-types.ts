@@ -46,6 +46,7 @@ export interface EventTypeUpsertPayload {
   maxGuests: number;
   slotIntervalMin: number;
   scheduleId: string | null;
+  brandId: string | null;
   confirmationMd: string | null;
   redirectUrl: string | null;
   password: string | null;
@@ -184,6 +185,7 @@ export interface OneTimeLinkPayload {
   maxGuests?: number;
   confirmationMd?: string;
   sendReminders?: boolean;
+  brandId?: string | null;
 }
 
 export interface OneTimeLinkResult {

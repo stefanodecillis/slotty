@@ -54,6 +54,7 @@ const oneTimeSchema = z
     maxGuests: z.number().int().min(0).max(20).optional(),
     confirmationMd: z.string().max(5000).optional(),
     sendReminders: z.boolean().optional(),
+    brandId: z.string().optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.locationKind === 'in_person' && !data.locationValue?.trim()) {
@@ -188,6 +189,18 @@ async function postHandler(req: NextRequest): Promise<Response> {
       ? input.locationValue?.trim() || null
       : null;
 
+  // Validate brand ownership before opening the transaction. SetNull FK means
+  // an invalid id would silently insert as null; we'd rather 400 explicitly.
+  if (input.brandId) {
+    const brand = await db.brand.findUnique({
+      where: { id: input.brandId },
+      select: { userId: true },
+    });
+    if (!brand || brand.userId !== user.id) {
+      return NextResponse.json({ error: 'Brand not found' }, { status: 400 });
+    }
+  }
+
   const { eventType, invite } = await db.$transaction(async (tx) => {
     const et = await tx.eventType.create({
       data: {
@@ -214,6 +227,7 @@ async function postHandler(req: NextRequest): Promise<Response> {
         confirmationMd: input.confirmationMd?.trim() || null,
         sendReminders: input.sendReminders ?? true,
         hiddenGuestsJson: JSON.stringify(hiddenGuests),
+        brandId: input.brandId ?? null,
         position: 0,
         archived: false,
       },

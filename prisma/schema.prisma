@@ -33,6 +33,10 @@ model User {
   locale        String   @default("en")
   theme         String   @default("system") // light | dark | system
   seedColor     String   @default("#4F6CFF") @map("seed_color")
+  // Soft pointer (not a Prisma relation) to the Brand row used as the prefilled
+  // default when creating a new EventType. Stays a plain column so we don't
+  // introduce a cyclic FK with the Brand table.
+  defaultBrandId String? @map("default_brand_id")
   weekStart     Int      @default(1) @map("week_start") // 0=Sunday, 1=Monday
   totpSecretEnc String?  @map("totp_secret_enc")
   totpEnabled   Boolean  @default(false) @map("totp_enabled")
@@ -44,6 +48,7 @@ model User {
   eventTypes       EventType[]
   webhookEndpoints WebhookEndpoint[]
   backupCodes      BackupCode[]
+  brands           Brand[]
 
   @@map("users")
 }
@@ -265,6 +270,11 @@ model EventType {
   // is consumed (or expires/is revoked) plus a retention window.
   isOneTime             Boolean  @default(false) @map("is_one_time")
   hiddenGuestsJson      String   @default("[]") @map("hidden_guests_json") // JSON array of emails silently added to every booking
+  // Optional brand override for this event type. When set, the public booking
+  // page swaps the owner's avatar for the brand logo, uses the brand's colors
+  // and favicon. When null, current behavior is preserved (User profile +
+  // EventType.color). Deleting a brand demotes its event types via SetNull.
+  brandId               String?  @map("brand_id")
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
@@ -272,6 +282,7 @@ model EventType {
   destinationAccount  ConnectedAccount    @relation(fields: [destinationAccountId], references: [id], onDelete: Restrict)
   destinationCalendar Calendar            @relation(fields: [destinationCalendarId], references: [id], onDelete: Restrict)
   schedule            Schedule?           @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  brand               Brand?              @relation(fields: [brandId], references: [id], onDelete: SetNull)
   questions           EventTypeQuestion[]
   bookings            Booking[]
   invites             BookingInvite[]
@@ -279,7 +290,32 @@ model EventType {
   @@index([userId, archived, hidden])
   @@index([userId, isOneTime, archived])
   @@index([slug])
+  @@index([brandId])
   @@map("event_types")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Brand — a named visual identity (logo, favicon, primary + accent colors)
+// that can be attached to any EventType (including one-time links, which are
+// EventTypes with isOneTime=true). Multiple brands per user; deleting a brand
+// silently un-brands its event types (SetNull).
+// ─────────────────────────────────────────────────────────────
+model Brand {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  name         String
+  primaryColor String   @default("#4F6CFF") @map("primary_color")
+  accentColor  String   @default("#4F6CFF") @map("accent_color")
+  logoPath     String?  @map("logo_path")
+  faviconPath  String?  @map("favicon_path")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventTypes EventType[]
+
+  @@index([userId])
+  @@map("brands")
 }
 
 model EventTypeQuestion {

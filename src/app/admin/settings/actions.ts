@@ -85,6 +85,60 @@ export async function updateGeneralSettings(
   }
 }
 
+const defaultBrandSchema = z.object({
+  brandId: z.string().min(1).optional().nullable(),
+});
+
+export async function updateDefaultBrand(
+  _prevState: SettingsActionResult,
+  formData: FormData,
+): Promise<SettingsActionResult> {
+  const headersList = headers();
+  if (!validateOrigin(buildFakeRequest(headersList))) {
+    return { success: false, error: 'Forbidden' };
+  }
+
+  const user = await requireUserOrRedirect();
+
+  const raw = formData.get('brandId')?.toString();
+  const parsed = defaultBrandSchema.safeParse({
+    brandId: raw && raw !== '__none__' ? raw : null,
+  });
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.errors[0]?.message ?? 'Validation error' };
+  }
+
+  // Ownership check — only allow setting to a brand this user owns.
+  if (parsed.data.brandId) {
+    const owned = await db.brand.findFirst({
+      where: { id: parsed.data.brandId, userId: user.id },
+      select: { id: true },
+    });
+    if (!owned) {
+      return { success: false, error: 'Brand not found' };
+    }
+  }
+
+  try {
+    await db.user.update({
+      where: { id: user.id },
+      data: { defaultBrandId: parsed.data.brandId ?? null },
+    });
+    logger.info(
+      { event: 'settings.default_brand_updated', userId: user.id, brandId: parsed.data.brandId },
+      'default brand updated',
+    );
+    revalidatePath('/admin/settings');
+    return { success: true };
+  } catch (err) {
+    logger.error(
+      { event: 'settings.default_brand_update_error', userId: user.id, err },
+      'default brand update failed',
+    );
+    return { success: false, error: 'Failed to save. Please try again.' };
+  }
+}
+
 export async function updateBrandingSettings(
   _prevState: SettingsActionResult,
   formData: FormData,

@@ -3,6 +3,7 @@ import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { Button } from '@/components/ui/button';
 import { Clock, Download, Archive, Info, Lock, Webhook, ChevronRight } from 'lucide-react';
+import { DefaultBrandForm } from './default-brand-form';
 import { GeneralForm } from './general-form';
 import { SiteUrlPanel } from './site-url-panel';
 
@@ -36,6 +37,14 @@ export default async function SettingsPage({ searchParams }: PageProps) {
     .supportedValuesOf?.('timeZone') ?? ['UTC'];
 
   const lastBackup = await getLastBackupDate();
+  const [brands, owner] = await Promise.all([
+    db.brand.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, primaryColor: true },
+    }),
+    db.user.findUnique({ where: { id: user.id }, select: { defaultBrandId: true } }),
+  ]);
   const tab: Tab = isTab(searchParams?.tab) ? (searchParams!.tab as Tab) : 'general';
 
   const tabs: { id: Tab; label: string }[] = [
@@ -119,14 +128,30 @@ export default async function SettingsPage({ searchParams }: PageProps) {
       )}
 
       {tab === 'branding' && (
-        <section>
-          <h2 className="text-lg font-semibold text-foreground">Branding</h2>
-          <p className="mb-4 mt-1 text-sm text-muted-foreground">
-            Theme appearance for your Slotty instance.
-          </p>
-          <div className="rounded-lg bg-muted/50 p-6">
-            <p className="text-sm text-muted-foreground">
-              Theme is system-controlled (light/dark via OS preference).
+        <section className="flex flex-col gap-8">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">Branding</h2>
+            <p className="mb-4 mt-1 text-sm text-muted-foreground">
+              Pick the brand to prefill on new event types and one-time links.{' '}
+              <Link
+                href="/admin/brands"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                Manage brands →
+              </Link>
+            </p>
+            <div className="rounded-lg bg-muted/50 p-6">
+              <DefaultBrandForm
+                brands={brands}
+                currentDefaultBrandId={owner?.defaultBrandId ?? null}
+              />
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-base font-medium text-foreground">Theme</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Light/dark is system-controlled via your OS preference.
             </p>
           </div>
         </section>

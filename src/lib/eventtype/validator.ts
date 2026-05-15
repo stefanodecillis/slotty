@@ -109,6 +109,9 @@ export const eventTypeInputSchema = z
 
     scheduleId: z.string().optional().nullable(),
 
+    // Optional Brand override. null = unbranded (current behavior).
+    brandId: z.string().optional().nullable(),
+
     password: z
       .string()
       .min(8, 'Password must be at least 8 characters')

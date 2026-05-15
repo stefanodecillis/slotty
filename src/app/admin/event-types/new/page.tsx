@@ -1,7 +1,13 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { EventTypeForm } from '../_components/event-type-form';
-import type { ConnectedAccountOption, CalendarOption, ScheduleOption } from '../_components/event-type-form';
+import type {
+  ConnectedAccountOption,
+  CalendarOption,
+  ScheduleOption,
+  BrandOption,
+  EventTypeFormValues,
+} from '../_components/event-type-form';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export default async function NewEventTypePage() {
   const user = await requireUserOrRedirect('/admin/login?next=%2Fadmin%2Fevent-types%2Fnew');
 
-  const [accounts, calendars, schedules] = await Promise.all([
+  const [accounts, calendars, schedules, brands, owner] = await Promise.all([
     db.connectedAccount.findMany({
       where: { status: 'active' },
       select: { id: true, googleUserEmail: true },
@@ -26,6 +32,12 @@ export default async function NewEventTypePage() {
       where: { userId: user.id },
       select: { id: true, name: true, isDefault: true },
     }),
+    db.brand.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, primaryColor: true },
+    }),
+    db.user.findUnique({ where: { id: user.id }, select: { defaultBrandId: true } }),
   ]);
 
   const accountOptions: ConnectedAccountOption[] = accounts.map((a) => ({
@@ -46,6 +58,19 @@ export default async function NewEventTypePage() {
     isDefault: s.isDefault,
   }));
 
+  const brandOptions: BrandOption[] = brands.map((b) => ({
+    id: b.id,
+    name: b.name,
+    primaryColor: b.primaryColor,
+  }));
+
+  // Prefill from the user's default brand (if any and still exists).
+  const defaultBrandId =
+    owner?.defaultBrandId && brands.some((b) => b.id === owner.defaultBrandId)
+      ? owner.defaultBrandId
+      : '';
+  const initialValues: Partial<EventTypeFormValues> = { brandId: defaultBrandId };
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <header className="flex flex-col gap-2">
@@ -61,9 +86,11 @@ export default async function NewEventTypePage() {
       <EventTypeForm
         mode="create"
         username={user.username}
+        initialValues={initialValues}
         accounts={accountOptions}
         allCalendars={calendarOptions}
         schedules={scheduleOptions}
+        brands={brandOptions}
       />
     </div>
   );

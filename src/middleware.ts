@@ -90,7 +90,9 @@ function buildCsp(opts: { isAdmin: boolean }): string {
   // Google Fonts. Admin pages use the same fonts (Roboto Flex).
   const directives: Record<string, string[]> = {
     'default-src': ["'self'"],
-    'img-src': ["'self'", 'data:', 'https://lh3.googleusercontent.com'],
+    // `blob:` is required so the admin brand-logo cropper can preview the
+    // file the user just picked (URL.createObjectURL produces a blob: URL).
+    'img-src': ["'self'", 'data:', 'blob:', 'https://lh3.googleusercontent.com'],
     'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
     'font-src': ["'self'", 'https://fonts.gstatic.com'],
     'script-src': scriptSrc,

@@ -8,6 +8,7 @@ import type {
   ConnectedAccountOption,
   CalendarOption,
   ScheduleOption,
+  BrandOption,
   EventTypeFormValues,
 } from '../_components/event-type-form';
 import type { LocationKind, QuestionKind } from '@/lib/eventtype/validator';
@@ -22,7 +23,7 @@ interface PageProps {
 export default async function EditEventTypePage({ params }: PageProps) {
   const user = await requireUserOrRedirect(`/admin/login?next=%2Fadmin%2Fevent-types%2F${params.id}`);
 
-  const [eventType, accounts, calendars, schedules] = await Promise.all([
+  const [eventType, accounts, calendars, schedules, brands] = await Promise.all([
     db.eventType.findUnique({
       where: { id: params.id },
       include: {
@@ -44,6 +45,11 @@ export default async function EditEventTypePage({ params }: PageProps) {
     db.schedule.findMany({
       where: { userId: user.id },
       select: { id: true, name: true, isDefault: true },
+    }),
+    db.brand.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, primaryColor: true },
     }),
   ]);
 
@@ -69,6 +75,12 @@ export default async function EditEventTypePage({ params }: PageProps) {
     isDefault: s.isDefault,
   }));
 
+  const brandOptions: BrandOption[] = brands.map((b) => ({
+    id: b.id,
+    name: b.name,
+    primaryColor: b.primaryColor,
+  }));
+
   const initialValues: Partial<EventTypeFormValues> = {
     title: eventType.title,
     slug: eventType.slug,
@@ -90,6 +102,7 @@ export default async function EditEventTypePage({ params }: PageProps) {
     maxGuests: eventType.maxGuests,
     slotIntervalMin: eventType.slotIntervalMin,
     scheduleId: eventType.scheduleId ?? '',
+    brandId: eventType.brandId ?? '',
     confirmationMd: eventType.confirmationMd ?? '',
     redirectUrl: eventType.redirectUrl ?? '',
     password: '',
@@ -126,6 +139,7 @@ export default async function EditEventTypePage({ params }: PageProps) {
         accounts={accountOptions}
         allCalendars={calendarOptions}
         schedules={scheduleOptions}
+        brands={brandOptions}
       />
 
       <InviteLinksPanel

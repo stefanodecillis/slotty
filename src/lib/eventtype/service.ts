@@ -104,6 +104,17 @@ function canonicalizeEmails(emails: readonly string[]): string[] {
   return out;
 }
 
+async function validateBrandOwnership(
+  userId: string,
+  brandId: string | null | undefined,
+): Promise<void> {
+  if (!brandId) return;
+  const brand = await db.brand.findUnique({ where: { id: brandId }, select: { userId: true } });
+  if (!brand || brand.userId !== userId) {
+    throw new ServiceError('Brand not found', 'INVALID_BRAND');
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Error type
 // ─────────────────────────────────────────────────────────────
@@ -124,6 +135,7 @@ export class ServiceError extends Error {
 
 export async function createEventType(userId: string, input: EventTypeInput): Promise<EventType> {
   await validateDestination(userId, input.destinationAccountId, input.destinationCalendarId);
+  await validateBrandOwnership(userId, input.brandId);
 
   const slug = await ensureUniqueSlug(userId, input.slug);
   const passwordHash = input.password ? await hashPassword(input.password) : null;
@@ -151,6 +163,7 @@ export async function createEventType(userId: string, input: EventTypeInput): Pr
       maxGuests: input.maxGuests,
       slotIntervalMin: input.slotIntervalMin,
       scheduleId: input.scheduleId ?? null,
+      brandId: input.brandId ?? null,
       passwordHash,
       confirmationMd: input.confirmationMd ?? null,
       redirectUrl: input.redirectUrl ?? null,
@@ -187,6 +200,7 @@ export async function updateEventType(
   }
 
   await validateDestination(userId, input.destinationAccountId, input.destinationCalendarId);
+  await validateBrandOwnership(userId, input.brandId);
 
   const slug = await ensureUniqueSlug(userId, input.slug, eventTypeId);
 
@@ -226,6 +240,7 @@ export async function updateEventType(
         maxGuests: input.maxGuests,
         slotIntervalMin: input.slotIntervalMin,
         scheduleId: input.scheduleId ?? null,
+        brandId: input.brandId ?? null,
         passwordHash,
         confirmationMd: input.confirmationMd ?? null,
         redirectUrl: input.redirectUrl ?? null,
@@ -283,6 +298,7 @@ export async function duplicateEventType(eventTypeId: string, userId: string): P
       maxGuests: source.maxGuests,
       slotIntervalMin: source.slotIntervalMin,
       scheduleId: source.scheduleId,
+      brandId: source.brandId,
       passwordHash: null, // do not copy password
       confirmationMd: source.confirmationMd,
       redirectUrl: source.redirectUrl,

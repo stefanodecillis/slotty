@@ -8,6 +8,7 @@ import type { EventTypeRow } from './_components/event-types-list';
 import { OneTimeLinkDialog } from './_components/one-time-link-dialog';
 import { OneTimeLinksSection } from './_components/one-time-links-section';
 import type {
+  BrandOption,
   CalendarOption,
   ConnectedAccountOption,
   ScheduleOption,
@@ -21,7 +22,7 @@ export default async function EventTypesPage() {
 
   // Only "normal" bookable event types here. One-time-link EventTypes
   // (isOneTime=true) are surfaced in their own section below.
-  const [all, accountRows, calendarRows, scheduleRows] = await Promise.all([
+  const [all, accountRows, calendarRows, scheduleRows, brandRows, owner] = await Promise.all([
     db.eventType.findMany({
       where: { userId: user.id, isOneTime: false },
       orderBy: [{ archived: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
@@ -38,6 +39,12 @@ export default async function EventTypesPage() {
       where: { userId: user.id },
       select: { id: true, name: true, isDefault: true },
     }),
+    db.brand.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, primaryColor: true },
+    }),
+    db.user.findUnique({ where: { id: user.id }, select: { defaultBrandId: true } }),
   ]);
 
   const accountOptions: ConnectedAccountOption[] = accountRows.map((a) => ({
@@ -55,6 +62,15 @@ export default async function EventTypesPage() {
     name: s.name,
     isDefault: s.isDefault,
   }));
+  const brandOptions: BrandOption[] = brandRows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    primaryColor: b.primaryColor,
+  }));
+  const defaultBrandId =
+    owner?.defaultBrandId && brandRows.some((b) => b.id === owner.defaultBrandId)
+      ? owner.defaultBrandId
+      : null;
 
   const active: EventTypeRow[] = all
     .filter((e) => !e.archived)
@@ -125,6 +141,8 @@ export default async function EventTypesPage() {
             accounts={accountOptions}
             calendars={calendarOptions}
             schedules={scheduleOptions}
+            brands={brandOptions}
+            defaultBrandId={defaultBrandId}
           />
         }
       />

@@ -53,6 +53,12 @@ export interface ScheduleOption {
   isDefault: boolean;
 }
 
+export interface BrandOption {
+  id: string;
+  name: string;
+  primaryColor: string;
+}
+
 export interface QuestionFormValue {
   id?: string;
   label: string;
@@ -84,6 +90,7 @@ export interface EventTypeFormValues {
   maxGuests: number | '';
   slotIntervalMin: number | '';
   scheduleId: string;
+  brandId: string;
   confirmationMd: string;
   redirectUrl: string;
   password: string;
@@ -101,6 +108,7 @@ interface EventTypeFormProps {
   accounts: ConnectedAccountOption[];
   allCalendars: CalendarOption[];
   schedules: ScheduleOption[];
+  brands: BrandOption[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -182,6 +190,7 @@ const DEFAULT_VALUES: EventTypeFormValues = {
   maxGuests: 3,
   slotIntervalMin: 15,
   scheduleId: '',
+  brandId: '',
   confirmationMd: '',
   redirectUrl: '',
   password: '',
@@ -360,6 +369,7 @@ export function EventTypeForm({
   accounts,
   allCalendars,
   schedules,
+  brands,
 }: EventTypeFormProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -524,6 +534,7 @@ export function EventTypeForm({
       maxGuests: values.maxGuests === '' ? 3 : Number(values.maxGuests),
       slotIntervalMin: Number(values.slotIntervalMin) || 15,
       scheduleId: values.scheduleId || null,
+      brandId: values.brandId || null,
       confirmationMd: values.confirmationMd || null,
       redirectUrl: values.redirectUrl || null,
       password: values.password || null,
@@ -602,6 +613,44 @@ export function EventTypeForm({
           </div>
 
           <ColorPicker value={values.color} onChange={(v) => set('color', v)} />
+
+          <div className="grid gap-2">
+            <Label htmlFor="brandId">Brand</Label>
+            <Select
+              value={values.brandId || '__none__'}
+              onValueChange={(v) => set('brandId', v === '__none__' ? '' : v)}
+            >
+              <SelectTrigger id="brandId">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">No brand (use color above)</SelectItem>
+                {brands.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        aria-hidden
+                        className="inline-block h-3 w-3 rounded-full border border-border"
+                        style={{ backgroundColor: b.primaryColor }}
+                      />
+                      {b.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              When a brand is attached, the booking page shows its logo, favicon, and brand
+              colors instead of the color above.{' '}
+              <Link
+                href="/admin/brands"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                Manage brands
+              </Link>
+              .
+            </p>
+          </div>
 
           <div className="flex items-center gap-3">
             <Switch

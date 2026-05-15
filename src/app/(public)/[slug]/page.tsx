@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
+import type { Metadata } from 'next';
 
 import { db } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
@@ -43,6 +44,16 @@ export default async function EventTypePage({ params }: PageProps) {
     include: {
       user: { select: { id: true, username: true, displayName: true, avatarPath: true, bio: true, timezone: true, weekStart: true } },
       questions: { orderBy: { position: 'asc' } },
+      brand: {
+        select: {
+          id: true,
+          name: true,
+          primaryColor: true,
+          accentColor: true,
+          logoPath: true,
+          faviconPath: true,
+        },
+      },
     },
   });
 
@@ -86,6 +97,37 @@ export default async function EventTypePage({ params }: PageProps) {
         optionsJson: q.optionsJson,
       }))}
       passwordRequired={Boolean(eventType.passwordHash)}
+      brand={
+        eventType.brand
+          ? {
+              name: eventType.brand.name,
+              primaryColor: eventType.brand.primaryColor,
+              accentColor: eventType.brand.accentColor,
+              logoPath: eventType.brand.logoPath,
+            }
+          : null
+      }
     />
   );
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  if (RESERVED_SLUGS.has(params.slug)) return {};
+  const eventType = await db.eventType.findUnique({
+    where: { slug: params.slug },
+    select: {
+      title: true,
+      archived: true,
+      inviteOnly: true,
+      brand: { select: { name: true, faviconPath: true } },
+    },
+  });
+  if (!eventType || eventType.archived || eventType.inviteOnly) return {};
+  const titleSuffix = eventType.brand?.name ? ` — ${eventType.brand.name}` : '';
+  return {
+    title: `${eventType.title}${titleSuffix}`,
+    icons: eventType.brand?.faviconPath
+      ? { icon: eventType.brand.faviconPath }
+      : undefined,
+  };
 }

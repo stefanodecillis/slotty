@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import { Calendar, LinkIcon } from 'lucide-react';
 
 import { db } from '@/lib/db';
@@ -38,10 +39,23 @@ export default async function InvitePage({ params }: PageProps) {
 
   const eventType = resolved.eventType;
 
-  const owner = await db.user.findUnique({
-    where: { id: eventType.userId },
-    select: { displayName: true, avatarPath: true, timezone: true, weekStart: true },
-  });
+  const [owner, brand] = await Promise.all([
+    db.user.findUnique({
+      where: { id: eventType.userId },
+      select: { displayName: true, avatarPath: true, timezone: true, weekStart: true },
+    }),
+    eventType.brandId
+      ? db.brand.findUnique({
+          where: { id: eventType.brandId },
+          select: {
+            name: true,
+            primaryColor: true,
+            accentColor: true,
+            logoPath: true,
+          },
+        })
+      : Promise.resolve(null),
+  ]);
   if (!owner) notFound();
 
   const descriptionHtml = renderMarkdown(eventType.descriptionMd);
@@ -70,9 +84,27 @@ export default async function InvitePage({ params }: PageProps) {
       // Invite mode bypasses the password gate server-side, so the banner is
       // hidden regardless of the underlying event type's passwordHash.
       passwordRequired={false}
+      brand={brand}
       inviteToken={params.token}
     />
   );
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const resolved = await resolveInviteByRawToken(params.token);
+  const eventType = resolved.eventType;
+  if (!eventType || eventType.archived) return {};
+  const brand = eventType.brandId
+    ? await db.brand.findUnique({
+        where: { id: eventType.brandId },
+        select: { name: true, faviconPath: true },
+      })
+    : null;
+  const titleSuffix = brand?.name ? ` — ${brand.name}` : '';
+  return {
+    title: `${eventType.title}${titleSuffix}`,
+    icons: brand?.faviconPath ? { icon: brand.faviconPath } : undefined,
+  };
 }
 
 function UnavailablePanel({
