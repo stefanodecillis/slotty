@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Slotty pre-commit hook: scans the staged diff for leaked secrets with gitleaks.
+# Wired in via `core.hooksPath = .githooks`, set by the package.json `prepare` script.
+#
+# This hook is best-effort locally — if gitleaks isn't installed we warn and let the
+# commit through, because the same scan runs as a hard gate in CI on every PR.
+
+set -e
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  cat <<'MSG' >&2
+warning: gitleaks not installed — skipping local secret scan.
+        macOS:  brew install gitleaks
+        Linux:  https://github.com/gitleaks/gitleaks/releases
+        CI will still scan this commit on push.
+MSG
+  exit 0
+fi
+
+exec gitleaks protect --staged --redact --no-banner

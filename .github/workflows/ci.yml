@@ -73,6 +73,28 @@ jobs:
           SLOTTY_DATABASE_URL: "file:./test.db"
 
   # ─────────────────────────────────────────────────────────────────────────
+  # Secret scan — gitleaks runs over the full history on every PR and push.
+  # The local `.githooks/pre-commit` script is best-effort; this job is the
+  # durable guarantee that no secret lands on main even if the hook is
+  # bypassed (--no-verify) or never installed (contributor without gitleaks).
+  # ─────────────────────────────────────────────────────────────────────────
+  secret-scan:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan every commit, not just HEAD.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────────────────────
   # Static security audit — runs the grep-based checks in
   # scripts/audit-security.ts. Catches obvious regressions: admin routes
   # without csrf()/requireUser(), public POSTs without rate limits, raw

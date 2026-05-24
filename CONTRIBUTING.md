@@ -22,6 +22,7 @@ bun run dev
   ```
 - **No emoji in code or comments.**
 - **Small PRs.** One logical change per PR.
+- **Secret scan.** `bun install` wires `.githooks/pre-commit` to run [gitleaks](https://github.com/gitleaks/gitleaks) on the staged diff. Install it once: `brew install gitleaks` (macOS) or grab a binary from the releases page. CI runs the same scan on every PR regardless.
 
 ## Architecture
 

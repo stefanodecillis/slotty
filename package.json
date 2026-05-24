@@ -8,6 +8,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "dev": "prisma generate && prisma migrate deploy && bun --bun next dev",
     "build": "prisma generate && next build",
     "start": "prisma generate && prisma migrate deploy && bun --bun next start",
