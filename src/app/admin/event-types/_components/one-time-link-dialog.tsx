@@ -153,7 +153,7 @@ function OneTimeLinkDialogBody({
   const [locationValue, setLocationValue] = useState('');
   const [bookingWindowDays, setBookingWindowDays] = useState<number>(DEFAULTS.bookingWindowDays);
   const [minNoticeValue, setMinNoticeValue] = useState<number>(60);
-  const [minNoticeUnit, setMinNoticeUnit] = useState<'minutes' | 'hours'>('minutes');
+  const [minNoticeUnit, setMinNoticeUnit] = useState<'minutes' | 'hours' | 'days'>('minutes');
   const [bufferBeforeMin, setBufferBeforeMin] = useState<number>(DEFAULTS.bufferBeforeMin);
   const [bufferAfterMin, setBufferAfterMin] = useState<number>(DEFAULTS.bufferAfterMin);
   const [slotIntervalMin, setSlotIntervalMin] = useState<number>(DEFAULTS.slotIntervalMin);
@@ -203,7 +203,12 @@ function OneTimeLinkDialogBody({
       return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
     })();
     // Translate min-notice into the canonical minutes the server expects.
-    const minNoticeMin = minNoticeUnit === 'hours' ? minNoticeValue * 60 : minNoticeValue;
+    const minNoticeMin =
+      minNoticeUnit === 'days'
+        ? minNoticeValue * 1440
+        : minNoticeUnit === 'hours'
+          ? minNoticeValue * 60
+          : minNoticeValue;
 
     // Conditional location value — only meaningful for in_person / custom_link.
     const needsLocationValue = locationKind === 'in_person' || locationKind === 'custom_link';
@@ -551,7 +556,9 @@ function OneTimeLinkDialogBody({
                     />
                     <Select
                       value={minNoticeUnit}
-                      onValueChange={(v) => setMinNoticeUnit(v as 'minutes' | 'hours')}
+                      onValueChange={(v) =>
+                        setMinNoticeUnit(v as 'minutes' | 'hours' | 'days')
+                      }
                     >
                       <SelectTrigger className="w-32">
                         <SelectValue />
@@ -559,6 +566,7 @@ function OneTimeLinkDialogBody({
                       <SelectContent>
                         <SelectItem value="minutes">minutes</SelectItem>
                         <SelectItem value="hours">hours</SelectItem>
+                        <SelectItem value="days">days</SelectItem>
                       </SelectContent>
                     </Select>
                     <span className="text-sm text-muted-foreground">before each slot</span>

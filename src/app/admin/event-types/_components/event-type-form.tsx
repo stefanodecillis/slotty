@@ -154,7 +154,22 @@ const SLOT_INTERVAL_OPTIONS = [
 const MIN_NOTICE_UNITS = [
   { value: 'minutes', label: 'minutes' },
   { value: 'hours', label: 'hours' },
-];
+  { value: 'days', label: 'days' },
+] as const;
+
+type MinNoticeUnit = (typeof MIN_NOTICE_UNITS)[number]['value'];
+
+function minNoticeToMinutes(value: number, unit: MinNoticeUnit): number {
+  if (unit === 'days') return value * 1440;
+  if (unit === 'hours') return value * 60;
+  return value;
+}
+
+function detectMinNoticeUnit(minutes: number): MinNoticeUnit {
+  if (minutes > 0 && minutes % 1440 === 0) return 'days';
+  if (minutes > 0 && minutes % 60 === 0) return 'hours';
+  return 'minutes';
+}
 
 const QUESTION_KIND_LABELS: Record<QuestionKind, string> = {
   text: 'Short text',
@@ -416,14 +431,15 @@ export function EventTypeForm({
   });
 
   // Min-notice unit (UI-only — the API stores minutes).
-  const [noticeUnit, setNoticeUnit] = useState<'minutes' | 'hours'>(() => {
-    const m = Number(initialValues?.minNoticeMin ?? 60);
-    return m > 0 && m % 60 === 0 ? 'hours' : 'minutes';
-  });
-  const noticeDisplay =
-    noticeUnit === 'hours' && typeof values.minNoticeMin === 'number'
-      ? values.minNoticeMin / 60
-      : values.minNoticeMin;
+  const [noticeUnit, setNoticeUnit] = useState<MinNoticeUnit>(() =>
+    detectMinNoticeUnit(Number(initialValues?.minNoticeMin ?? 60)),
+  );
+  const noticeDisplay = (() => {
+    if (typeof values.minNoticeMin !== 'number') return values.minNoticeMin;
+    if (noticeUnit === 'days') return values.minNoticeMin / 1440;
+    if (noticeUnit === 'hours') return values.minNoticeMin / 60;
+    return values.minNoticeMin;
+  })();
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const saving = saveMutation.isPending;
@@ -1036,7 +1052,7 @@ export function EventTypeForm({
                     onChange={(e) => {
                       const n = e.target.value === '' ? '' : Number(e.target.value);
                       if (n === '') set('minNoticeMin', '');
-                      else set('minNoticeMin', noticeUnit === 'hours' ? (n as number) * 60 : (n as number));
+                      else set('minNoticeMin', minNoticeToMinutes(n as number, noticeUnit));
                     }}
                   />
                 </div>
@@ -1045,7 +1061,7 @@ export function EventTypeForm({
                   <Select
                     value={noticeUnit}
                     onValueChange={(v) => {
-                      setNoticeUnit(v as 'minutes' | 'hours');
+                      setNoticeUnit(v as MinNoticeUnit);
                     }}
                   >
                     <SelectTrigger id="noticeUnit">
