@@ -41,7 +41,7 @@ The fastest way to get running. Assumes you have Docker + a reverse proxy (Caddy
 
 ```bash
 # 1. Clone and prepare config
-git clone https://github.com/slotty/slotty.git
+git clone https://github.com/stefanodecillis/slotty.git
 cd slotty
 cp .env.example .env
 
@@ -312,9 +312,9 @@ cd /opt/slotty
 
 # Pull the example configs.
 sudo curl -fsSL -o docker-compose.yml \
-  https://raw.githubusercontent.com/slotty/slotty/main/docker-compose.example.yml
+  https://raw.githubusercontent.com/stefanodecillis/slotty/main/docker-compose.example.yml
 sudo curl -fsSL -o .env.example \
-  https://raw.githubusercontent.com/slotty/slotty/main/.env.example
+  https://raw.githubusercontent.com/stefanodecillis/slotty/main/.env.example
 sudo cp .env.example .env
 
 # Generate secrets directly into .env.

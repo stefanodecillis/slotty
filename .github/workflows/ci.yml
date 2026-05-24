@@ -172,7 +172,7 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: false
-          tags: slotty/slotty:ci
+          tags: stefanodecillis/slotty:ci
           # Use GitHub Actions cache to speed up layer reuse across runs.
           cache-from: type=gha
           cache-to: type=gha,mode=max
