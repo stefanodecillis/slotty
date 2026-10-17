@@ -47,6 +47,7 @@ export const PAGE_TITLES: Record<string, string> = {
   '/admin/availability': 'Availability',
   '/admin/profile': 'Profile',
   '/admin/settings': 'Settings',
+  '/admin/settings/public-page': 'Public page',
   '/admin/settings/security': 'Security',
   '/admin/settings/webhooks': 'Webhooks',
   '/admin/audit': 'Audit log',

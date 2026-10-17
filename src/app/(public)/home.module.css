@@ -1,0 +1,236 @@
+.page {
+  --time-glass: #919ca8;
+  --time-line: #dce1e5;
+  --time-sand-light: #d7c8ad;
+  --time-sand-dark: #b9a685;
+  --time-dot: #a2abb8;
+  min-height: calc(100svh - 56px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+}
+
+:global(.dark) .page {
+  --time-glass: #a6b2bf;
+  --time-line: #30373f;
+  --time-sand-light: #a99b82;
+  --time-sand-dark: #817058;
+  --time-dot: #8794a6;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: min(100%, 640px);
+}
+
+.illustration {
+  width: min(100%, 400px);
+  color: var(--time-glass);
+}
+
+.illustration svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.halo {
+  color: var(--time-dot);
+}
+.orbitLines {
+  stroke: var(--time-line);
+  stroke-width: 0.8;
+}
+.orbit,
+.slowOrbit {
+  transform-origin: 240px 240px;
+}
+.orbit {
+  animation: orbit 80s linear infinite;
+}
+.slowOrbit {
+  animation: orbit 120s linear infinite reverse;
+}
+.orbitDot {
+  fill: var(--time-dot);
+}
+.faintDot {
+  fill: var(--time-line);
+}
+.warmDot {
+  fill: var(--time-sand-light);
+}
+.glassEdge {
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-opacity: 0.55;
+}
+.glassRim {
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-opacity: 0.6;
+}
+.glassReflection {
+  stroke: currentColor;
+  stroke-width: 1;
+  stroke-opacity: 0.2;
+  stroke-linecap: round;
+}
+.sandLight {
+  stop-color: var(--time-sand-light);
+}
+.sandDark {
+  stop-color: var(--time-sand-dark);
+}
+.sandSurface {
+  fill: var(--time-sand-light);
+}
+.sandContour {
+  stroke: var(--time-sand-dark);
+  stroke-opacity: 0.4;
+  stroke-width: 0.75;
+}
+.upperSand {
+  transform-origin: 240px 244px;
+  animation: settle 10s ease-in-out infinite alternate;
+}
+.sandFlow {
+  stroke: var(--time-sand-dark);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1 7;
+  animation: flowing 1.6s linear infinite;
+}
+
+.profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.profileContent {
+  min-width: 0;
+}
+.profileName {
+  font-size: 16px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.bio {
+  max-width: 380px;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.profileName + .bio {
+  margin-top: 6px;
+}
+.bio a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.bio img {
+  max-width: 100%;
+  height: auto;
+}
+
+.withEvents .illustration {
+  width: 180px;
+  margin-block: -20px -12px;
+}
+.meetings {
+  width: 100%;
+}
+.sectionHeading {
+  margin-bottom: 18px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+}
+.eventList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.eventLink {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 23px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  transition: background-color 160ms;
+}
+.eventLink:hover {
+  background: hsl(var(--muted) / 0.5);
+}
+.eventLink:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 4px;
+}
+.eventColor {
+  width: 4px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+.eventDetails {
+  flex: 1;
+  min-width: 0;
+}
+.eventDetails h3 {
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.eventDetails p {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}
+.eventArrow {
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+
+@keyframes orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes flowing {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+@keyframes settle {
+  to {
+    transform: scaleY(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbit,
+  .slowOrbit,
+  .upperSand,
+  .sandFlow {
+    animation: none;
+  }
+  .eventLink {
+    transition: none;
+  }
+}

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { Button } from '@/components/ui/button';
-import { Clock, Download, Archive, Info, Lock, Webhook, ChevronRight } from 'lucide-react';
+import { Clock, Download, Archive, Globe2, Info, Lock, Webhook, ChevronRight } from 'lucide-react';
 import { DefaultBrandForm } from './default-brand-form';
 import { GeneralForm } from './general-form';
 import { SiteUrlPanel } from './site-url-panel';
@@ -105,6 +105,20 @@ export default async function SettingsPage({ searchParams }: PageProps) {
 
       {tab === 'general' && (
         <section className="flex flex-col gap-8">
+          <Link
+            href="/admin/settings/public-page"
+            className="flex items-center gap-4 rounded-lg border border-border bg-card p-5 transition-colors hover:bg-muted/50"
+          >
+            <Globe2 className="h-6 w-6 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold text-foreground">Public page</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Choose whether your homepage shows your name, photo, and bio.
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+          </Link>
+
           <div>
             <h2 className="text-lg font-semibold text-foreground">Public URL</h2>
             <p className="mb-4 mt-1 text-sm text-muted-foreground">
