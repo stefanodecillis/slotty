@@ -18,6 +18,7 @@ import type { OAuth2Client, Credentials } from 'google-auth-library';
 
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { adminUrl } from '@/lib/admin-url';
 import { encrypt, decrypt } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 
@@ -37,8 +38,7 @@ const DEFAULT_ACCESS_LIFETIME_MS = 60 * 60 * 1000;
 function redirectUri(): string {
   // Google requires an exact match on this. Configure the same value in the
   // Google Cloud Console under "Authorized redirect URIs".
-  const base = env.SLOTTY_PUBLIC_URL.replace(/\/$/, '');
-  return `${base}/api/admin/calendars/callback`;
+  return adminUrl('/api/admin/calendars/callback').href;
 }
 
 /**

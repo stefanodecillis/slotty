@@ -126,13 +126,16 @@ Then visit <http://localhost:3000/setup> to create the admin account.
 
 ## Environment variables
 
+For a private admin hostname with public bookings, see [separate admin origin](docs/private-admin-origin.md). The same standard image serves both at root paths.
+
 Set these in `.env` (loaded by Next.js automatically) or in your container env. They are validated at startup — the app refuses to boot if any required var is missing or weak.
 
 ### Required
 
 | Variable | Description |
 |---|---|
-| `SLOTTY_PUBLIC_URL` | Public URL where Slotty is reachable (no trailing slash). E.g. `https://book.example.com`. Used to construct OAuth callback URLs and email links. |
+| `SLOTTY_ADMIN_ORIGIN` | Optional HTTP(S) origin for admin redirects, Google OAuth, and admin cookie security. Defaults to `SLOTTY_PUBLIC_URL`. No subpath. |
+| `SLOTTY_PUBLIC_URL` | Public URL where Slotty is reachable (no trailing slash). E.g. `https://book.example.com`. Used for public booking links and Google webhook addresses; also the default admin origin. |
 | `SLOTTY_ENCRYPTION_KEY` | **32 random bytes, base64-encoded.** Encrypts OAuth tokens, SMTP passwords, TOTP secrets at rest. The app refuses to start if this is missing or decodes to fewer than 32 bytes. **Rotating this invalidates every encrypted secret in the DB.** |
 | `SLOTTY_SESSION_SECRET` | ≥ 32 character random string. Used to sign session cookies. |
 | `SLOTTY_DATABASE_URL` | DB connection string. Default: `file:../data/slotty.db` (SQLite — Prisma resolves relative paths from `prisma/`, so `../data/` puts the file at the project root). For Postgres: `postgresql://user:pass@host:5432/slotty`. |
@@ -200,7 +203,7 @@ Slotty needs OAuth credentials to read your calendars and create events.
      - `https://www.googleapis.com/auth/calendar.events`
 4. **Credentials → Create Credentials → OAuth client ID:**
    - Application type: **Web application**.
-   - Authorized redirect URIs: `${SLOTTY_PUBLIC_URL}/api/admin/calendars/callback`
+   - Authorized redirect URIs: `<admin-origin>/api/admin/calendars/callback` (use `SLOTTY_ADMIN_ORIGIN` if set, otherwise `SLOTTY_PUBLIC_URL`)
      (e.g. `https://book.example.com/api/admin/calendars/callback`)
 5. Copy the **Client ID** and **Client secret** into your `.env`:
    ```
@@ -567,7 +570,7 @@ Browser ──► Caddy ──► Next.js (App Router) ──► middleware.ts (
 You're missing one of the required env vars or your `SLOTTY_ENCRYPTION_KEY` doesn't decode to 32 bytes. Run `bun run key:generate` and update `.env`.
 
 **Can't connect Google account: `redirect_uri_mismatch`**
-The redirect URI configured in Google Cloud Console must exactly match `${SLOTTY_PUBLIC_URL}/api/admin/calendars/callback`. Check for `http` vs `https`, trailing slash, and exact host.
+The redirect URI configured in Google Cloud Console must exactly match `<admin-origin>/api/admin/calendars/callback` (use `SLOTTY_ADMIN_ORIGIN` if set, otherwise `SLOTTY_PUBLIC_URL`). Check for `http` vs `https`, trailing slash, and exact host.
 
 **Booking page is empty / no slots**
 - Make sure your default schedule has at least one weekly rule.

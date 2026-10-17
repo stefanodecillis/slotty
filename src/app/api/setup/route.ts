@@ -4,12 +4,12 @@ import { NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
+import { adminUrl } from '@/lib/admin-url';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { lucia } from '@/lib/auth/lucia';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
 import { validateOrigin } from '@/lib/auth/csrf';
-import { env } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +32,7 @@ const setupSchema = z
   });
 
 function redirectWithError(_req: NextRequest, message: string): Response {
-  const url = new URL('/setup', env.SLOTTY_PUBLIC_URL);
+  const url = adminUrl('/setup');
   url.searchParams.set('error', message);
   return NextResponse.redirect(url, { status: 303 });
 }
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   logger.info({ event: 'setup.completed', userId: createdUserId }, 'first-run setup completed');
 
-  return NextResponse.redirect(new URL('/admin', env.SLOTTY_PUBLIC_URL), { status: 303 });
+  return NextResponse.redirect(adminUrl('/admin'), { status: 303 });
 }
 
 class SetupAlreadyDoneError extends Error {}

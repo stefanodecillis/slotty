@@ -14,7 +14,7 @@ WORKDIR /build
 # tools the install silently produces a broken binary that throws
 # "No native build was found for ... abi=137 ... libc=musl" the first time
 # argon2.hash() is called (admin setup form, login, etc.).
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache python3 make g++ openssl
 
 # Copy manifests first so this layer is cached unless they change.
 COPY package.json bun.lock ./
@@ -30,6 +30,9 @@ RUN bunx prisma generate
 # Compile the Next.js application using the standalone output preset.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM oven/bun:1.3.8-alpine AS builder
+
+# Prisma must detect the same OpenSSL engine target in every stage.
+RUN apk add --no-cache openssl
 
 WORKDIR /build
 
