@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { ProfileForm } from './profile-form';
 import { AvatarForm } from './avatar-form';
@@ -18,7 +19,13 @@ export default async function ProfilePage() {
       <header className="mb-8">
         <h1 className="text-3xl font-semibold tracking-tight text-foreground">Profile</h1>
         <p className="mt-1 text-base text-muted-foreground">
-          Update how you appear on your public booking page.
+          Manage your personal details and booking page identity.
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Choose which details appear on your homepage in{' '}
+          <Link href="/admin/settings/public-page" className="text-primary underline-offset-4 hover:underline">
+            Public page settings
+          </Link>.
         </p>
       </header>
 

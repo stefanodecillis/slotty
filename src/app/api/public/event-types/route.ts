@@ -21,7 +21,8 @@ const RATE_LIMIT = { capacity: 120, windowMs: 60_000 };
  * Lists publicly visible event types. `hidden=true` rows are excluded (those
  * are still bookable via direct slug URL — see `[slug]/route.ts` — but they
  * don't appear on the index). `archived=true` rows are excluded entirely
- * regardless of access path.
+ * regardless of access path. Invitation-only and one-time offerings are
+ * excluded from this listing, matching the public homepage.
  *
  * No authentication required. Cache headers allow short edge caching.
  */
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   const types = await db.eventType.findMany({
-    where: { archived: false, hidden: false, isOneTime: false },
+    where: { archived: false, hidden: false, isOneTime: false, inviteOnly: false },
     orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     select: {
       id: true,

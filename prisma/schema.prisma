@@ -28,6 +28,11 @@ model User {
   displayName   String   @map("display_name")
   avatarPath    String?  @map("avatar_path")
   bio           String?
+  // Profile details are opt-in on the public homepage. Direct booking pages
+  // keep their event/brand identity independently of these preferences.
+  publicPageShowName   Boolean @default(false) @map("public_page_show_name")
+  publicPageShowAvatar Boolean @default(false) @map("public_page_show_avatar")
+  publicPageShowBio    Boolean @default(false) @map("public_page_show_bio")
   timezone      String   @default("UTC")
   timezoneSet   Boolean  @default(false) @map("timezone_set")
   locale        String   @default("en")
