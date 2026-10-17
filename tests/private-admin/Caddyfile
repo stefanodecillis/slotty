@@ -1,0 +1,13 @@
+{
+ admin off
+ auto_https disable_redirects
+}
+https://localhost:443 {
+ tls internal
+ reverse_proxy app:3000
+}
+:80 {
+ @admin path_regexp admin (?i)^/(admin|api/admin|setup|api/setup)(/|$)
+respond @admin "Forbidden" 403
+reverse_proxy app:3000
+}

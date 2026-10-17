@@ -198,7 +198,7 @@ export function SiteUrlPanel() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Used for invite links, the booker’s manage URL, and the “copy public link” button. <strong className="font-medium text-foreground">Doesn’t change</strong> Google OAuth redirect URI, calendar webhook channel address, or cookie security flags — those still come from <code className="font-mono">SLOTTY_PUBLIC_URL</code> at boot. Update env + restart the container if you change the host the app is actually served from.
+          Used for invite links, the booker’s manage URL, and the “copy public link” button. <strong className="font-medium text-foreground">Doesn’t change</strong> Google OAuth redirect URI, calendar webhook channel address, or cookie security flags — OAuth and cookie flags use <code className="font-mono">SLOTTY_ADMIN_ORIGIN</code> (falling back to <code className="font-mono">SLOTTY_PUBLIC_URL</code>); webhooks use <code className="font-mono">SLOTTY_PUBLIC_URL</code> at boot. Update env + restart the container if you change the host the app is actually served from.
         </p>
 
         {state && (

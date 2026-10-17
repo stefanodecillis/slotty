@@ -32,6 +32,8 @@ logs/
 .DS_Store
 
 # Test
+.verification/
+tests/private-admin/.tmp/
 coverage/
 .nyc_output/
 playwright-report/

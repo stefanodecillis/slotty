@@ -14,6 +14,7 @@ import { randomBytes } from 'node:crypto';
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { hmac } from '@/lib/crypto';
 import { env } from '@/lib/env';
+import { adminCookieSecure } from '@/lib/admin-url';
 import { buildAuthUrl } from '@/lib/google/client';
 
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
 
   cookies().set(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
+    secure: adminCookieSecure(),
     sameSite: 'lax',
     path: '/',
     maxAge: STATE_TTL_S,

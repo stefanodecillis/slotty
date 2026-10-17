@@ -1,0 +1,14 @@
+.git
+node_modules
+.next
+.verification
+.env
+.env.*
+!.env.example
+data
+backups
+**/*.db
+**/*.db-*
+**/.tmp
+**/.report
+**/test-results

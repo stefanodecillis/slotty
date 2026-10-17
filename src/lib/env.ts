@@ -29,6 +29,17 @@ const truthy = z
 const schema = z.object({
   // Required core
   SLOTTY_PUBLIC_URL: url,
+  // Optional private admin origin. Root paths only; no credentials or URL suffixes.
+  SLOTTY_ADMIN_ORIGIN: url.refine((value) => {
+    try {
+      const parsed = new URL(value);
+      return ['http:', 'https:'].includes(parsed.protocol) &&
+        parsed.pathname === '/' && !parsed.search && !parsed.hash &&
+        !parsed.username && !parsed.password;
+    } catch {
+      return false;
+    }
+  }, { message: 'must be an HTTP(S) origin without a path, credentials, query, or fragment' }).optional(),
   SLOTTY_ENCRYPTION_KEY: base64(32),
   SLOTTY_SESSION_SECRET: z.string().min(32),
   SLOTTY_DATABASE_URL: z.string().min(1).default('file:../data/slotty.db'),

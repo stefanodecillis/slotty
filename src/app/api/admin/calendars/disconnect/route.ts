@@ -12,13 +12,13 @@ import { NextResponse } from 'next/server';
 
 import { csrf } from '@/lib/auth/csrf';
 import { requireUser } from '@/lib/auth/session';
+import { adminUrl } from '@/lib/admin-url';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { revokeRefreshToken } from '@/lib/google/client';
 import { stopWatchForCalendar } from '@/lib/sync/watch';
 import { archiveEventTypesForAccount } from '@/lib/eventtype/service';
 import { readJsonOrForm } from '@/lib/http/body';
-import { env } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +69,7 @@ async function handler(req: NextRequest): Promise<Response> {
 
   logger.info({ event: 'oauth.disconnect', accountId }, 'account disconnected');
 
-  return NextResponse.redirect(new URL('/admin/calendars', env.SLOTTY_PUBLIC_URL), { status: 303 });
+  return NextResponse.redirect(adminUrl('/admin/calendars'), { status: 303 });
 }
 
 export const POST = csrf(handler);

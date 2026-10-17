@@ -14,8 +14,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+import { adminUrl } from '@/lib/admin-url';
 import { requireUserOrRedirect } from '@/lib/auth/session';
-import { env } from '@/lib/env';
 import { handleOAuthCallback } from '@/lib/google/oauth-callback';
 
 import { OAUTH_STATE_COOKIE } from '../connect/route';
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     oauthError: url.searchParams.get('error'),
   });
 
-  const target = new URL('/admin/calendars', env.SLOTTY_PUBLIC_URL);
+  const target = adminUrl('/admin/calendars');
   if (outcome.status !== 'success') {
     target.searchParams.set('error', outcome.reason);
   }
