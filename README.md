@@ -231,7 +231,10 @@ Participants can optionally pre-fill their answer from Google Calendar:
 - Only the `https://www.googleapis.com/auth/calendar.freebusy` scope is requested
   (busy blocks of their primary calendar; no titles or details). Add it to your
   consent screen's scopes.
-- The token is used once and revoked; only the resulting "available" marks are stored.
+- The token is short-lived (online access, no refresh token), used once and never
+  stored; only the resulting "available" marks are kept. It isn't revoked, because
+  revoking would also disconnect your own calendar if you import into a poll with the
+  Google account Slotty already uses.
 - Google redirects the participant's browser to
   `<SLOTTY_PUBLIC_URL>/api/public/polls/google/callback`, so that URL must be
   reachable from the internet and registered as a redirect URI (see above). It

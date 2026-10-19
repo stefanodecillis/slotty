@@ -467,7 +467,8 @@ model PollParticipant {
   id             String    @id @default(cuid())
   pollId         String    @map("poll_id")
   name           String
-  email          String // lowercased
+  // Lowercased. Not unique per poll: a "taken" error would reveal who answered.
+  email          String
   timezone       String
   // sha256 of the participant's personal edit token (same pattern as cancel tokens).
   editTokenHash  String    @unique @map("edit_token_hash")
@@ -479,7 +480,6 @@ model PollParticipant {
   poll  GroupPoll  @relation(fields: [pollId], references: [id], onDelete: Cascade)
   votes PollVote[]
 
-  @@unique([pollId, email])
   @@index([pollId, createdAt])
   @@map("poll_participants")
 }

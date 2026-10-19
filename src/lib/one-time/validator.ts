@@ -2,7 +2,11 @@ import { z } from 'zod';
 
 import { timezoneSchema, weeklyRulesSchema } from '@/lib/availability/validators';
 import { LOCATION_KINDS } from '@/lib/eventtype/validator';
-import { groupPollSettingsSchema, MAX_POLL_WINDOW_DAYS } from '@/lib/group-poll/validator';
+import {
+  groupPollSettingsSchema,
+  MAX_POLL_WINDOW_DAYS,
+  MIN_POLL_SLOT_INTERVAL_MIN,
+} from '@/lib/group-poll/validator';
 
 // ─────────────────────────────────────────────────────────────
 // Availability — either reuse an existing schedule, or give this one
@@ -90,6 +94,13 @@ export const oneTimeLinkInputSchema = z
         code: z.ZodIssueCode.custom,
         path: ['bookingWindowDays'],
         message: `Group polls cover at most ${MAX_POLL_WINDOW_DAYS} days`,
+      });
+    }
+    if (data.groupPoll.enabled && data.slotIntervalMin < MIN_POLL_SLOT_INTERVAL_MIN) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['slotIntervalMin'],
+        message: `Group polls use slots of at least ${MIN_POLL_SLOT_INTERVAL_MIN} minutes`,
       });
     }
     if (data.locationKind === 'in_person' && !data.locationValue?.trim()) {

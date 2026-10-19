@@ -237,6 +237,9 @@ function Participants({
   onRemove: (id: string) => void;
 }) {
   if (data.participants.length === 0) return null;
+  // Emails aren't unique per poll (see submitPollResponse), so point out repeats.
+  const emailCounts = new Map<string, number>();
+  for (const p of data.participants) emailCounts.set(p.email, (emailCounts.get(p.email) ?? 0) + 1);
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-sm font-medium text-foreground">Answers</h3>
@@ -245,6 +248,14 @@ function Participants({
           <li key={p.id} className="flex items-center gap-2 text-sm">
             <span className="truncate text-foreground">{p.name}</span>
             <span className="truncate text-xs text-muted-foreground">{p.email}</span>
+            {(emailCounts.get(p.email) ?? 0) > 1 ? (
+              <span
+                className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-400"
+                title="Another answer uses the same email. Remove the one that's out of date."
+              >
+                Same email
+              </span>
+            ) : null}
             {p.source === 'google' ? (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
