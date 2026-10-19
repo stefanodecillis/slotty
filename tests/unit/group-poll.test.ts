@@ -274,6 +274,9 @@ describe('participants', () => {
     expect(view.me?.votes).toEqual([{ startUtc: s0, value: 'yes' }]);
     const results = await getPollResults(user.id, created.eventTypeId);
     expect(results.participants.map((p) => p.email)).toEqual(['ann@example.com', 'ann@example.com']);
+    // Rows from the raw conditional insert read back like Prisma-created ones.
+    expect(results.participants[0]!.source).toBe('manual');
+    expect(Math.abs(Date.parse(results.participants[0]!.updatedAt) - Date.now())).toBeLessThan(60_000);
   });
 
   it('never lets concurrent first saves overshoot the participant cap', async () => {
@@ -290,6 +293,16 @@ describe('participants', () => {
     expect(ok).toBe(MAX_POLL_PARTICIPANTS);
     expect(full).toBe(attempts - MAX_POLL_PARTICIPANTS);
     expect(await db.pollParticipant.count()).toBe(MAX_POLL_PARTICIPANTS);
+  });
+
+  it('refuses a new answer once the poll is full, without leaving a row behind', async () => {
+    const { db } = await import('@/lib/db');
+    const { token } = await setupPoll();
+    for (let i = 0; i < MAX_POLL_PARTICIPANTS; i++) {
+      await submitPollResponse(token, answer(`P${i}`, []), null);
+    }
+    await expect(submitPollResponse(token, answer('Late', []), null)).rejects.toThrow(/full/);
+    expect(await db.pollParticipant.count({ where: { email: 'late@example.com' } })).toBe(0);
   });
 
   it('accepts a fully painted grid at the finest interval and longest window', () => {
@@ -322,6 +335,28 @@ describe('participants', () => {
     }).catch((e) => e);
     expect(err).toBeInstanceOf(BookingError);
     expect((err as BookingError).code).toBe('GROUP_POLL');
+  });
+
+  it('reports a spent poll link as unavailable, not as a poll to answer', async () => {
+    mockGoogle();
+    const { user, created, token, slots } = await setupPoll();
+    const start = slots[0]!.startUtc;
+    await submitPollResponse(token, answer('Ann', [{ startUtc: start, value: 'yes' }]), null);
+    await finalizePoll(user.id, created.eventTypeId, start);
+
+    const { db } = await import('@/lib/db');
+    const poll = await db.groupPoll.findUniqueOrThrow({ where: { eventTypeId: created.eventTypeId } });
+    const err = await createBooking({
+      inviteToken: token,
+      startAtIso: start,
+      bookerName: 'Mallory',
+      bookerEmail: 'mallory@example.com',
+      bookerTimezone: 'UTC',
+      // Even with the poll's own request id, the public path doesn't replay it.
+      clientRequestId: `poll-${poll.id}`,
+    }).catch((e) => e);
+    expect(err).toBeInstanceOf(BookingError);
+    expect((err as BookingError).code).toBe('INVITE_UNAVAILABLE');
   });
 });
 

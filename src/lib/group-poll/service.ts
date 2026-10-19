@@ -17,6 +17,7 @@
  * keyed by UTC start, so when the owner's calendar fills up a slot simply
  * stops being a candidate and its votes are ignored.
  */
+import { randomUUID } from 'node:crypto';
 import type { EventType, Prisma, User } from '@prisma/client';
 
 import { db } from '@/lib/db';
@@ -303,27 +304,20 @@ export async function submitPollResponse(
     });
   } else {
     const token = generateToken(24);
-    // Insert and count in one commit. SQLite runs writers one at a time, so
-    // each insert counts every earlier one; whoever lands past the cap backs
-    // out. Concurrent first saves can't push the poll over it.
-    const [created, count] = await db.$transaction([
-      db.pollParticipant.create({
-        data: {
-          pollId: poll.id,
-          name: input.name,
-          email: input.email,
-          timezone: input.timezone,
-          editTokenHash: token.hash,
-        },
-        select: { id: true },
-      }),
-      db.pollParticipant.count({ where: { pollId: poll.id } }),
-    ]);
-    if (count > MAX_POLL_PARTICIPANTS) {
-      await db.pollParticipant.deleteMany({ where: { id: created.id } });
-      throw new PollError('This poll is full.', 409);
-    }
-    participantId = created.id;
+    // One statement checks the cap and inserts, so it is atomic: concurrent
+    // first saves can't push the poll over it, and nothing is left to undo.
+    // (Prisma can't express a conditional insert, and its interactive
+    // transactions stall under write contention on SQLite.) DateTime columns
+    // hold epoch milliseconds, which is how Prisma writes them on SQLite.
+    const id = randomUUID();
+    const at = Date.now();
+    const inserted = await db.$executeRaw`
+      INSERT INTO "poll_participants"
+        ("id", "poll_id", "name", "email", "timezone", "edit_token_hash", "created_at", "updated_at")
+      SELECT ${id}, ${poll.id}, ${input.name}, ${input.email}, ${input.timezone}, ${token.hash}, ${at}, ${at}
+      WHERE (SELECT COUNT(*) FROM "poll_participants" WHERE "poll_id" = ${poll.id}) < ${MAX_POLL_PARTICIPANTS}`;
+    if (inserted !== 1) throw new PollError('This poll is full.', 409);
+    participantId = id;
     newToken = token.token;
   }
 

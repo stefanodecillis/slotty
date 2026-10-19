@@ -288,25 +288,27 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     eventType = resolved.eventType;
     inviteId = resolved.invite.id;
     inviteHiddenGuestsJson = resolved.invite.hiddenGuestsJson;
-    if (!input.viaGroupPoll) {
-      const poll = await db.groupPoll.findUnique({
-        where: { eventTypeId: eventType.id },
-        select: { id: true },
-      });
-      if (poll) {
-        throw new BookingError(
-          'This invitation is a group poll — mark your availability instead of booking.',
-          'GROUP_POLL',
-          409,
-        );
-      }
-    }
+    // Group-poll invitations can't be booked directly through their link —
+    // the owner picks the time. Checked lazily: most invites aren't polls.
+    const eventTypeId = resolved.eventType.id;
+    const blockedAsPoll = async (): Promise<boolean> =>
+      !input.viaGroupPoll &&
+      (await db.groupPoll.findUnique({ where: { eventTypeId }, select: { id: true } })) !== null;
     if (resolved.status !== 'ok') {
       // The booking that consumed the invite may be this very request, retried
       // after a lost response — replay it instead of reporting the link gone.
-      const replay = await findIdempotentReplay(eventType.id, input.clientRequestId);
-      if (replay) return replay;
+      if (!(await blockedAsPoll())) {
+        const replay = await findIdempotentReplay(eventTypeId, input.clientRequestId);
+        if (replay) return replay;
+      }
       throw new BookingError('This invite link is no longer available.', 'INVITE_UNAVAILABLE', 410);
+    }
+    if (await blockedAsPoll()) {
+      throw new BookingError(
+        'This invitation is a group poll — mark your availability instead of booking.',
+        'GROUP_POLL',
+        409,
+      );
     }
   } else {
     if (!input.eventTypeSlug) {
