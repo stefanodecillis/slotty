@@ -103,3 +103,25 @@ describe('validateOrigin', () => {
     expect(validateOrigin(bare)).toBe(true);
   });
 });
+
+describe('isSameOriginRequest', () => {
+  const post = (headers: Record<string, string>) =>
+    new Request('http://localhost:3000/api/public/polls/google/start', { method: 'POST', headers });
+
+  it('trusts Sec-Fetch-Site and only lets same-origin through', async () => {
+    const { isSameOriginRequest } = await import('@/lib/auth/csrf');
+    expect(isSameOriginRequest(post({ 'sec-fetch-site': 'same-origin' }))).toBe(true);
+    expect(isSameOriginRequest(post({ 'sec-fetch-site': 'cross-site', origin: 'http://localhost:3000' }))).toBe(false);
+    expect(isSameOriginRequest(post({ 'sec-fetch-site': 'same-site' }))).toBe(false);
+  });
+
+  it('falls back to Origin / Referer against the request host or the public host', async () => {
+    const { isSameOriginRequest } = await import('@/lib/auth/csrf');
+    expect(isSameOriginRequest(post({ origin: 'http://localhost:3000' }))).toBe(true);
+    expect(isSameOriginRequest(post({ origin: 'http://truenas:3210', host: 'truenas:3210' }))).toBe(true);
+    expect(isSameOriginRequest(post({ referer: 'http://localhost:3000/i/abc' }))).toBe(true);
+    expect(isSameOriginRequest(post({ origin: 'https://evil.example' }))).toBe(false);
+    expect(isSameOriginRequest(post({ origin: 'null', referer: 'http://localhost:3000/i/abc' }))).toBe(false);
+    expect(isSameOriginRequest(post({}))).toBe(false);
+  });
+});

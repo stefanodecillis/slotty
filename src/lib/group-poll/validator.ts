@@ -4,7 +4,13 @@ import { z } from 'zod';
 export const MAX_POLL_PARTICIPANTS = 15;
 /** Keeps the availability grid usable; enforced on the invitation's booking window. */
 export const MAX_POLL_WINDOW_DAYS = 31;
-const MAX_VOTES = 3000;
+/** Finest slot interval a group poll may use (the smallest option in the invitation form). */
+export const MIN_POLL_SLOT_INTERVAL_MIN = 5;
+/**
+ * Largest grid a participant can paint: every slot of the poll window
+ * (`pollWindow` adds a day for far-west zones) at the finest interval.
+ */
+export const MAX_POLL_VOTES = ((MAX_POLL_WINDOW_DAYS + 1) * 24 * 60) / MIN_POLL_SLOT_INTERVAL_MIN;
 
 /** Per-invitation group-poll settings, part of the one-time invitation form. */
 export const groupPollSettingsSchema = z.object({
@@ -27,7 +33,7 @@ export const pollResponseSchema = z.object({
         value: z.enum(['yes', 'maybe']),
       }),
     )
-    .max(MAX_VOTES),
+    .max(MAX_POLL_VOTES),
 });
 
 export type PollResponseInput = z.infer<typeof pollResponseSchema>;

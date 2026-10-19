@@ -71,6 +71,34 @@ export function validateOrigin(request: Request | NextRequest): boolean {
 }
 
 /**
+ * Strict same-origin check for public form POSTs that start something on the
+ * visitor's behalf (a group-poll participant's Google import). Unlike
+ * `validateOrigin` it is always on: it doesn't depend on a single canonical
+ * hostname, so it's safe for deployments reached under several names.
+ *
+ * Browsers send `Sec-Fetch-Site` on every request; when it's present only
+ * `same-origin` passes. Without it, the Origin (or Referer) host must be the
+ * request's own host or the public one. No provenance at all fails.
+ */
+export function isSameOriginRequest(request: Request | NextRequest): boolean {
+  const site = request.headers.get('sec-fetch-site');
+  if (site) return site === 'same-origin';
+
+  const origin = request.headers.get('origin');
+  const source = originHost(origin) ?? (origin ? null : originHost(request.headers.get('referer')));
+  if (!source) return false;
+
+  const allowed = new Set([publicHost()]);
+  const host = request.headers.get('host');
+  if (host) allowed.add(host.toLowerCase());
+  if (env.SLOTTY_TRUST_PROXY) {
+    const forwardedHost = request.headers.get('x-forwarded-host');
+    if (forwardedHost) allowed.add(forwardedHost.toLowerCase());
+  }
+  return allowed.has(source);
+}
+
+/**
  * Wrap a Next.js route handler so any non-safe method without a matching origin
  * receives a 403 before the handler runs. Use on every state-changing admin
  * route. Server actions that don't go through this should call

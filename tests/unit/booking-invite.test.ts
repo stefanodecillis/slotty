@@ -209,6 +209,30 @@ describe('createBooking via invite token', () => {
     });
   });
 
+  it('replays a retry of the request that consumed the invite', async () => {
+    const { eventType } = await seed();
+    const { rawToken } = await createInvite(eventType.id);
+    mockInsertEventOk();
+    const request = {
+      inviteToken: rawToken,
+      startAtIso: nextWeekdaySlot().toISOString(),
+      bookerName: 'Alice',
+      bookerEmail: 'alice@example.com',
+      bookerTimezone: 'UTC',
+      clientRequestId: 'req-1',
+    };
+
+    const first = await createBooking(request);
+    const retry = await createBooking(request);
+    expect(retry.idempotentReplay).toBe(true);
+    expect(retry.booking.id).toBe(first.booking.id);
+
+    // A different request against the consumed invite is still refused.
+    await expect(createBooking({ ...request, clientRequestId: 'req-2' })).rejects.toMatchObject({
+      code: 'INVITE_UNAVAILABLE',
+    });
+  });
+
   it('rejects revoked invites with INVITE_UNAVAILABLE', async () => {
     const { eventType } = await seed();
     const { rawToken } = await createInvite(eventType.id, { revokedAt: new Date() });

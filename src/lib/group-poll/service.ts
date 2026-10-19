@@ -17,7 +17,7 @@
  * keyed by UTC start, so when the owner's calendar fills up a slot simply
  * stops being a candidate and its votes are ignored.
  */
-import type { EventType, User } from '@prisma/client';
+import type { EventType, Prisma, User } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { decrypt, generateToken, hashToken } from '@/lib/crypto';
@@ -265,9 +265,13 @@ export async function getPublicPollView(
 
 /**
  * Create or update a participant's answer. Without a personal token a new
- * participant is created (one per email); with one, that participant's
- * answer is replaced. Votes outside the current candidates are dropped.
- * Returns the raw personal token for new participants.
+ * participant is created; with one, that participant's answer is replaced.
+ * Votes outside the current candidates are dropped. Returns the raw personal
+ * token for new participants.
+ *
+ * Emails are deliberately not unique per poll: refusing a taken address
+ * would tell anyone with the link who answered, even when names are hidden.
+ * The owner sees repeated emails and the booking invites each address once.
  */
 export async function submitPollResponse(
   rawToken: string,
@@ -289,17 +293,6 @@ export async function submitPollResponse(
     votes.push({ startUtc: iso, value: v.value });
   }
 
-  const emailOwner = await db.pollParticipant.findUnique({
-    where: { pollId_email: { pollId: poll.id, email: input.email } },
-    select: { id: true },
-  });
-  if (emailOwner && emailOwner.id !== existing?.id) {
-    throw new PollError(
-      'Someone already answered with this email. Use your personal link to change your answer.',
-      409,
-    );
-  }
-
   let participantId: string;
   let newToken: string | null = null;
   if (existing) {
@@ -309,21 +302,27 @@ export async function submitPollResponse(
       data: { name: input.name, email: input.email, timezone: input.timezone },
     });
   } else {
-    const count = await db.pollParticipant.count({ where: { pollId: poll.id } });
-    if (count >= MAX_POLL_PARTICIPANTS) {
+    const token = generateToken(24);
+    // Insert and count in one commit. SQLite runs writers one at a time, so
+    // each insert counts every earlier one; whoever lands past the cap backs
+    // out. Concurrent first saves can't push the poll over it.
+    const [created, count] = await db.$transaction([
+      db.pollParticipant.create({
+        data: {
+          pollId: poll.id,
+          name: input.name,
+          email: input.email,
+          timezone: input.timezone,
+          editTokenHash: token.hash,
+        },
+        select: { id: true },
+      }),
+      db.pollParticipant.count({ where: { pollId: poll.id } }),
+    ]);
+    if (count > MAX_POLL_PARTICIPANTS) {
+      await db.pollParticipant.deleteMany({ where: { id: created.id } });
       throw new PollError('This poll is full.', 409);
     }
-    const token = generateToken(24);
-    const created = await db.pollParticipant.create({
-      data: {
-        pollId: poll.id,
-        name: input.name,
-        email: input.email,
-        timezone: input.timezone,
-        editTokenHash: token.hash,
-      },
-      select: { id: true },
-    });
     participantId = created.id;
     newToken = token.token;
   }
@@ -515,27 +514,43 @@ export async function finalizePoll(
       bookerEmail: booker.email,
       bookerTimezone: booker.timezone,
       additionalGuests: guests,
-      // One booking per poll, even if the owner double-clicks.
+      // One booking per poll, even if the owner double-clicks or retries.
       clientRequestId: `poll-${poll.id}`,
       eventSummary: eventType.title,
       viaGroupPoll: true,
+      // The poll closes in the same commit as the booking, so a failure can
+      // never leave a booked meeting behind a poll that still collects.
+      inTransaction: (tx, booking) => closePoll(tx, poll.id, booking.id),
     });
     bookingId = created.booking.id;
     needsSync = created.needsSync;
+    if (created.idempotentReplay) {
+      // The booking already existed; make sure its poll is closed too.
+      await closePoll(db, poll.id, bookingId);
+    }
   } catch (err) {
     if (err instanceof BookingError) throw new PollError(err.message, err.httpStatus);
     throw err;
   }
 
-  await db.groupPoll.update({
-    where: { id: poll.id },
-    data: { status: 'finalized', finalizedBookingId: bookingId },
-  });
   logger.info(
     { event: 'poll.finalized', pollId: poll.id, bookingId, participants: poll.participants.length },
     'group poll finalized',
   );
   return { bookingId, needsSync };
+}
+
+/** Mark a poll finalized by `bookingId`. Already closed by that booking is fine. */
+async function closePoll(tx: Prisma.TransactionClient, pollId: string, bookingId: string): Promise<void> {
+  const closed = await tx.groupPoll.updateMany({
+    where: { id: pollId, status: 'collecting' },
+    data: { status: 'finalized', finalizedBookingId: bookingId },
+  });
+  if (closed.count === 1) return;
+  const poll = await tx.groupPoll.findUnique({ where: { id: pollId }, select: { finalizedBookingId: true } });
+  if (poll?.finalizedBookingId !== bookingId) {
+    throw new PollError('A time has already been picked.', 409);
+  }
 }
 
 /** Drop a participant (spam, duplicate, someone who's no longer coming). */

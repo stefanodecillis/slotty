@@ -4,17 +4,19 @@
  * Covers:
  *   - ranking / free-busy helpers (pure);
  *   - creating, editing and switching an invitation into and out of group mode;
- *   - participants answering, editing via their personal token, one answer
- *     per email, votes outside the candidates dropped, names hidden on request;
+ *   - participants answering, editing via their personal token, votes
+ *     outside the candidates dropped, names hidden on request, emails not
+ *     revealed through a "taken" error, the participant cap under races;
  *   - the link can't be booked directly; the owner finalizes instead, which
- *     books one meeting for everyone and closes the poll;
+ *     books one meeting for everyone and closes the poll in the same commit;
  *   - the Google free/busy round-trip (public redirect URI, freebusy-only
- *     scope, state binding, busy → votes, nothing stored).
+ *     scope, state binding, busy → votes, nothing stored or revoked).
  *
  * Google I/O is mocked at the wrapper layer like the other booking tests.
  */
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { randomBytes } from 'node:crypto';
+import { google } from 'googleapis';
 
 import * as gcal from '@/lib/google/calendar';
 import * as participantOAuth from '@/lib/google/participant-oauth';
@@ -31,6 +33,7 @@ import {
 } from '@/lib/group-poll/service';
 import { completeGoogleImport, startGoogleImport } from '@/lib/group-poll/google-flow';
 import { freeSlotsFromBusy, rankSlots, tallySlots } from '@/lib/group-poll/rank';
+import { MAX_POLL_PARTICIPANTS, MAX_POLL_VOTES, pollResponseSchema } from '@/lib/group-poll/validator';
 
 const cleanups: Array<() => void> = [];
 
@@ -223,7 +226,7 @@ describe('group invitations', () => {
 });
 
 describe('participants', () => {
-  it('records answers, keeps one per email, and edits through the personal token', async () => {
+  it('records answers and edits through the personal token', async () => {
     const { token, slots } = await setupPoll();
     const s0 = slots[0]!.startUtc;
     const s1 = slots[1]!.startUtc;
@@ -237,9 +240,6 @@ describe('participants', () => {
       null,
     );
     expect(first.participantToken).toBeTruthy();
-
-    // Same email without the token is refused.
-    await expect(submitPollResponse(token, answer('Ann', []), null)).rejects.toThrow(/personal link/);
 
     // With the token the answer is replaced.
     await submitPollResponse(token, answer('Ann', [{ startUtc: s1, value: 'maybe' }]), first.participantToken);
@@ -259,6 +259,56 @@ describe('participants', () => {
     const view = await getPublicPollView(token, 'UTC', null);
     expect(view.respondents).toEqual({ count: 1, names: null });
     expect(view.tally[slots[0]!.startUtc]).toEqual({ yes: 1, maybe: 0 });
+  });
+
+  it("doesn't reveal who answered: a reused email is a new answer", async () => {
+    const { user, created, token, slots } = await setupPoll({ groupPoll: { enabled: true, showNames: false } });
+    const s0 = slots[0]!.startUtc;
+    const first = await submitPollResponse(token, answer('Ann', [{ startUtc: s0, value: 'yes' }]), null);
+    const probe = await submitPollResponse(token, answer('Ann', []), null);
+    expect(probe.participantToken).toBeTruthy();
+    expect(probe.participantId).not.toBe(first.participantId);
+
+    // The first answer is untouched, and the owner sees both.
+    const view = await getPublicPollView(token, 'UTC', first.participantToken);
+    expect(view.me?.votes).toEqual([{ startUtc: s0, value: 'yes' }]);
+    const results = await getPollResults(user.id, created.eventTypeId);
+    expect(results.participants.map((p) => p.email)).toEqual(['ann@example.com', 'ann@example.com']);
+  });
+
+  it('never lets concurrent first saves overshoot the participant cap', async () => {
+    const { db } = await import('@/lib/db');
+    const { token } = await setupPoll();
+    const attempts = MAX_POLL_PARTICIPANTS + 5;
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: attempts }, (_, i) => submitPollResponse(token, answer(`P${i}`, []), null)),
+    );
+    const ok = outcomes.filter((o) => o.status === 'fulfilled').length;
+    const full = outcomes.filter(
+      (o) => o.status === 'rejected' && o.reason instanceof PollError && /full/.test(o.reason.message),
+    ).length;
+    expect(ok).toBe(MAX_POLL_PARTICIPANTS);
+    expect(full).toBe(attempts - MAX_POLL_PARTICIPANTS);
+    expect(await db.pollParticipant.count()).toBe(MAX_POLL_PARTICIPANTS);
+  });
+
+  it('accepts a fully painted grid at the finest interval and longest window', () => {
+    const votes = Array.from({ length: MAX_POLL_VOTES }, (_, i) => ({
+      startUtc: new Date(Date.UTC(2030, 0, 1) + i * 5 * 60_000).toISOString(),
+      value: 'yes' as const,
+    }));
+    expect(pollResponseSchema.safeParse(answer('Ann', votes)).success).toBe(true);
+    expect(MAX_POLL_VOTES).toBeGreaterThanOrEqual(32 * 24 * 12);
+  });
+
+  it('rejects group polls with slots finer than the vote cap allows', () => {
+    const parsed = oneTimeLinkInputSchema.safeParse({
+      title: 'Team sync',
+      destinationAccountId: 'acc',
+      slotIntervalMin: 1,
+      groupPoll: { enabled: true },
+    });
+    expect(parsed.success).toBe(false);
   });
 
   it('cannot be booked directly through the link', async () => {
@@ -310,6 +360,69 @@ describe('finalizePoll', () => {
     const [item] = await listOneTimeLinks(user.id);
     expect(item?.status).toBe('booked');
     await expect(finalizePoll(user.id, created.eventTypeId, common)).rejects.toThrow(/already/);
+  });
+
+  it('rolls the booking back when closing the poll fails', async () => {
+    const { db } = await import('@/lib/db');
+    mockGoogle();
+    const { created, token, slots } = await setupPoll();
+    const err = await createBooking({
+      inviteToken: token,
+      startAtIso: slots[0]!.startUtc,
+      bookerName: 'Ann',
+      bookerEmail: 'ann@example.com',
+      bookerTimezone: 'UTC',
+      viaGroupPoll: true,
+      inTransaction: async () => {
+        throw new Error('boom');
+      },
+    }).catch((e) => e);
+    expect((err as Error).message).toBe('boom');
+    expect(await db.booking.count()).toBe(0);
+    const invite = await db.bookingInvite.findFirstOrThrow({ where: { eventTypeId: created.eventTypeId } });
+    expect(invite.usedAt).toBeNull();
+  });
+
+  it('closes a poll whose booking was made but never recorded on it', async () => {
+    const { db } = await import('@/lib/db');
+    mockGoogle();
+    const { user, created, token, slots } = await setupPoll();
+    const start = slots[1]!.startUtc;
+    await submitPollResponse(token, answer('Ann', [{ startUtc: start, value: 'yes' }]), null);
+    const poll = await db.groupPoll.findUniqueOrThrow({ where: { eventTypeId: created.eventTypeId } });
+
+    // The state an interrupted finalize used to leave behind: the meeting is
+    // booked and the invite consumed, but the poll still collects.
+    const orphan = await createBooking({
+      inviteToken: token,
+      startAtIso: start,
+      bookerName: 'Ann',
+      bookerEmail: 'ann@example.com',
+      bookerTimezone: 'UTC',
+      clientRequestId: `poll-${poll.id}`,
+      viaGroupPoll: true,
+    });
+
+    const retried = await finalizePoll(user.id, created.eventTypeId, start);
+    expect(retried.bookingId).toBe(orphan.booking.id);
+    expect(await db.booking.count()).toBe(1);
+    const closed = await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } });
+    expect(closed.status).toBe('finalized');
+    expect(closed.finalizedBookingId).toBe(orphan.booking.id);
+  });
+
+  it('invites a repeated email only once', async () => {
+    const { db } = await import('@/lib/db');
+    mockGoogle();
+    const { user, created, token, slots } = await setupPoll();
+    const start = slots[0]!.startUtc;
+    await submitPollResponse(token, answer('Ann', [{ startUtc: start, value: 'yes' }]), null);
+    await submitPollResponse(token, answer('Bob', [{ startUtc: start, value: 'yes' }]), null);
+    await submitPollResponse(token, answer('Bob', []), null);
+    const { bookingId } = await finalizePoll(user.id, created.eventTypeId, start);
+    const booking = await db.booking.findUniqueOrThrow({ where: { id: bookingId } });
+    expect(booking.bookerEmail).toBe('ann@example.com');
+    expect(JSON.parse(booking.additionalGuestsJson)).toEqual(['bob@example.com']);
   });
 
   it('refuses to book before anyone answered', async () => {
@@ -364,6 +477,27 @@ describe('Google free/busy import', () => {
 
     // Nothing from Google besides the resulting votes is kept.
     expect(await db.connectedAccount.count()).toBe(1);
+  });
+
+  it("reads free/busy once and doesn't revoke the shared client's grant", async () => {
+    const OAuth2 = google.auth.OAuth2.prototype;
+    const getToken = spyOn(OAuth2, 'getToken').mockResolvedValue({ tokens: { access_token: 'at' }, res: null } as never);
+    const revoke = spyOn(OAuth2, 'revokeToken').mockResolvedValue({} as never);
+    const query = async () => ({
+      data: { calendars: { primary: { busy: [{ start: '2030-01-01T10:00:00Z', end: '2030-01-01T11:00:00Z' }] } } },
+    });
+    const calendar = spyOn(google, 'calendar').mockReturnValue({ freebusy: { query } } as never);
+    cleanups.push(() => {
+      getToken.mockRestore();
+      revoke.mockRestore();
+      calendar.mockRestore();
+    });
+
+    const busy = await participantOAuth.fetchParticipantBusy('c', new Date('2030-01-01'), new Date('2030-01-02'));
+    expect(busy).toEqual([{ start: new Date('2030-01-01T10:00:00Z'), end: new Date('2030-01-01T11:00:00Z') }]);
+    // Revoking would also drop the owner's refresh token when they import
+    // with the Google account Slotty is connected to.
+    expect(revoke).not.toHaveBeenCalled();
   });
 
   it('rejects a mismatched state and reports a denied consent', async () => {

@@ -25,7 +25,7 @@
  * load-bearing correctness properties here; the rest is plumbing.
  */
 import type { calendar_v3 } from 'googleapis';
-import type { Booking, EventType, EventTypeQuestion, User } from '@prisma/client';
+import type { Booking, EventType, EventTypeQuestion, Prisma, User } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -65,6 +65,12 @@ export interface CreateBookingInput {
    * booked directly through their link — the owner picks the time.
    */
   viaGroupPoll?: boolean;
+  /**
+   * Runs inside the booking transaction, after the row is inserted and the
+   * invite claimed. Throwing rolls the booking back. Server-side callers only
+   * (group polls close the poll in the same commit as the booking).
+   */
+  inTransaction?: (tx: Prisma.TransactionClient, booking: Booking) => Promise<void>;
 }
 
 export interface CreatedBooking {
@@ -274,13 +280,10 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
 
   if (input.inviteToken) {
     const resolved = await resolveInviteByRawToken(input.inviteToken);
-    if (resolved.status !== 'ok' || !resolved.invite || !resolved.eventType) {
-      // Distinguish "this token never existed" (NOT_FOUND, 404) from
-      // "this token exists but is no longer usable" (UNAVAILABLE, 410).
-      if (resolved.status === 'not_found') {
-        throw new BookingError('Invite link not found', 'INVITE_NOT_FOUND', 404);
-      }
-      throw new BookingError('This invite link is no longer available.', 'INVITE_UNAVAILABLE', 410);
+    // Distinguish "this token never existed" (NOT_FOUND, 404) from
+    // "this token exists but is no longer usable" (UNAVAILABLE, 410).
+    if (resolved.status === 'not_found' || !resolved.invite || !resolved.eventType) {
+      throw new BookingError('Invite link not found', 'INVITE_NOT_FOUND', 404);
     }
     eventType = resolved.eventType;
     inviteId = resolved.invite.id;
@@ -297,6 +300,13 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
           409,
         );
       }
+    }
+    if (resolved.status !== 'ok') {
+      // The booking that consumed the invite may be this very request, retried
+      // after a lost response — replay it instead of reporting the link gone.
+      const replay = await findIdempotentReplay(eventType.id, input.clientRequestId);
+      if (replay) return replay;
+      throw new BookingError('This invite link is no longer available.', 'INVITE_UNAVAILABLE', 410);
     }
   } else {
     if (!input.eventTypeSlug) {
@@ -353,28 +363,8 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   }
 
   // Idempotency: if (eventTypeId, clientRequestId) already exists, return it.
-  if (input.clientRequestId) {
-    const existing = await db.booking.findUnique({
-      where: {
-        eventTypeId_clientRequestId: {
-          eventTypeId: eventType.id,
-          clientRequestId: input.clientRequestId,
-        },
-      },
-    });
-    if (existing) {
-      return {
-        booking: existing,
-        // Tokens are unrecoverable from hash; on idempotent replay we only
-        // expose the row. Original client already received the raw tokens
-        // in the first response — replays don't get them again.
-        rawCancelToken: '',
-        rawRescheduleToken: '',
-        idempotentReplay: true,
-        needsSync: existing.needsSync,
-      };
-    }
-  }
+  const replay = await findIdempotentReplay(eventType.id, input.clientRequestId);
+  if (replay) return replay;
 
   // Generate tokens before the transaction — both halves of the create are
   // idempotent if anything fails before commit.
@@ -443,6 +433,9 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     // the booking insert above so we don't leave an orphan row.
     if (inviteId) {
       await claimInviteAtomically(tx, inviteId, created.id);
+    }
+    if (input.inTransaction) {
+      await input.inTransaction(tx, created);
     }
 
     return created;
@@ -572,6 +565,28 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     rawRescheduleToken: rescheduleTok.token,
     idempotentReplay: false,
     needsSync,
+  };
+}
+
+/** The booking a previous request with the same clientRequestId created, if any. */
+async function findIdempotentReplay(
+  eventTypeId: string,
+  clientRequestId: string | undefined,
+): Promise<CreatedBooking | null> {
+  if (!clientRequestId) return null;
+  const existing = await db.booking.findUnique({
+    where: { eventTypeId_clientRequestId: { eventTypeId, clientRequestId } },
+  });
+  if (!existing) return null;
+  return {
+    booking: existing,
+    // Tokens are unrecoverable from hash; on idempotent replay we only
+    // expose the row. Original client already received the raw tokens
+    // in the first response — replays don't get them again.
+    rawCancelToken: '',
+    rawRescheduleToken: '',
+    idempotentReplay: true,
+    needsSync: existing.needsSync,
   };
 }
 

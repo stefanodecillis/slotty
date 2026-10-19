@@ -10,9 +10,13 @@
  *   - The only scope requested is `calendar.freebusy`: busy blocks, no
  *     titles, no details, no calendar list, no email.
  *   - Online access only. The access token is used once for a single
- *     `freebusy.query`, revoked best-effort, and never stored. Participants
- *     are never written to `ConnectedAccount` (that table is the owner's busy
- *     sources).
+ *     `freebusy.query`, never stored, and left to expire on its own (about
+ *     an hour). It is NOT revoked: this flow shares the owner's OAuth client,
+ *     and Google's revoke drops the whole user+client grant — had the owner
+ *     (or anyone whose calendar is connected) imported into a poll, revoking
+ *     would also kill the refresh token on their `ConnectedAccount`.
+ *     Participants are never written to `ConnectedAccount` (that table is
+ *     the owner's busy sources).
  *
  * Both Google calls are exported so tests can stub them with `spyOn`.
  */
@@ -20,7 +24,6 @@ import { google } from 'googleapis';
 import type { OAuth2Client } from 'google-auth-library';
 
 import { env } from '@/lib/env';
-import { logger } from '@/lib/logger';
 
 export const PARTICIPANT_SCOPES = ['https://www.googleapis.com/auth/calendar.freebusy'];
 
@@ -93,8 +96,9 @@ export interface BusyInterval {
 }
 
 /**
- * Exchange the code, read the participant's primary-calendar busy blocks
- * for [timeMin, timeMax), then revoke the token. Throws on any Google error.
+ * Exchange the code and read the participant's primary-calendar busy blocks
+ * for [timeMin, timeMax). The token is dropped, not revoked (see above).
+ * Throws on any Google error.
  */
 export async function fetchParticipantBusy(
   code: string,
@@ -106,32 +110,25 @@ export async function fetchParticipantBusy(
   if (!tokens.access_token) throw new Error('no access_token in token response');
   client.setCredentials({ access_token: tokens.access_token });
 
-  try {
-    const calendar = google.calendar({ version: 'v3', auth: client });
-    const { data } = await calendar.freebusy.query({
-      requestBody: {
-        timeMin: timeMin.toISOString(),
-        timeMax: timeMax.toISOString(),
-        items: [{ id: 'primary' }],
-      },
-    });
-    const primary = data.calendars?.primary;
-    if (primary?.errors?.length) {
-      throw new Error(`freebusy error: ${primary.errors.map((e) => e.reason).join(', ')}`);
-    }
-    const out: BusyInterval[] = [];
-    for (const b of primary?.busy ?? []) {
-      if (!b.start || !b.end) continue;
-      const start = new Date(b.start);
-      const end = new Date(b.end);
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) continue;
-      out.push({ start, end });
-    }
-    return out;
-  } finally {
-    // We never need this token again — don't leave a live grant behind.
-    client.revokeToken(tokens.access_token).catch(() => {
-      logger.debug({ event: 'poll.google_revoke_failed' }, 'participant token revoke failed');
-    });
+  const calendar = google.calendar({ version: 'v3', auth: client });
+  const { data } = await calendar.freebusy.query({
+    requestBody: {
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      items: [{ id: 'primary' }],
+    },
+  });
+  const primary = data.calendars?.primary;
+  if (primary?.errors?.length) {
+    throw new Error(`freebusy error: ${primary.errors.map((e) => e.reason).join(', ')}`);
   }
+  const out: BusyInterval[] = [];
+  for (const b of primary?.busy ?? []) {
+    if (!b.start || !b.end) continue;
+    const start = new Date(b.start);
+    const end = new Date(b.end);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) continue;
+    out.push({ start, end });
+  }
+  return out;
 }
