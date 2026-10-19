@@ -5,11 +5,10 @@ import { Button } from '@/components/ui/button';
 import { CalendarPlus, Plus } from 'lucide-react';
 import { EventTypesList } from './_components/event-types-list';
 import type { EventTypeRow } from './_components/event-types-list';
-import { OneTimeLinkDialog } from './_components/one-time-link-dialog';
+import type { OneTimeLinkOptions } from './_components/one-time-link-dialog';
 import { OneTimeLinksSection } from './_components/one-time-links-section';
 import type {
   BrandOption,
-  CalendarOption,
   ConnectedAccountOption,
   ScheduleOption,
 } from './_components/event-type-form';
@@ -22,7 +21,7 @@ export default async function EventTypesPage() {
 
   // Only "normal" bookable event types here. One-time-link EventTypes
   // (isOneTime=true) are surfaced in their own section below.
-  const [all, accountRows, calendarRows, scheduleRows, brandRows, owner] = await Promise.all([
+  const [all, accountRows, scheduleRows, brandRows, owner] = await Promise.all([
     db.eventType.findMany({
       where: { userId: user.id, isOneTime: false },
       orderBy: [{ archived: 'asc' }, { position: 'asc' }, { createdAt: 'asc' }],
@@ -32,30 +31,33 @@ export default async function EventTypesPage() {
       where: { status: 'active' },
       select: { id: true, googleUserEmail: true },
     }),
-    db.calendar.findMany({
-      select: { id: true, connectedAccountId: true, name: true, isDestinationEligible: true },
-    }),
     db.schedule.findMany({
-      where: { userId: user.id },
-      select: { id: true, name: true, isDefault: true },
+      where: { userId: user.id, isOneTime: false },
+      select: {
+        id: true,
+        name: true,
+        isDefault: true,
+        timezone: true,
+        rules: {
+          select: { weekday: true, startMinute: true, endMinute: true },
+          orderBy: [{ weekday: 'asc' }, { startMinute: 'asc' }],
+        },
+      },
     }),
     db.brand.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: 'asc' },
       select: { id: true, name: true, primaryColor: true },
     }),
-    db.user.findUnique({ where: { id: user.id }, select: { defaultBrandId: true } }),
+    db.user.findUnique({
+      where: { id: user.id },
+      select: { defaultBrandId: true, timezone: true },
+    }),
   ]);
 
   const accountOptions: ConnectedAccountOption[] = accountRows.map((a) => ({
     id: a.id,
     googleUserEmail: a.googleUserEmail,
-  }));
-  const calendarOptions: CalendarOption[] = calendarRows.map((c) => ({
-    id: c.id,
-    connectedAccountId: c.connectedAccountId,
-    name: c.name,
-    isDestinationEligible: c.isDestinationEligible,
   }));
   const scheduleOptions: ScheduleOption[] = scheduleRows.map((s) => ({
     id: s.id,
@@ -71,6 +73,19 @@ export default async function EventTypesPage() {
     owner?.defaultBrandId && brandRows.some((b) => b.id === owner.defaultBrandId)
       ? owner.defaultBrandId
       : null;
+
+  // "Custom hours" on an invitation starts from the default schedule's hours.
+  const defaultSchedule = scheduleRows.find((s) => s.isDefault);
+  const oneTimeOptions: OneTimeLinkOptions = {
+    accounts: accountOptions,
+    schedules: scheduleOptions,
+    brands: brandOptions,
+    defaultBrandId,
+    defaultHours: {
+      timezone: defaultSchedule?.timezone ?? owner?.timezone ?? 'UTC',
+      rules: defaultSchedule?.rules ?? [],
+    },
+  };
 
   const active: EventTypeRow[] = all
     .filter((e) => !e.archived)
@@ -135,17 +150,7 @@ export default async function EventTypesPage() {
         )}
       </section>
 
-      <OneTimeLinksSection
-        trigger={
-          <OneTimeLinkDialog
-            accounts={accountOptions}
-            calendars={calendarOptions}
-            schedules={scheduleOptions}
-            brands={brandOptions}
-            defaultBrandId={defaultBrandId}
-          />
-        }
-      />
+      <OneTimeLinksSection options={oneTimeOptions} />
     </div>
   );
 }

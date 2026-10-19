@@ -1,6 +1,6 @@
 import { http } from './http';
 
-export type CalendarToggleField = 'isBusySource' | 'isDestinationEligible';
+export type CalendarToggleField = 'isBusySource';
 
 export interface CalendarTogglePayload {
   calendarId: string;

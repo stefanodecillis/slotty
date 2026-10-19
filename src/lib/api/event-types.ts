@@ -1,4 +1,5 @@
 import { http } from './http';
+import type { OneTimeLinkDetail, OneTimeLinkListItem } from '@/lib/one-time/service';
 
 // ─────────────────────────────────────────────────────────────
 // Types — match the existing API contract (do not reshape)
@@ -36,7 +37,6 @@ export interface EventTypeUpsertPayload {
   locationKind: string;
   locationValue: string | null;
   destinationAccountId: string;
-  destinationCalendarId: string;
   bufferBeforeMin: number;
   bufferAfterMin: number;
   minNoticeMin: number;
@@ -159,77 +159,59 @@ export function revokeInvite(eventTypeId: string, inviteId: string): Promise<unk
 }
 
 // ─────────────────────────────────────────────────────────────
-// One-time event type — creates a hidden+inviteOnly EventType AND
-// immediately mints a BookingInvite for it. The raw token is returned
-// exactly once.
+// One-time invitations — a hidden + invite-only EventType with a single
+// BookingInvite. Editable (and the URL re-copyable) until someone books;
+// after that the only action is cancelling the meeting.
 // ─────────────────────────────────────────────────────────────
 
-export interface OneTimeLinkPayload {
-  title: string;
-  durationMinutes: number;
-  destinationAccountId: string;
-  destinationCalendarId: string;
-  scheduleId?: string;
-  hiddenGuests?: string[];
-  note?: string;
-  expiresAt?: string;
-  // Advanced (all optional — server defaults preserve the streamlined behavior)
-  descriptionMd?: string;
-  locationKind?: 'google_meet' | 'phone' | 'in_person' | 'custom_link';
-  locationValue?: string;
-  bufferBeforeMin?: number;
-  bufferAfterMin?: number;
-  minNoticeMin?: number;
-  bookingWindowDays?: number;
-  slotIntervalMin?: number;
-  maxGuests?: number;
-  confirmationMd?: string;
-  sendReminders?: boolean;
-  brandId?: string | null;
-}
+export type {
+  OneTimeLinkBooking,
+  OneTimeLinkDetail,
+  OneTimeLinkListItem,
+  OneTimeLinkStatus,
+} from '@/lib/one-time/service';
 
-export interface OneTimeLinkResult {
+/** Complete form payload — create and edit both send every field. */
+export type OneTimeLinkPayload = OneTimeLinkDetail['values'];
+
+export interface OneTimeLinkCreated {
   eventTypeId: string;
-  slug: string;
   inviteId: string;
-  /** Raw token, shown once. */
-  token: string;
-  /** Full shareable URL, shown once. */
   url: string;
   expiresAt: string | null;
-}
-
-export function createOneTimeLink(payload: OneTimeLinkPayload): Promise<OneTimeLinkResult> {
-  return http('/api/admin/event-types/one-time', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-}
-
-// ─────────────────────────────────────────────────────────────
-// Pending one-time links — admin dashboard view.
-// Each row pairs an `isOneTime` EventType with its single still-usable
-// BookingInvite. Used / revoked / expired entries drop out of this list
-// and are pruned after a retention window.
-// ─────────────────────────────────────────────────────────────
-
-export interface PendingOneTimeLink {
-  eventTypeId: string;
-  title: string;
-  durationMinutes: number;
-  color: string;
-  inviteId: string;
-  note: string | null;
-  createdAt: string;
-  expiresAt: string | null;
-  hiddenGuestsCount: number;
 }
 
 export const oneTimeLinkKeys = {
   all: ['oneTimeLinks'] as const,
   list: () => [...oneTimeLinkKeys.all, 'list'] as const,
+  detail: (id: string) => [...oneTimeLinkKeys.all, 'detail', id] as const,
 };
 
-export function listOneTimeLinks(): Promise<{ links: PendingOneTimeLink[] }> {
+export function listOneTimeLinks(): Promise<{ links: OneTimeLinkListItem[] }> {
   return http('/api/admin/one-time-links');
+}
+
+export function getOneTimeLink(eventTypeId: string): Promise<OneTimeLinkDetail> {
+  return http(`/api/admin/one-time-links/${eventTypeId}`);
+}
+
+export function createOneTimeLink(payload: OneTimeLinkPayload): Promise<OneTimeLinkCreated> {
+  return http('/api/admin/one-time-links', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateOneTimeLink(
+  eventTypeId: string,
+  payload: OneTimeLinkPayload,
+): Promise<OneTimeLinkDetail> {
+  return http(`/api/admin/one-time-links/${eventTypeId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteOneTimeLink(eventTypeId: string): Promise<unknown> {
+  return http(`/api/admin/one-time-links/${eventTypeId}`, { method: 'DELETE' });
 }

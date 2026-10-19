@@ -6,7 +6,6 @@ import { EventTypeForm } from '../_components/event-type-form';
 import { InviteLinksPanel } from '../_components/invite-links-panel';
 import type {
   ConnectedAccountOption,
-  CalendarOption,
   ScheduleOption,
   BrandOption,
   EventTypeFormValues,
@@ -23,7 +22,7 @@ interface PageProps {
 export default async function EditEventTypePage({ params }: PageProps) {
   const user = await requireUserOrRedirect(`/admin/login?next=%2Fadmin%2Fevent-types%2F${params.id}`);
 
-  const [eventType, accounts, calendars, schedules, brands] = await Promise.all([
+  const [eventType, accounts, schedules, brands] = await Promise.all([
     db.eventType.findUnique({
       where: { id: params.id },
       include: {
@@ -34,16 +33,8 @@ export default async function EditEventTypePage({ params }: PageProps) {
       where: { status: 'active' },
       select: { id: true, googleUserEmail: true },
     }),
-    db.calendar.findMany({
-      select: {
-        id: true,
-        connectedAccountId: true,
-        name: true,
-        isDestinationEligible: true,
-      },
-    }),
     db.schedule.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, isOneTime: false },
       select: { id: true, name: true, isDefault: true },
     }),
     db.brand.findMany({
@@ -60,13 +51,6 @@ export default async function EditEventTypePage({ params }: PageProps) {
   const accountOptions: ConnectedAccountOption[] = accounts.map((a) => ({
     id: a.id,
     googleUserEmail: a.googleUserEmail,
-  }));
-
-  const calendarOptions: CalendarOption[] = calendars.map((c) => ({
-    id: c.id,
-    connectedAccountId: c.connectedAccountId,
-    name: c.name,
-    isDestinationEligible: c.isDestinationEligible,
   }));
 
   const scheduleOptions: ScheduleOption[] = schedules.map((s) => ({
@@ -92,7 +76,6 @@ export default async function EditEventTypePage({ params }: PageProps) {
     locationKind: eventType.locationKind as LocationKind,
     locationValue: eventType.locationValue ?? '',
     destinationAccountId: eventType.destinationAccountId,
-    destinationCalendarId: eventType.destinationCalendarId,
     bufferBeforeMin: eventType.bufferBeforeMin,
     bufferAfterMin: eventType.bufferAfterMin,
     minNoticeMin: eventType.minNoticeMin,
@@ -137,7 +120,6 @@ export default async function EditEventTypePage({ params }: PageProps) {
         username={user.username}
         initialValues={initialValues}
         accounts={accountOptions}
-        allCalendars={calendarOptions}
         schedules={scheduleOptions}
         brands={brandOptions}
       />

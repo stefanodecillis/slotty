@@ -3,7 +3,6 @@ import { db } from '@/lib/db';
 import { EventTypeForm } from '../_components/event-type-form';
 import type {
   ConnectedAccountOption,
-  CalendarOption,
   ScheduleOption,
   BrandOption,
   EventTypeFormValues,
@@ -15,21 +14,13 @@ export const dynamic = 'force-dynamic';
 export default async function NewEventTypePage() {
   const user = await requireUserOrRedirect('/admin/login?next=%2Fadmin%2Fevent-types%2Fnew');
 
-  const [accounts, calendars, schedules, brands, owner] = await Promise.all([
+  const [accounts, schedules, brands, owner] = await Promise.all([
     db.connectedAccount.findMany({
       where: { status: 'active' },
       select: { id: true, googleUserEmail: true },
     }),
-    db.calendar.findMany({
-      select: {
-        id: true,
-        connectedAccountId: true,
-        name: true,
-        isDestinationEligible: true,
-      },
-    }),
     db.schedule.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, isOneTime: false },
       select: { id: true, name: true, isDefault: true },
     }),
     db.brand.findMany({
@@ -43,13 +34,6 @@ export default async function NewEventTypePage() {
   const accountOptions: ConnectedAccountOption[] = accounts.map((a) => ({
     id: a.id,
     googleUserEmail: a.googleUserEmail,
-  }));
-
-  const calendarOptions: CalendarOption[] = calendars.map((c) => ({
-    id: c.id,
-    connectedAccountId: c.connectedAccountId,
-    name: c.name,
-    isDestinationEligible: c.isDestinationEligible,
   }));
 
   const scheduleOptions: ScheduleOption[] = schedules.map((s) => ({
@@ -88,7 +72,6 @@ export default async function NewEventTypePage() {
         username={user.username}
         initialValues={initialValues}
         accounts={accountOptions}
-        allCalendars={calendarOptions}
         schedules={scheduleOptions}
         brands={brandOptions}
       />

@@ -4,6 +4,7 @@ import { hashPassword } from '@/lib/auth/password';
 import { eventTypeInputSchema } from './validator';
 import type { EventTypeInput } from './validator';
 import { logger } from '@/lib/logger';
+import { DefaultCalendarError, resolveDefaultCalendarId } from '@/lib/google/default-calendar';
 
 // ─────────────────────────────────────────────────────────────
 // Slug utilities
@@ -54,38 +55,16 @@ export async function ensureUniqueSlug(
 // Destination validation
 // ─────────────────────────────────────────────────────────────
 
-async function validateDestination(
-  userId: string,
-  destinationAccountId: string,
-  destinationCalendarId: string,
-): Promise<void> {
-  // Check that the account belongs to the user (via calendar ownership chain)
-  // ConnectedAccount has no direct userId; ownership is inferred from the User
-  // owning all data. For MVP single-user app this always passes, but we still
-  // validate the calendar belongs to the account for correctness.
-  const calendar = await db.calendar.findUnique({
-    where: { id: destinationCalendarId },
-    select: {
-      id: true,
-      connectedAccountId: true,
-      isDestinationEligible: true,
-    },
-  });
-
-  if (!calendar) {
-    throw new ServiceError('Destination calendar not found', 'INVALID_DESTINATION');
-  }
-  if (calendar.connectedAccountId !== destinationAccountId) {
-    throw new ServiceError(
-      'Destination calendar does not belong to the specified account',
-      'INVALID_DESTINATION',
-    );
-  }
-  if (!calendar.isDestinationEligible) {
-    throw new ServiceError(
-      'Destination calendar is not enabled as a destination. Enable it in Calendars settings.',
-      'INVALID_DESTINATION',
-    );
+async function resolveDestination(destinationAccountId: string): Promise<string> {
+  // Bookings always land on the account's primary calendar — the admin only
+  // picks the account.
+  try {
+    return await resolveDefaultCalendarId(destinationAccountId);
+  } catch (err) {
+    if (err instanceof DefaultCalendarError) {
+      throw new ServiceError(err.message, 'INVALID_DESTINATION');
+    }
+    throw err;
   }
 }
 
@@ -134,7 +113,7 @@ export class ServiceError extends Error {
 // ─────────────────────────────────────────────────────────────
 
 export async function createEventType(userId: string, input: EventTypeInput): Promise<EventType> {
-  await validateDestination(userId, input.destinationAccountId, input.destinationCalendarId);
+  const destinationCalendarId = await resolveDestination(input.destinationAccountId);
   await validateBrandOwnership(userId, input.brandId);
 
   const slug = await ensureUniqueSlug(userId, input.slug);
@@ -151,7 +130,7 @@ export async function createEventType(userId: string, input: EventTypeInput): Pr
       inviteOnly: input.inviteOnly,
       durationMinutes: input.durationMinutes,
       destinationAccountId: input.destinationAccountId,
-      destinationCalendarId: input.destinationCalendarId,
+      destinationCalendarId,
       locationKind: input.locationKind,
       locationValue: input.locationValue ?? null,
       bufferBeforeMin: input.bufferBeforeMin,
@@ -199,7 +178,7 @@ export async function updateEventType(
     throw new ServiceError('Event type not found', 'NOT_FOUND');
   }
 
-  await validateDestination(userId, input.destinationAccountId, input.destinationCalendarId);
+  const destinationCalendarId = await resolveDestination(input.destinationAccountId);
   await validateBrandOwnership(userId, input.brandId);
 
   const slug = await ensureUniqueSlug(userId, input.slug, eventTypeId);
@@ -228,7 +207,7 @@ export async function updateEventType(
         inviteOnly: input.inviteOnly,
         durationMinutes: input.durationMinutes,
         destinationAccountId: input.destinationAccountId,
-        destinationCalendarId: input.destinationCalendarId,
+        destinationCalendarId,
         locationKind: input.locationKind,
         locationValue: input.locationValue ?? null,
         bufferBeforeMin: input.bufferBeforeMin,

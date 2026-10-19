@@ -67,8 +67,8 @@ export const eventTypeInputSchema = z
       .positive('Duration must be positive')
       .max(1440, 'Duration cannot exceed 1440 minutes (24 hours)'),
 
+    // Bookings land on this account's primary calendar (resolved server-side).
     destinationAccountId: z.string().min(1, 'Destination account is required'),
-    destinationCalendarId: z.string().min(1, 'Destination calendar is required'),
 
     locationKind: z.enum(LOCATION_KINDS),
 

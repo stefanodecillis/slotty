@@ -1,20 +1,23 @@
 'use client';
 
 /**
- * "New one-time link" dialog.
+ * Create / edit dialog for one-time invitations.
  *
- * Two screens behind a single dialog:
- *   1. Form — title, duration, destination calendar, optional schedule,
- *              hidden guests, note, expiry.
- *   2. Result — copyable URL shown ONCE; admin must save it now because the
- *              raw token is unrecoverable (only sha256 is stored).
+ * Create has two screens behind a single dialog:
+ *   1. Form — title, duration, destination account, availability, hidden
+ *              guests, note, expiry, advanced settings.
+ *   2. Result — the shareable URL. It can be copied again from the list
+ *              until somebody books it.
  *
- * Posts to POST /api/admin/event-types/one-time which creates a hidden +
- * invite-only EventType AND mints the BookingInvite in a single transaction.
+ * Edit loads the invitation's current values and PATCHes the whole form.
+ * The server refuses (409) once the invitation has been booked.
+ *
+ * Availability is either one of the owner's schedules or custom weekly hours
+ * + date overrides that belong to this invitation only.
  */
 import { useMemo, useState } from 'react';
 import { Copy, Link2, Plus } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
@@ -39,33 +42,43 @@ import {
 } from '@/components/ui/select';
 import { GuestChipInput } from '@/components/ui/guest-chip-input';
 import { copyToClipboard } from '@/lib/clipboard';
+import { cn } from '@/lib/utils/cn';
 import {
   createOneTimeLink,
-  eventTypeKeys,
+  getOneTimeLink,
   oneTimeLinkKeys,
+  updateOneTimeLink,
+  type OneTimeLinkCreated,
   type OneTimeLinkPayload,
-  type OneTimeLinkResult,
 } from '@/lib/api/event-types';
-import { ApiError } from '@/lib/api/http';
-import type {
-  BrandOption,
-  CalendarOption,
-  ConnectedAccountOption,
-  ScheduleOption,
-} from './event-type-form';
+import {
+  WeeklyHoursEditor,
+  validateRules,
+  type RuleData,
+} from '../../availability/_components/weekly-grid';
+import {
+  OverridesCalendarView,
+  type OverrideChange,
+  type OverrideEntry,
+} from '../../availability/_components/overrides-calendar';
+import type { BrandOption, ConnectedAccountOption, ScheduleOption } from './event-type-form';
 
-interface OneTimeLinkDialogProps {
+/** Everything the form needs from the server page to render its pickers. */
+export interface OneTimeLinkOptions {
   accounts: ConnectedAccountOption[];
-  calendars: CalendarOption[];
   schedules: ScheduleOption[];
   brands: BrandOption[];
-  /** User's default brand id (or null). Prefilled into the form. */
+  /** User's default brand id (or null). Prefilled into new invitations. */
   defaultBrandId: string | null;
+  /** Starting point when switching an invitation to custom hours. */
+  defaultHours: { timezone: string; rules: RuleData[] };
 }
+
+type LocationKind = OneTimeLinkPayload['locationKind'];
 
 const DURATION_OPTIONS = [15, 30, 45, 60, 90];
 
-const LOCATION_KIND_OPTIONS: { value: NonNullable<OneTimeLinkPayload['locationKind']>; label: string }[] = [
+const LOCATION_KIND_OPTIONS: { value: LocationKind; label: string }[] = [
   { value: 'google_meet', label: 'Google Meet' },
   { value: 'phone', label: 'Phone call' },
   { value: 'in_person', label: 'In person' },
@@ -74,7 +87,7 @@ const LOCATION_KIND_OPTIONS: { value: NonNullable<OneTimeLinkPayload['locationKi
 
 const SLOT_INTERVAL_OPTIONS = [5, 10, 15, 20, 30, 60];
 
-// Server-side defaults (must mirror src/app/api/admin/event-types/one-time/route.ts).
+// Server-side defaults (must mirror src/lib/one-time/validator.ts).
 const DEFAULTS = {
   bookingWindowDays: 60,
   minNoticeMin: 60,
@@ -85,604 +98,928 @@ const DEFAULTS = {
   sendReminders: true,
 } as const;
 
-export function OneTimeLinkDialog({
-  accounts,
-  calendars,
-  schedules,
-  brands,
-  defaultBrandId,
-}: OneTimeLinkDialogProps) {
+// '__keep__' only exists when editing an invitation that already has an expiry.
+type ExpiryChoice = '__keep__' | '__never__' | '1' | '7' | '30';
+
+interface FormState {
+  title: string;
+  durationMinutes: number;
+  accountId: string;
+  brandId: string;
+  availabilityMode: 'schedule' | 'custom';
+  scheduleId: string; // '' → default schedule
+  customTimezone: string;
+  customRules: RuleData[];
+  customOverrides: Map<string, OverrideEntry>;
+  hiddenGuests: string[];
+  note: string;
+  expiry: ExpiryChoice;
+  descriptionMd: string;
+  locationKind: LocationKind;
+  locationValue: string;
+  bookingWindowDays: number;
+  minNoticeValue: number;
+  minNoticeUnit: 'minutes' | 'hours' | 'days';
+  bufferBeforeMin: number;
+  bufferAfterMin: number;
+  slotIntervalMin: number;
+  maxGuests: number;
+  confirmationMd: string;
+  sendReminders: boolean;
+}
+
+function emptyForm(options: OneTimeLinkOptions): FormState {
+  return {
+    title: '',
+    durationMinutes: 30,
+    accountId: options.accounts[0]?.id ?? '',
+    brandId: options.defaultBrandId ?? '',
+    availabilityMode: 'schedule',
+    scheduleId: '',
+    customTimezone: options.defaultHours.timezone,
+    customRules: options.defaultHours.rules,
+    customOverrides: new Map(),
+    hiddenGuests: [],
+    note: '',
+    expiry: '__never__',
+    descriptionMd: '',
+    locationKind: 'google_meet',
+    locationValue: '',
+    bookingWindowDays: DEFAULTS.bookingWindowDays,
+    minNoticeValue: DEFAULTS.minNoticeMin,
+    minNoticeUnit: 'minutes',
+    bufferBeforeMin: DEFAULTS.bufferBeforeMin,
+    bufferAfterMin: DEFAULTS.bufferAfterMin,
+    slotIntervalMin: DEFAULTS.slotIntervalMin,
+    maxGuests: DEFAULTS.maxGuests,
+    confirmationMd: '',
+    sendReminders: DEFAULTS.sendReminders,
+  };
+}
+
+function formFromValues(values: OneTimeLinkPayload, options: OneTimeLinkOptions): FormState {
+  const base = emptyForm(options);
+  const minNotice =
+    values.minNoticeMin > 0 && values.minNoticeMin % 1440 === 0
+      ? { minNoticeValue: values.minNoticeMin / 1440, minNoticeUnit: 'days' as const }
+      : values.minNoticeMin > 0 && values.minNoticeMin % 60 === 0
+        ? { minNoticeValue: values.minNoticeMin / 60, minNoticeUnit: 'hours' as const }
+        : { minNoticeValue: values.minNoticeMin, minNoticeUnit: 'minutes' as const };
+  const availability = values.availability;
+  return {
+    ...base,
+    ...minNotice,
+    title: values.title,
+    durationMinutes: values.durationMinutes,
+    accountId: values.destinationAccountId,
+    brandId: values.brandId ?? '',
+    availabilityMode: availability.kind,
+    scheduleId: availability.kind === 'schedule' ? (availability.scheduleId ?? '') : '',
+    ...(availability.kind === 'custom'
+      ? {
+          customTimezone: availability.timezone,
+          customRules: availability.rules,
+          customOverrides: new Map(
+            availability.overrides.map((o) => [
+              o.date,
+              {
+                date: o.date,
+                isBlocked: o.isBlocked,
+                startMinute: o.startMinute ?? null,
+                endMinute: o.endMinute ?? null,
+              },
+            ]),
+          ),
+        }
+      : {}),
+    hiddenGuests: values.hiddenGuests,
+    note: values.note ?? '',
+    expiry: values.expiresAt ? '__keep__' : '__never__',
+    descriptionMd: values.descriptionMd ?? '',
+    locationKind: values.locationKind,
+    locationValue: values.locationValue ?? '',
+    bookingWindowDays: values.bookingWindowDays,
+    bufferBeforeMin: values.bufferBeforeMin,
+    bufferAfterMin: values.bufferAfterMin,
+    slotIntervalMin: values.slotIntervalMin,
+    maxGuests: values.maxGuests,
+    confirmationMd: values.confirmationMd ?? '',
+    sendReminders: values.sendReminders,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Entry points
+// ─────────────────────────────────────────────────────────────
+
+/** "New invitation" button + create dialog. */
+export function OneTimeLinkDialog({ options }: { options: OneTimeLinkOptions }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
       <Button variant="outline" onClick={() => setOpen(true)}>
         <Link2 className="h-4 w-4" />
-        New one-time link
+        New invitation
       </Button>
       {open ? (
-        <OneTimeLinkDialogBody
-          accounts={accounts}
-          calendars={calendars}
-          schedules={schedules}
-          brands={brands}
-          defaultBrandId={defaultBrandId}
-          onClose={() => setOpen(false)}
-        />
+        <InvitationDialogShell onClose={() => setOpen(false)}>
+          <CreateInvitation options={options} onClose={() => setOpen(false)} />
+        </InvitationDialogShell>
       ) : null}
     </>
   );
 }
 
-interface BodyProps extends OneTimeLinkDialogProps {
+/** Edit dialog for a pending invitation. Mount it only while open. */
+export function EditOneTimeLinkDialog({
+  eventTypeId,
+  options,
+  onClose,
+}: {
+  eventTypeId: string;
+  options: OneTimeLinkOptions;
   onClose: () => void;
+}) {
+  const query = useQuery({
+    queryKey: oneTimeLinkKeys.detail(eventTypeId),
+    queryFn: () => getOneTimeLink(eventTypeId),
+    // Always edit the latest server state, never a stale cached form.
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const message = query.isLoading ? (
+    <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
+  ) : query.error || !query.data ? (
+    <p className="py-8 text-center text-sm text-destructive">
+      {query.error instanceof Error ? query.error.message : 'Could not load invitation.'}
+    </p>
+  ) : query.data.status !== 'pending' ? (
+    <p className="py-8 text-center text-sm text-muted-foreground">
+      This invitation has been booked and can no longer be edited.
+    </p>
+  ) : null;
+
+  return (
+    <InvitationDialogShell onClose={onClose}>
+      {message || !query.data ? (
+        <>
+          <DialogHeader>
+            <DialogTitle>Edit invitation</DialogTitle>
+            <DialogDescription className="sr-only">Loading the invitation</DialogDescription>
+          </DialogHeader>
+          {message}
+        </>
+      ) : (
+        <EditInvitation
+          eventTypeId={eventTypeId}
+          initial={query.data.values}
+          options={options}
+          onClose={onClose}
+        />
+      )}
+    </InvitationDialogShell>
+  );
 }
 
-function OneTimeLinkDialogBody({
-  accounts,
-  calendars,
-  schedules,
-  brands,
-  defaultBrandId,
+function InvitationDialogShell({
   onClose,
-}: BodyProps) {
+  children,
+}: {
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Dialog open onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">{children}</DialogContent>
+    </Dialog>
+  );
+}
+
+function CreateInvitation({
+  options,
+  onClose,
+}: {
+  options: OneTimeLinkOptions;
+  onClose: () => void;
+}) {
   const queryClient = useQueryClient();
-  const [title, setTitle] = useState('');
-  const [durationMinutes, setDurationMinutes] = useState<number>(30);
-  const [brandId, setBrandId] = useState<string>(defaultBrandId ?? '');
-  const [accountId, setAccountId] = useState<string>(accounts[0]?.id ?? '');
-  // Default to the first eligible calendar on the selected account.
-  const eligibleCalendars = useMemo(
-    () => calendars.filter((c) => c.connectedAccountId === accountId && c.isDestinationEligible),
-    [calendars, accountId],
-  );
-  const [calendarId, setCalendarId] = useState<string>(eligibleCalendars[0]?.id ?? '');
-  const [scheduleId, setScheduleId] = useState<string>('');
-  const [hiddenGuests, setHiddenGuests] = useState<string[]>([]);
-  const [note, setNote] = useState('');
-  const [expiresInDays, setExpiresInDays] = useState<string>(''); // '', '1', '7', '30'
-  const [result, setResult] = useState<OneTimeLinkResult | null>(null);
-
-  // Advanced settings (all start at server defaults; only sent if the admin opens
-  // the disclosure and changes something — we still always send them since the
-  // server treats them as optional with the same defaults).
-  const [descriptionMd, setDescriptionMd] = useState('');
-  const [locationKind, setLocationKind] = useState<NonNullable<OneTimeLinkPayload['locationKind']>>(
-    'google_meet',
-  );
-  const [locationValue, setLocationValue] = useState('');
-  const [bookingWindowDays, setBookingWindowDays] = useState<number>(DEFAULTS.bookingWindowDays);
-  const [minNoticeValue, setMinNoticeValue] = useState<number>(60);
-  const [minNoticeUnit, setMinNoticeUnit] = useState<'minutes' | 'hours' | 'days'>('minutes');
-  const [bufferBeforeMin, setBufferBeforeMin] = useState<number>(DEFAULTS.bufferBeforeMin);
-  const [bufferAfterMin, setBufferAfterMin] = useState<number>(DEFAULTS.bufferAfterMin);
-  const [slotIntervalMin, setSlotIntervalMin] = useState<number>(DEFAULTS.slotIntervalMin);
-  const [maxGuests, setMaxGuests] = useState<number>(DEFAULTS.maxGuests);
-  const [confirmationMd, setConfirmationMd] = useState('');
-  const [sendReminders, setSendReminders] = useState<boolean>(DEFAULTS.sendReminders);
-
-  // Keep calendar selection in sync when the account changes.
-  function handleAccountChange(next: string) {
-    setAccountId(next);
-    const first = calendars.find((c) => c.connectedAccountId === next && c.isDestinationEligible);
-    setCalendarId(first?.id ?? '');
-  }
+  const [result, setResult] = useState<OneTimeLinkCreated | null>(null);
 
   const mutation = useMutation({
     mutationFn: createOneTimeLink,
     onSuccess: (data) => {
       setResult(data);
-      queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
-      queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.all });
+      void queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.all });
     },
     onError: (err) => {
-      if (err instanceof ApiError) {
-        toast.error(err.message);
-      } else if (err instanceof Error) {
-        toast.error(err.message);
-      } else {
-        toast.error('Could not create one-time link.');
-      }
+      toast.error(err instanceof Error ? err.message : 'Could not create invitation.');
     },
   });
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!title.trim()) {
-      toast.error('Title is required.');
-      return;
-    }
-    if (!accountId || !calendarId) {
-      toast.error('Pick a destination calendar.');
-      return;
-    }
-    const expiresAt = (() => {
-      if (!expiresInDays) return undefined;
-      const days = Number(expiresInDays);
-      if (!Number.isFinite(days) || days <= 0) return undefined;
-      return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    })();
-    // Translate min-notice into the canonical minutes the server expects.
-    const minNoticeMin =
-      minNoticeUnit === 'days'
-        ? minNoticeValue * 1440
-        : minNoticeUnit === 'hours'
-          ? minNoticeValue * 60
-          : minNoticeValue;
-
-    // Conditional location value — only meaningful for in_person / custom_link.
-    const needsLocationValue = locationKind === 'in_person' || locationKind === 'custom_link';
-    if (needsLocationValue && !locationValue.trim()) {
-      toast.error(
-        locationKind === 'in_person'
-          ? 'Address is required for in-person events.'
-          : 'URL is required for custom-link events.',
-      );
-      return;
-    }
-
-    mutation.mutate({
-      title: title.trim(),
-      durationMinutes,
-      destinationAccountId: accountId,
-      destinationCalendarId: calendarId,
-      scheduleId: scheduleId || undefined,
-      hiddenGuests: hiddenGuests.length ? hiddenGuests : undefined,
-      note: note.trim() || undefined,
-      expiresAt,
-      // Advanced — server defaults to the same numbers if these are omitted,
-      // so it's safe to always forward.
-      descriptionMd: descriptionMd.trim() || undefined,
-      locationKind,
-      locationValue: needsLocationValue ? locationValue.trim() : undefined,
-      bookingWindowDays,
-      minNoticeMin,
-      bufferBeforeMin,
-      bufferAfterMin,
-      slotIntervalMin,
-      maxGuests,
-      confirmationMd: confirmationMd.trim() || undefined,
-      sendReminders,
-      brandId: brandId || null,
-    });
+  if (result) {
+    return <CreatedResult url={result.url} onClose={onClose} />;
   }
 
+  return (
+    <InvitationForm
+      mode="create"
+      initial={emptyForm(options)}
+      initialExpiresAt={null}
+      options={options}
+      pending={mutation.isPending}
+      onSubmit={(payload) => mutation.mutate(payload)}
+      onCancel={onClose}
+    />
+  );
+}
+
+function EditInvitation({
+  eventTypeId,
+  initial,
+  options,
+  onClose,
+}: {
+  eventTypeId: string;
+  initial: OneTimeLinkPayload;
+  options: OneTimeLinkOptions;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: (payload: OneTimeLinkPayload) => updateOneTimeLink(eventTypeId, payload),
+    onSuccess: () => {
+      toast.success('Invitation updated.');
+      void queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.all });
+      onClose();
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Could not update invitation.');
+      // A 409 means it was booked meanwhile — refresh the list either way.
+      void queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.list() });
+    },
+  });
+
+  return (
+    <InvitationForm
+      mode="edit"
+      initial={formFromValues(initial, options)}
+      initialExpiresAt={initial.expiresAt}
+      options={options}
+      pending={mutation.isPending}
+      onSubmit={(payload) => mutation.mutate(payload)}
+      onCancel={onClose}
+    />
+  );
+}
+
+function CreatedResult({ url, onClose }: { url: string; onClose: () => void }) {
   async function copyUrl() {
-    if (!result) return;
     try {
-      await copyToClipboard(result.url);
+      await copyToClipboard(url);
       toast.success('Link copied to clipboard.');
     } catch {
       toast.error('Could not copy automatically — select the URL above and copy it.');
     }
   }
 
-  function handleOpenChange(next: boolean) {
-    if (!next) onClose();
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Invitation ready</DialogTitle>
+        <DialogDescription>
+          Share this link with the person you&apos;re inviting. Until they book, you can edit the
+          invitation and copy the link again from the list.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="flex flex-col gap-2 rounded-lg border border-input bg-muted/40 p-3">
+        <code className="break-all text-xs text-foreground">{url}</code>
+        <Button type="button" variant="secondary" onClick={copyUrl} className="self-start">
+          <Copy className="h-4 w-4" /> Copy link
+        </Button>
+      </div>
+      <DialogFooter>
+        <Button type="button" onClick={onClose}>
+          Done
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Form
+// ─────────────────────────────────────────────────────────────
+
+interface InvitationFormProps {
+  mode: 'create' | 'edit';
+  initial: FormState;
+  /** Expiry stored on the invitation being edited (for the "keep" option). */
+  initialExpiresAt: string | null;
+  options: OneTimeLinkOptions;
+  pending: boolean;
+  onSubmit: (payload: OneTimeLinkPayload) => void;
+  onCancel: () => void;
+}
+
+function InvitationForm({
+  mode,
+  initial,
+  initialExpiresAt,
+  options,
+  pending,
+  onSubmit,
+  onCancel,
+}: InvitationFormProps) {
+  const { accounts, schedules, brands } = options;
+  const [form, setForm] = useState<FormState>(initial);
+
+  function set<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  // Keep the currently-stored duration selectable even if it's not a preset.
+  const durationOptions = useMemo(
+    () =>
+      DURATION_OPTIONS.includes(initial.durationMinutes)
+        ? DURATION_OPTIONS
+        : [...DURATION_OPTIONS, initial.durationMinutes].sort((a, b) => a - b),
+    [initial.durationMinutes],
+  );
+
+  const timezones = useMemo(() => {
+    const list =
+      (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.(
+        'timeZone',
+      ) ?? ['UTC'];
+    return list.includes(form.customTimezone) ? list : [form.customTimezone, ...list];
+  }, [form.customTimezone]);
+
+  async function saveOverride(date: string, data: OverrideChange) {
+    setForm((prev) => {
+      const next = new Map(prev.customOverrides);
+      next.set(date, {
+        date,
+        isBlocked: data.isBlocked,
+        startMinute: data.startMinute ?? null,
+        endMinute: data.endMinute ?? null,
+      });
+      return { ...prev, customOverrides: next };
+    });
+  }
+
+  async function removeOverride(date: string) {
+    setForm((prev) => {
+      const next = new Map(prev.customOverrides);
+      next.delete(date);
+      return { ...prev, customOverrides: next };
+    });
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.title.trim()) {
+      toast.error('Title is required.');
+      return;
+    }
+    if (!form.accountId) {
+      toast.error('Pick a Google account.');
+      return;
+    }
+    const needsLocationValue = form.locationKind === 'in_person' || form.locationKind === 'custom_link';
+    if (needsLocationValue && !form.locationValue.trim()) {
+      toast.error(
+        form.locationKind === 'in_person'
+          ? 'Address is required for in-person events.'
+          : 'URL is required for custom-link events.',
+      );
+      return;
+    }
+    if (form.availabilityMode === 'custom') {
+      const error = validateRules(form.customRules);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+    }
+
+    const expiresAt = (() => {
+      if (form.expiry === '__keep__') return initialExpiresAt;
+      if (form.expiry === '__never__') return null;
+      return new Date(Date.now() + Number(form.expiry) * 24 * 60 * 60 * 1000).toISOString();
+    })();
+    // Translate min-notice into the canonical minutes the server expects.
+    const minNoticeMin =
+      form.minNoticeUnit === 'days'
+        ? form.minNoticeValue * 1440
+        : form.minNoticeUnit === 'hours'
+          ? form.minNoticeValue * 60
+          : form.minNoticeValue;
+
+    onSubmit({
+      title: form.title.trim(),
+      durationMinutes: form.durationMinutes,
+      destinationAccountId: form.accountId,
+      availability:
+        form.availabilityMode === 'custom'
+          ? {
+              kind: 'custom',
+              timezone: form.customTimezone,
+              rules: form.customRules,
+              overrides: Array.from(form.customOverrides.values()).map((o) => ({
+                date: o.date,
+                isBlocked: o.isBlocked,
+                ...(o.isBlocked
+                  ? {}
+                  : { startMinute: o.startMinute ?? 0, endMinute: o.endMinute ?? 0 }),
+              })),
+            }
+          : { kind: 'schedule', scheduleId: form.scheduleId || null },
+      hiddenGuests: form.hiddenGuests,
+      note: form.note.trim() || null,
+      expiresAt,
+      descriptionMd: form.descriptionMd.trim() || null,
+      locationKind: form.locationKind,
+      locationValue: needsLocationValue ? form.locationValue.trim() : null,
+      bookingWindowDays: form.bookingWindowDays,
+      minNoticeMin,
+      bufferBeforeMin: form.bufferBeforeMin,
+      bufferAfterMin: form.bufferAfterMin,
+      slotIntervalMin: form.slotIntervalMin,
+      maxGuests: form.maxGuests,
+      confirmationMd: form.confirmationMd.trim() || null,
+      sendReminders: form.sendReminders,
+      brandId: form.brandId || null,
+    });
+  }
+
+  const overrideCount = form.customOverrides.size;
+
   return (
-    <Dialog open onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        {result ? (
-          <>
-            <DialogHeader>
-              <DialogTitle>One-time link ready</DialogTitle>
-              <DialogDescription>
-                Copy this URL now — for security, we can&apos;t show it again. The link is single-use; once
-                it&apos;s booked, it stops working.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="flex flex-col gap-2 rounded-lg border border-input bg-muted/40 p-3">
-              <code className="break-all text-xs text-foreground">{result.url}</code>
-              <Button type="button" variant="secondary" onClick={copyUrl} className="self-start">
-                <Copy className="h-4 w-4" /> Copy link
-              </Button>
-            </div>
-            <DialogFooter>
-              <Button type="button" onClick={onClose}>
-                Done
-              </Button>
-            </DialogFooter>
-          </>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <DialogHeader>
+        <DialogTitle>{mode === 'create' ? 'New invitation' : 'Edit invitation'}</DialogTitle>
+        <DialogDescription>
+          A private booking link for one person. It isn&apos;t listed on your public page, and it
+          stops working once they book.
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="grid gap-2">
+        <Label htmlFor="ot-title">
+          Title <span className="text-destructive">*</span>
+        </Label>
+        <Input
+          id="ot-title"
+          value={form.title}
+          onChange={(e) => set('title', e.target.value)}
+          autoFocus
+          required
+          placeholder="e.g. Intro with Sarah"
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="ot-duration">Duration</Label>
+        <Select
+          value={String(form.durationMinutes)}
+          onValueChange={(v) => set('durationMinutes', Number(v))}
+        >
+          <SelectTrigger id="ot-duration">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {durationOptions.map((d) => (
+              <SelectItem key={d} value={String(d)}>
+                {d} minutes
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="ot-account">Google account</Label>
+        {accounts.length === 0 ? (
+          <p className="text-xs text-destructive">Connect a Google account first.</p>
         ) : (
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            <DialogHeader>
-              <DialogTitle>New one-time link</DialogTitle>
-              <DialogDescription>
-                Creates a hidden event type plus a single-use invite. The slug is generated — the
-                event type won&apos;t appear on your public profile, and the URL only works once.
-              </DialogDescription>
-            </DialogHeader>
+          <>
+            <Select value={form.accountId} onValueChange={(v) => set('accountId', v)}>
+              <SelectTrigger id="ot-account">
+                <SelectValue placeholder="Select account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.googleUserEmail}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              The meeting is added to this account&apos;s primary calendar.
+            </p>
+          </>
+        )}
+      </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="ot-title">
-                Title <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="ot-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                autoFocus
-                required
-                placeholder="e.g. Intro with Sarah"
-              />
-            </div>
+      {brands.length > 0 && (
+        <div className="grid gap-2">
+          <Label htmlFor="ot-brand">Brand</Label>
+          <Select
+            value={form.brandId || '__none__'}
+            onValueChange={(v) => set('brandId', v === '__none__' ? '' : v)}
+          >
+            <SelectTrigger id="ot-brand">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">No brand</SelectItem>
+              {brands.map((b) => (
+                <SelectItem key={b.id} value={b.id}>
+                  <span className="inline-flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="inline-block h-3 w-3 rounded-full border border-border"
+                      style={{ backgroundColor: b.primaryColor }}
+                    />
+                    {b.name}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Shown to the invitee on the booking page (logo, colors, favicon).
+          </p>
+        </div>
+      )}
 
+      {/* Availability — a shared schedule or hours just for this invitation */}
+      <div className="grid gap-3">
+        <Label>Availability</Label>
+        <div className="flex gap-2">
+          {(
+            [
+              ['schedule', 'Use a schedule'],
+              ['custom', 'Custom hours'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => set('availabilityMode', value)}
+              aria-pressed={form.availabilityMode === value}
+              className={cn(
+                'flex-1 rounded-md border px-3 py-2 text-sm transition-colors',
+                form.availabilityMode === value
+                  ? 'border-primary bg-primary/[0.08] text-primary'
+                  : 'border-input text-foreground hover:bg-muted/50',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {form.availabilityMode === 'schedule' ? (
+          schedules.length > 1 ? (
+            <Select
+              value={form.scheduleId || '__default__'}
+              onValueChange={(v) => set('scheduleId', v === '__default__' ? '' : v)}
+            >
+              <SelectTrigger aria-label="Schedule">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">Default schedule</SelectItem>
+                {schedules
+                  .filter((s) => !s.isDefault)
+                  .map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Follows your regular availability. Choose <strong>Custom hours</strong> to offer
+              different times to this person.
+            </p>
+          )
+        ) : (
+          <div className="flex flex-col gap-4 rounded-lg border border-input p-3">
+            <p className="text-xs text-muted-foreground">
+              These hours apply to this invitation only. Your calendar&apos;s busy times are still
+              respected.
+            </p>
             <div className="grid gap-2">
-              <Label htmlFor="ot-duration">Duration</Label>
-              <Select
-                value={String(durationMinutes)}
-                onValueChange={(v) => setDurationMinutes(Number(v))}
-              >
-                <SelectTrigger id="ot-duration">
+              <Label htmlFor="ot-timezone">Timezone</Label>
+              <Select value={form.customTimezone} onValueChange={(v) => set('customTimezone', v)}>
+                <SelectTrigger id="ot-timezone">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {DURATION_OPTIONS.map((d) => (
-                    <SelectItem key={d} value={String(d)}>
-                      {d} minutes
+                  {timezones.map((tz) => (
+                    <SelectItem key={tz} value={tz}>
+                      {tz}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="ot-account">Destination calendar</Label>
-              {accounts.length === 0 ? (
-                <p className="text-xs text-destructive">
-                  Connect a Google account first.
-                </p>
-              ) : (
-                <>
-                  <Select value={accountId} onValueChange={handleAccountChange}>
-                    <SelectTrigger id="ot-account">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {accounts.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.googleUserEmail}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select value={calendarId} onValueChange={setCalendarId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Pick a calendar" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {eligibleCalendars.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {eligibleCalendars.length === 0 && (
-                    <p className="text-xs text-destructive">
-                      No destination-eligible calendars on this account.
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-
-            {brands.length > 0 && (
-              <div className="grid gap-2">
-                <Label htmlFor="ot-brand">Brand</Label>
-                <Select
-                  value={brandId || '__none__'}
-                  onValueChange={(v) => setBrandId(v === '__none__' ? '' : v)}
-                >
-                  <SelectTrigger id="ot-brand">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No brand</SelectItem>
-                    {brands.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        <span className="inline-flex items-center gap-2">
-                          <span
-                            aria-hidden
-                            className="inline-block h-3 w-3 rounded-full border border-border"
-                            style={{ backgroundColor: b.primaryColor }}
-                          />
-                          {b.name}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Shown to the invitee on the booking page (logo, colors, favicon).
-                </p>
-              </div>
-            )}
-
-            {schedules.length > 1 && (
-              <div className="grid gap-2">
-                <Label htmlFor="ot-schedule">Schedule</Label>
-                <Select
-                  value={scheduleId || '__default__'}
-                  onValueChange={(v) => setScheduleId(v === '__default__' ? '' : v)}
-                >
-                  <SelectTrigger id="ot-schedule">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__default__">Default schedule</SelectItem>
-                    {schedules.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="grid gap-2">
-              <Label htmlFor="ot-hidden-guests">Always invite (hidden from booker)</Label>
-              <GuestChipInput
-                id="ot-hidden-guests"
-                value={hiddenGuests}
-                onChange={setHiddenGuests}
-                max={20}
-                placeholder="cc@yourcompany.com"
+            <div className="grid gap-1">
+              <Label>Weekly hours</Label>
+              <WeeklyHoursEditor
+                rules={form.customRules}
+                onChange={(rules) => set('customRules', rules)}
               />
-              <p className="text-xs text-muted-foreground">
-                Optional. Added as attendees on the booking. The booker never sees them.
-              </p>
             </div>
+            <details className="group rounded-md border border-input">
+              <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/40">
+                <span>
+                  Date overrides
+                  {overrideCount > 0 ? (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      {overrideCount} date{overrideCount === 1 ? '' : 's'}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-xs text-muted-foreground group-open:hidden">Optional</span>
+                <span className="hidden text-xs text-muted-foreground group-open:inline">Hide</span>
+              </summary>
+              <div className="border-t border-input px-3 py-3">
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Block specific dates or set different hours on a given day.
+                </p>
+                <OverridesCalendarView
+                  overrides={form.customOverrides}
+                  timezone={form.customTimezone}
+                  onSave={saveOverride}
+                  onRemove={removeOverride}
+                />
+              </div>
+            </details>
+          </div>
+        )}
+      </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="ot-note">Note</Label>
+      <div className="grid gap-2">
+        <Label htmlFor="ot-hidden-guests">Always invite (hidden from booker)</Label>
+        <GuestChipInput
+          id="ot-hidden-guests"
+          value={form.hiddenGuests}
+          onChange={(v) => set('hiddenGuests', v)}
+          max={20}
+          placeholder="cc@yourcompany.com"
+        />
+        <p className="text-xs text-muted-foreground">
+          Optional. Added as attendees on the booking. The booker never sees them.
+        </p>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="ot-note">Note</Label>
+        <Input
+          id="ot-note"
+          value={form.note}
+          onChange={(e) => set('note', e.target.value)}
+          placeholder="Admin-only label, e.g. Sarah at Acme"
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="ot-expires">Expires</Label>
+        <Select value={form.expiry} onValueChange={(v) => set('expiry', v as ExpiryChoice)}>
+          <SelectTrigger id="ot-expires">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {initialExpiresAt ? (
+              <SelectItem value="__keep__">
+                Keep ({new Date(initialExpiresAt).toLocaleDateString()})
+              </SelectItem>
+            ) : null}
+            <SelectItem value="__never__">Never</SelectItem>
+            <SelectItem value="1">In 1 day</SelectItem>
+            <SelectItem value="7">In 7 days</SelectItem>
+            <SelectItem value="30">In 30 days</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Single-use either way — this just adds a deadline.
+        </p>
+      </div>
+
+      <details className="group rounded-lg border border-input bg-background">
+        <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/40">
+          <span>Advanced settings</span>
+          <span className="text-xs text-muted-foreground group-open:hidden">Optional</span>
+          <span className="hidden text-xs text-muted-foreground group-open:inline">Hide</span>
+        </summary>
+        <div className="flex flex-col gap-4 border-t border-input px-3 py-3">
+          {/* Description shown on the booking page */}
+          <div className="grid gap-2">
+            <Label htmlFor="ot-description">Description</Label>
+            <Textarea
+              id="ot-description"
+              rows={3}
+              value={form.descriptionMd}
+              onChange={(e) => set('descriptionMd', e.target.value)}
+              placeholder="Markdown supported. Shown to the booker on the event page."
+            />
+          </div>
+
+          {/* Location */}
+          <div className="grid gap-2">
+            <Label htmlFor="ot-location-kind">Location</Label>
+            <Select
+              value={form.locationKind}
+              onValueChange={(v) => set('locationKind', v as LocationKind)}
+            >
+              <SelectTrigger id="ot-location-kind">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOCATION_KIND_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {(form.locationKind === 'in_person' || form.locationKind === 'custom_link') && (
               <Input
-                id="ot-note"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Admin-only label, e.g. Sarah at Acme"
+                value={form.locationValue}
+                onChange={(e) => set('locationValue', e.target.value)}
+                placeholder={
+                  form.locationKind === 'in_person'
+                    ? '123 Main St, San Francisco'
+                    : 'https://zoom.us/j/…'
+                }
               />
-            </div>
+            )}
+          </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="ot-expires">Expires</Label>
-              <Select value={expiresInDays || '__never__'} onValueChange={(v) => setExpiresInDays(v === '__never__' ? '' : v)}>
-                <SelectTrigger id="ot-expires">
+          {/* Booking window — "how far ahead can the client book" */}
+          <div className="grid gap-2">
+            <Label htmlFor="ot-booking-window">Booking window</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="ot-booking-window"
+                type="number"
+                min={1}
+                max={365}
+                value={String(form.bookingWindowDays)}
+                onChange={(e) =>
+                  set('bookingWindowDays', Math.max(1, Math.min(365, Number(e.target.value) || 1)))
+                }
+                className="w-24"
+              />
+              <span className="text-sm text-muted-foreground">days into the future</span>
+            </div>
+          </div>
+
+          {/* Minimum notice */}
+          <div className="grid gap-2">
+            <Label htmlFor="ot-min-notice">Minimum notice</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="ot-min-notice"
+                type="number"
+                min={0}
+                value={String(form.minNoticeValue)}
+                onChange={(e) => set('minNoticeValue', Math.max(0, Number(e.target.value) || 0))}
+                className="w-24"
+              />
+              <Select
+                value={form.minNoticeUnit}
+                onValueChange={(v) => set('minNoticeUnit', v as FormState['minNoticeUnit'])}
+              >
+                <SelectTrigger className="w-32">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__never__">Never</SelectItem>
-                  <SelectItem value="1">In 1 day</SelectItem>
-                  <SelectItem value="7">In 7 days</SelectItem>
-                  <SelectItem value="30">In 30 days</SelectItem>
+                  <SelectItem value="minutes">minutes</SelectItem>
+                  <SelectItem value="hours">hours</SelectItem>
+                  <SelectItem value="days">days</SelectItem>
                 </SelectContent>
               </Select>
+              <span className="text-sm text-muted-foreground">before each slot</span>
+            </div>
+          </div>
+
+          {/* Buffers */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="ot-buffer-before">Buffer before (min)</Label>
+              <Input
+                id="ot-buffer-before"
+                type="number"
+                min={0}
+                max={120}
+                value={String(form.bufferBeforeMin)}
+                onChange={(e) =>
+                  set('bufferBeforeMin', Math.max(0, Math.min(120, Number(e.target.value) || 0)))
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ot-buffer-after">Buffer after (min)</Label>
+              <Input
+                id="ot-buffer-after"
+                type="number"
+                min={0}
+                max={120}
+                value={String(form.bufferAfterMin)}
+                onChange={(e) =>
+                  set('bufferAfterMin', Math.max(0, Math.min(120, Number(e.target.value) || 0)))
+                }
+              />
+            </div>
+          </div>
+
+          {/* Slot interval + max guests */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="ot-slot-interval">Slot interval</Label>
+              <Select
+                value={String(form.slotIntervalMin)}
+                onValueChange={(v) => set('slotIntervalMin', Number(v))}
+              >
+                <SelectTrigger id="ot-slot-interval">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SLOT_INTERVAL_OPTIONS.map((m) => (
+                    <SelectItem key={m} value={String(m)}>
+                      {m} minutes
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ot-max-guests">Max additional guests</Label>
+              <Input
+                id="ot-max-guests"
+                type="number"
+                min={0}
+                max={20}
+                value={String(form.maxGuests)}
+                onChange={(e) =>
+                  set('maxGuests', Math.max(0, Math.min(20, Number(e.target.value) || 0)))
+                }
+              />
+            </div>
+          </div>
+
+          {/* Confirmation message */}
+          <div className="grid gap-2">
+            <Label htmlFor="ot-confirmation">Confirmation message</Label>
+            <Textarea
+              id="ot-confirmation"
+              rows={2}
+              value={form.confirmationMd}
+              onChange={(e) => set('confirmationMd', e.target.value)}
+              placeholder="Markdown. Shown after booking and in the confirmation email."
+            />
+          </div>
+
+          {/* Reminders */}
+          <div className="flex items-center justify-between gap-3 rounded-md border border-input px-3 py-2">
+            <div className="flex flex-col">
+              <Label htmlFor="ot-send-reminders">Send reminders</Label>
               <p className="text-xs text-muted-foreground">
-                Single-use either way — this just adds a deadline.
+                Automatic reminder emails before the meeting.
               </p>
             </div>
+            <Switch
+              id="ot-send-reminders"
+              checked={form.sendReminders}
+              onCheckedChange={(v) => set('sendReminders', v)}
+            />
+          </div>
+        </div>
+      </details>
 
-            <details className="group rounded-lg border border-input bg-background">
-              <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/40">
-                <span>Advanced settings</span>
-                <span className="text-xs text-muted-foreground group-open:hidden">Optional</span>
-                <span className="hidden text-xs text-muted-foreground group-open:inline">
-                  Hide
-                </span>
-              </summary>
-              <div className="flex flex-col gap-4 border-t border-input px-3 py-3">
-                {/* Description shown on the booking page */}
-                <div className="grid gap-2">
-                  <Label htmlFor="ot-description">Description</Label>
-                  <Textarea
-                    id="ot-description"
-                    rows={3}
-                    value={descriptionMd}
-                    onChange={(e) => setDescriptionMd(e.target.value)}
-                    placeholder="Markdown supported. Shown to the booker on the event page."
-                  />
-                </div>
-
-                {/* Location */}
-                <div className="grid gap-2">
-                  <Label htmlFor="ot-location-kind">Location</Label>
-                  <Select
-                    value={locationKind}
-                    onValueChange={(v) =>
-                      setLocationKind(v as NonNullable<OneTimeLinkPayload['locationKind']>)
-                    }
-                  >
-                    <SelectTrigger id="ot-location-kind">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {LOCATION_KIND_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>
-                          {o.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {(locationKind === 'in_person' || locationKind === 'custom_link') && (
-                    <Input
-                      value={locationValue}
-                      onChange={(e) => setLocationValue(e.target.value)}
-                      placeholder={
-                        locationKind === 'in_person'
-                          ? '123 Main St, San Francisco'
-                          : 'https://zoom.us/j/…'
-                      }
-                    />
-                  )}
-                </div>
-
-                {/* Booking window — "how far ahead can the client book" */}
-                <div className="grid gap-2">
-                  <Label htmlFor="ot-booking-window">Booking window</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="ot-booking-window"
-                      type="number"
-                      min={1}
-                      max={365}
-                      value={String(bookingWindowDays)}
-                      onChange={(e) =>
-                        setBookingWindowDays(
-                          Math.max(1, Math.min(365, Number(e.target.value) || 1)),
-                        )
-                      }
-                      className="w-24"
-                    />
-                    <span className="text-sm text-muted-foreground">days into the future</span>
-                  </div>
-                </div>
-
-                {/* Minimum notice */}
-                <div className="grid gap-2">
-                  <Label htmlFor="ot-min-notice">Minimum notice</Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="ot-min-notice"
-                      type="number"
-                      min={0}
-                      value={String(minNoticeValue)}
-                      onChange={(e) =>
-                        setMinNoticeValue(Math.max(0, Number(e.target.value) || 0))
-                      }
-                      className="w-24"
-                    />
-                    <Select
-                      value={minNoticeUnit}
-                      onValueChange={(v) =>
-                        setMinNoticeUnit(v as 'minutes' | 'hours' | 'days')
-                      }
-                    >
-                      <SelectTrigger className="w-32">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="minutes">minutes</SelectItem>
-                        <SelectItem value="hours">hours</SelectItem>
-                        <SelectItem value="days">days</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <span className="text-sm text-muted-foreground">before each slot</span>
-                  </div>
-                </div>
-
-                {/* Buffers */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="grid gap-2">
-                    <Label htmlFor="ot-buffer-before">Buffer before (min)</Label>
-                    <Input
-                      id="ot-buffer-before"
-                      type="number"
-                      min={0}
-                      max={120}
-                      value={String(bufferBeforeMin)}
-                      onChange={(e) =>
-                        setBufferBeforeMin(
-                          Math.max(0, Math.min(120, Number(e.target.value) || 0)),
-                        )
-                      }
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="ot-buffer-after">Buffer after (min)</Label>
-                    <Input
-                      id="ot-buffer-after"
-                      type="number"
-                      min={0}
-                      max={120}
-                      value={String(bufferAfterMin)}
-                      onChange={(e) =>
-                        setBufferAfterMin(
-                          Math.max(0, Math.min(120, Number(e.target.value) || 0)),
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-
-                {/* Slot interval + max guests */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="grid gap-2">
-                    <Label htmlFor="ot-slot-interval">Slot interval</Label>
-                    <Select
-                      value={String(slotIntervalMin)}
-                      onValueChange={(v) => setSlotIntervalMin(Number(v))}
-                    >
-                      <SelectTrigger id="ot-slot-interval">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SLOT_INTERVAL_OPTIONS.map((m) => (
-                          <SelectItem key={m} value={String(m)}>
-                            {m} minutes
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="ot-max-guests">Max additional guests</Label>
-                    <Input
-                      id="ot-max-guests"
-                      type="number"
-                      min={0}
-                      max={20}
-                      value={String(maxGuests)}
-                      onChange={(e) =>
-                        setMaxGuests(Math.max(0, Math.min(20, Number(e.target.value) || 0)))
-                      }
-                    />
-                  </div>
-                </div>
-
-                {/* Confirmation message */}
-                <div className="grid gap-2">
-                  <Label htmlFor="ot-confirmation">Confirmation message</Label>
-                  <Textarea
-                    id="ot-confirmation"
-                    rows={2}
-                    value={confirmationMd}
-                    onChange={(e) => setConfirmationMd(e.target.value)}
-                    placeholder="Markdown. Shown after booking and in the confirmation email."
-                  />
-                </div>
-
-                {/* Reminders */}
-                <div className="flex items-center justify-between gap-3 rounded-md border border-input px-3 py-2">
-                  <div className="flex flex-col">
-                    <Label htmlFor="ot-send-reminders">Send reminders</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Automatic reminder emails before the meeting.
-                    </p>
-                  </div>
-                  <Switch
-                    id="ot-send-reminders"
-                    checked={sendReminders}
-                    onCheckedChange={setSendReminders}
-                  />
-                </div>
-              </div>
-            </details>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={mutation.isPending}>
-                <Plus className="h-4 w-4" />
-                {mutation.isPending ? 'Creating…' : 'Create link'}
-              </Button>
-            </DialogFooter>
-          </form>
-        )}
-      </DialogContent>
-    </Dialog>
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={pending}>
+          {mode === 'create' ? <Plus className="h-4 w-4" /> : null}
+          {pending
+            ? mode === 'create'
+              ? 'Creating…'
+              : 'Saving…'
+            : mode === 'create'
+              ? 'Create invitation'
+              : 'Save changes'}
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }

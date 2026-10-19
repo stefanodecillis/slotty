@@ -126,8 +126,9 @@ export async function deleteSchedule(scheduleId: string): Promise<void> {
 export async function listSchedules(userId: string): Promise<
   (Schedule & { rules: ScheduleRule[]; _count: { overrides: number } })[]
 > {
+  // Private per-invitation schedules are managed with their invitation.
   return db.schedule.findMany({
-    where: { userId },
+    where: { userId, isOneTime: false },
     include: {
       rules: { orderBy: [{ weekday: 'asc' }, { startMinute: 'asc' }] },
       _count: { select: { overrides: true } },

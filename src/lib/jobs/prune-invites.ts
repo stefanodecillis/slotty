@@ -8,6 +8,8 @@
  *      The EventType's bookings cascade-delete with it — that's intentional
  *      since one-time event types are ephemeral and their booking is already
  *      old enough to fall inside the retention window.
+ *   3. Delete private `isOneTime` Schedules (custom invitation hours) that no
+ *      event type references any more.
  *
  * Registered as a recurring job (`prune_booking_invites`, every 24h) in
  * `src/lib/jobs/scheduler.ts`. Safe to run idempotently — repeated runs are
@@ -20,7 +22,7 @@ export const RETENTION_DAYS = 90;
 
 export async function pruneOldBookingInvites(
   now: Date = new Date(),
-): Promise<{ deletedInvites: number; deletedEventTypes: number }> {
+): Promise<{ deletedInvites: number; deletedEventTypes: number; deletedSchedules: number }> {
   const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
 
   const deletedInvites = await db.bookingInvite.deleteMany({
@@ -56,15 +58,26 @@ export async function pruneOldBookingInvites(
     deletedEventTypes = result.count;
   }
 
+  // Event types point at schedules with SetNull, so deleting a one-time
+  // event type leaves its private schedule behind.
+  const deletedSchedules = await db.schedule.deleteMany({
+    where: { isOneTime: true, eventTypes: { none: {} } },
+  });
+
   logger.info(
     {
       event: 'invites.pruned',
       deletedInvites: deletedInvites.count,
       deletedEventTypes,
+      deletedSchedules: deletedSchedules.count,
       cutoff: cutoff.toISOString(),
     },
     'pruned old booking invites and orphan one-time event types',
   );
 
-  return { deletedInvites: deletedInvites.count, deletedEventTypes };
+  return {
+    deletedInvites: deletedInvites.count,
+    deletedEventTypes,
+    deletedSchedules: deletedSchedules.count,
+  };
 }

@@ -98,6 +98,10 @@ model Schedule {
   userId    String   @map("user_id")
   name      String
   isDefault Boolean  @default(false) @map("is_default")
+  // Private schedule owned by a single one-time invitation (custom weekly
+  // hours + date overrides). Hidden from every schedule picker and deleted
+  // together with its invitation.
+  isOneTime Boolean  @default(false) @map("is_one_time")
   timezone  String
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -412,6 +416,9 @@ model BookingInvite {
   id               String    @id @default(cuid())
   eventTypeId      String    @map("event_type_id")
   tokenHash        String    @unique @map("token_hash") // sha256(rawToken)
+  // AES-GCM encrypted raw token, kept only for one-time links so the admin
+  // can copy the URL again until it's booked. Lookups still go by tokenHash.
+  tokenEnc         String?   @map("token_enc")
   note             String? // admin-only label e.g. "Sarah at Acme"
   expiresAt        DateTime? @map("expires_at")
   usedAt           DateTime? @map("used_at")

@@ -35,7 +35,7 @@ function timeToMinutes(time: string): number {
   return (h ?? 0) * 60 + (m ?? 0);
 }
 
-function validateRules(rules: RuleData[]): string | null {
+export function validateRules(rules: RuleData[]): string | null {
   for (const rule of rules) {
     if (rule.endMinute <= rule.startMinute) {
       return `End time must be after start time on ${WEEKDAY_LABELS[rule.weekday]}`;
@@ -204,76 +204,40 @@ function RuleRow({ rule, index, onChange, onRemove }: RuleRowProps) {
   );
 }
 
-export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
-  const queryClient = useQueryClient();
-  const [rules, setRules] = useState<RuleData[]>(initialRules);
-  const [validationError, setValidationError] = useState<string | null>(null);
+interface WeeklyHoursEditorProps {
+  rules: RuleData[];
+  onChange: (rules: RuleData[]) => void;
+}
 
-  const saveMutation = useMutation({
-    mutationFn: (next: RuleData[]) => saveScheduleRules(scheduleId, next),
-    onSuccess: () => {
-      toast.success('Schedule saved');
-      void queryClient.invalidateQueries({ queryKey: availabilityKeys.all });
-      // Slot computation depends on the schedule, so invalidate any cached
-      // slot queries for the public booking flow.
-      void queryClient.invalidateQueries({ queryKey: publicKeys.all });
-    },
-    onError: (err) => {
-      toast.error(err instanceof Error ? err.message : 'Failed to save schedule');
-    },
-  });
-  const saving = saveMutation.isPending;
+/**
+ * Controlled weekly-hours editor (no persistence). Used by the Availability
+ * page via `WeeklyGrid` and by one-time invitations for their custom hours.
+ */
+export function WeeklyHoursEditor({ rules, onChange }: WeeklyHoursEditorProps) {
+  const handleChange = (index: number, field: 'startMinute' | 'endMinute', value: number) =>
+    onChange(rules.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
 
-  const handleChange = useCallback(
-    (index: number, field: 'startMinute' | 'endMinute', value: number) => {
-      setRules((prev) =>
-        prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)),
-      );
-      setValidationError(null);
-    },
-    [],
-  );
+  const handleRemove = (index: number) => onChange(rules.filter((_, i) => i !== index));
 
-  const handleRemove = useCallback((index: number) => {
-    setRules((prev) => prev.filter((_, i) => i !== index));
-    setValidationError(null);
-  }, []);
+  const handleAdd = (weekday: number) =>
+    onChange([...rules, { weekday, startMinute: 9 * 60, endMinute: 17 * 60 }]);
 
-  const handleAdd = useCallback((weekday: number) => {
-    setRules((prev) => [
-      ...prev,
-      { weekday, startMinute: 9 * 60, endMinute: 17 * 60 },
-    ]);
-  }, []);
-
-  const handleCopyTo = useCallback((sourceWeekday: number, targetWeekdays: number[]) => {
+  const handleCopyTo = (sourceWeekday: number, targetWeekdays: number[]) => {
     if (targetWeekdays.length === 0) return;
-    setRules((prev) => {
-      const sourceRules = prev.filter((r) => r.weekday === sourceWeekday);
-      const targetSet = new Set(targetWeekdays);
-      const withoutTargets = prev.filter((r) => !targetSet.has(r.weekday));
-      const additions = targetWeekdays.flatMap((wd) =>
-        sourceRules.map((r) => ({
-          weekday: wd,
-          startMinute: r.startMinute,
-          endMinute: r.endMinute,
-        })),
-      );
-      return [...withoutTargets, ...additions];
-    });
-    setValidationError(null);
+    const sourceRules = rules.filter((r) => r.weekday === sourceWeekday);
+    const targetSet = new Set(targetWeekdays);
+    const withoutTargets = rules.filter((r) => !targetSet.has(r.weekday));
+    const additions = targetWeekdays.flatMap((wd) =>
+      sourceRules.map((r) => ({
+        weekday: wd,
+        startMinute: r.startMinute,
+        endMinute: r.endMinute,
+      })),
+    );
+    onChange([...withoutTargets, ...additions]);
     toast.success(
       `Copied to ${targetWeekdays.length} day${targetWeekdays.length === 1 ? '' : 's'}`,
     );
-  }, []);
-
-  const handleSave = () => {
-    const error = validateRules(rules);
-    if (error) {
-      setValidationError(error);
-      return;
-    }
-    saveMutation.mutate(rules);
   };
 
   return (
@@ -326,6 +290,47 @@ export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+export function WeeklyGrid({ scheduleId, initialRules }: WeeklyGridProps) {
+  const queryClient = useQueryClient();
+  const [rules, setRules] = useState<RuleData[]>(initialRules);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const saveMutation = useMutation({
+    mutationFn: (next: RuleData[]) => saveScheduleRules(scheduleId, next),
+    onSuccess: () => {
+      toast.success('Schedule saved');
+      void queryClient.invalidateQueries({ queryKey: availabilityKeys.all });
+      // Slot computation depends on the schedule, so invalidate any cached
+      // slot queries for the public booking flow.
+      void queryClient.invalidateQueries({ queryKey: publicKeys.all });
+    },
+    onError: (err) => {
+      toast.error(err instanceof Error ? err.message : 'Failed to save schedule');
+    },
+  });
+  const saving = saveMutation.isPending;
+
+  const handleRulesChange = useCallback((next: RuleData[]) => {
+    setRules(next);
+    setValidationError(null);
+  }, []);
+
+  const handleSave = () => {
+    const error = validateRules(rules);
+    if (error) {
+      setValidationError(error);
+      return;
+    }
+    saveMutation.mutate(rules);
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <WeeklyHoursEditor rules={rules} onChange={handleRulesChange} />
 
       {validationError && (
         <p className="mt-3 text-xs text-destructive" role="alert">

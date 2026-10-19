@@ -34,14 +34,15 @@ async function createTestAccount(userId: string) {
   });
 }
 
-async function createTestCalendar(connectedAccountId: string, isDestinationEligible = true) {
+async function createTestCalendar(connectedAccountId: string, isPrimary = true) {
   const { db } = await import('@/lib/db');
   return db.calendar.create({
     data: {
       connectedAccountId,
       googleCalendarId: `cal-${randomBytes(4).toString('hex')}@group.calendar.google.com`,
       name: 'Test Calendar',
-      isDestinationEligible,
+      isPrimary,
+      isDestinationEligible: isPrimary,
     },
   });
 }
@@ -56,7 +57,6 @@ function makeInput(overrides: Record<string, unknown> = {}) {
     durationMinutes: 30,
     locationKind: 'google_meet' as const,
     destinationAccountId: '',
-    destinationCalendarId: '',
     bufferBeforeMin: 0,
     bufferAfterMin: 0,
     minNoticeMin: 60,
@@ -195,40 +195,51 @@ describe('createEventType', () => {
     expect(questions[0]?.label).toBe('Company name');
   });
 
-  it('rejects if destination calendar is not eligible', async () => {
-    const { createEventType, ServiceError } = await import('@/lib/eventtype/service');
+  it("books onto the account's primary calendar, whatever calendar the client sends", async () => {
+    const { createEventType } = await import('@/lib/eventtype/service');
 
     const user = await createTestUser();
     const account = await createTestAccount(user.id);
-    const calendar = await createTestCalendar(account.id, false); // not eligible
+    const secondary = await createTestCalendar(account.id, false);
+    const primary = await createTestCalendar(account.id);
 
-    await expect(
-      createEventType(
-        user.id,
-        makeInput({
-          destinationAccountId: account.id,
-          destinationCalendarId: calendar.id,
-        }),
-      ),
-    ).rejects.toBeInstanceOf(ServiceError);
+    const created = await createEventType(
+      user.id,
+      makeInput({ destinationAccountId: account.id, destinationCalendarId: secondary.id }),
+    );
+
+    expect(created.destinationCalendarId).toBe(primary.id);
   });
 
-  it('rejects if destination calendar does not belong to account', async () => {
-    const { createEventType, ServiceError } = await import('@/lib/eventtype/service');
+  it('moves an existing event type to the new account primary on update', async () => {
+    const { createEventType, updateEventType } = await import('@/lib/eventtype/service');
 
     const user = await createTestUser();
     const account1 = await createTestAccount(user.id);
     const account2 = await createTestAccount(user.id);
-    const calendar = await createTestCalendar(account1.id); // belongs to account1
+    await createTestCalendar(account1.id);
+    const primary2 = await createTestCalendar(account2.id);
+
+    const created = await createEventType(user.id, makeInput({ destinationAccountId: account1.id }));
+    const updated = await updateEventType(
+      created.id,
+      user.id,
+      makeInput({ slug: created.slug, destinationAccountId: account2.id }),
+    );
+
+    expect(updated.destinationAccountId).toBe(account2.id);
+    expect(updated.destinationCalendarId).toBe(primary2.id);
+  });
+
+  it('rejects an account without a primary calendar', async () => {
+    const { createEventType, ServiceError } = await import('@/lib/eventtype/service');
+
+    const user = await createTestUser();
+    const account = await createTestAccount(user.id);
+    await createTestCalendar(account.id, false); // only a secondary calendar
 
     await expect(
-      createEventType(
-        user.id,
-        makeInput({
-          destinationAccountId: account2.id, // wrong account
-          destinationCalendarId: calendar.id,
-        }),
-      ),
+      createEventType(user.id, makeInput({ destinationAccountId: account.id })),
     ).rejects.toBeInstanceOf(ServiceError);
   });
 });

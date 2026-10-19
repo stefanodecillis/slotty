@@ -32,6 +32,7 @@ function makeSchedule(zone: string, weekday: number, startMin: number, endMin: n
     userId: 'u1',
     name: 'Test',
     isDefault: true,
+    isOneTime: false,
     timezone: zone,
     createdAt: new Date(),
     updatedAt: new Date(),
