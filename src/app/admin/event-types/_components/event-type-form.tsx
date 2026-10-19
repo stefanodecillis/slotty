@@ -40,13 +40,6 @@ export interface ConnectedAccountOption {
   googleUserEmail: string;
 }
 
-export interface CalendarOption {
-  id: string;
-  connectedAccountId: string;
-  name: string;
-  isDestinationEligible: boolean;
-}
-
 export interface ScheduleOption {
   id: string;
   name: string;
@@ -80,7 +73,6 @@ export interface EventTypeFormValues {
   locationKind: LocationKind;
   locationValue: string;
   destinationAccountId: string;
-  destinationCalendarId: string;
   bufferBeforeMin: number | '';
   bufferAfterMin: number | '';
   minNoticeMin: number | '';
@@ -106,7 +98,6 @@ interface EventTypeFormProps {
   username: string;
   initialValues?: Partial<EventTypeFormValues>;
   accounts: ConnectedAccountOption[];
-  allCalendars: CalendarOption[];
   schedules: ScheduleOption[];
   brands: BrandOption[];
 }
@@ -195,7 +186,6 @@ const DEFAULT_VALUES: EventTypeFormValues = {
   locationKind: 'google_meet',
   locationValue: '',
   destinationAccountId: '',
-  destinationCalendarId: '',
   bufferBeforeMin: 0,
   bufferAfterMin: 0,
   minNoticeMin: 60,
@@ -382,7 +372,6 @@ export function EventTypeForm({
   username,
   initialValues,
   accounts,
-  allCalendars,
   schedules,
   brands,
 }: EventTypeFormProps) {
@@ -450,15 +439,6 @@ export function EventTypeForm({
     [accounts],
   );
 
-  const eligibleCalendars = useMemo(
-    () =>
-      allCalendars.filter(
-        (c) => c.connectedAccountId === values.destinationAccountId && c.isDestinationEligible,
-      ),
-    [allCalendars, values.destinationAccountId],
-  );
-  const calendarOptions = eligibleCalendars.map((c) => ({ value: c.id, label: c.name }));
-
   const scheduleOptions = [
     { value: '', label: 'Default schedule' },
     ...schedules.map((s) => ({
@@ -473,17 +453,6 @@ export function EventTypeForm({
       setValues((v) => ({ ...v, slug: slugify(v.title) }));
     }
   }, [values.title, slugManuallyEdited]);
-
-  // When the account changes (after the first render), reset the calendar
-  // selection so we don't leave a stale calendar from another account.
-  // Skip on the first render so edit-mode preserves the persisted value.
-  const prevAccountId = React.useRef(values.destinationAccountId);
-  useEffect(() => {
-    if (prevAccountId.current !== values.destinationAccountId) {
-      prevAccountId.current = values.destinationAccountId;
-      setValues((v) => ({ ...v, destinationCalendarId: '' }));
-    }
-  }, [values.destinationAccountId]);
 
   const set = useCallback(
     <K extends keyof EventTypeFormValues>(key: K, val: EventTypeFormValues[K]) => {
@@ -540,7 +509,6 @@ export function EventTypeForm({
       locationKind: values.locationKind,
       locationValue: values.locationValue || null,
       destinationAccountId: values.destinationAccountId,
-      destinationCalendarId: values.destinationCalendarId,
       bufferBeforeMin: Number(values.bufferBeforeMin) || 0,
       bufferAfterMin: Number(values.bufferAfterMin) || 0,
       minNoticeMin: Number(values.minNoticeMin) || 0,
@@ -575,8 +543,6 @@ export function EventTypeForm({
   // ─────────────────────────────────────────────────────────────
 
   const noAccounts = accounts.length === 0;
-  const accountSelected = Boolean(values.destinationAccountId);
-  const noEligibleCalendars = accountSelected && calendarOptions.length === 0;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 pb-24 md:pb-0">
@@ -790,7 +756,7 @@ export function EventTypeForm({
         <CardHeader>
           <h2 className="text-xl font-semibold text-foreground">Where it lands</h2>
           <p className="text-sm text-muted-foreground">
-            Bookings are created on this calendar.
+            Bookings are created on the primary calendar of this Google account.
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -808,76 +774,32 @@ export function EventTypeForm({
               </Button>
             </div>
           ) : (
-            <>
-              <div className="grid gap-2">
-                <Label htmlFor="destinationAccountId">
-                  Account <span className="text-destructive">*</span>
-                </Label>
-                <Select
-                  value={values.destinationAccountId}
-                  onValueChange={(v) => set('destinationAccountId', v)}
+            <div className="grid gap-2">
+              <Label htmlFor="destinationAccountId">
+                Account <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                value={values.destinationAccountId}
+                onValueChange={(v) => set('destinationAccountId', v)}
+              >
+                <SelectTrigger
+                  id="destinationAccountId"
+                  aria-invalid={Boolean(errors.destinationAccountId)}
                 >
-                  <SelectTrigger
-                    id="destinationAccountId"
-                    aria-invalid={Boolean(errors.destinationAccountId)}
-                  >
-                    <SelectValue placeholder="Select account" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {accountOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.destinationAccountId && (
-                  <p className="text-xs text-destructive">{errors.destinationAccountId}</p>
-                )}
-              </div>
-
-              {noEligibleCalendars ? (
-                <div className="rounded-md border border-dashed border-border bg-muted/50 p-4 text-sm text-muted-foreground">
-                  No calendars on this account are marked as a booking destination yet.{' '}
-                  <Link
-                    href="/admin/calendars"
-                    className="text-primary underline underline-offset-2 hover:opacity-90"
-                  >
-                    Mark a calendar as Destination
-                  </Link>
-                  .
-                </div>
-              ) : (
-                <div className="grid gap-2">
-                  <Label htmlFor="destinationCalendarId">
-                    {accountSelected ? 'Calendar' : 'Calendar — pick an account first'}{' '}
-                    {accountSelected && <span className="text-destructive">*</span>}
-                  </Label>
-                  <Select
-                    value={values.destinationCalendarId}
-                    onValueChange={(v) => set('destinationCalendarId', v)}
-                    disabled={!accountSelected}
-                  >
-                    <SelectTrigger
-                      id="destinationCalendarId"
-                      aria-invalid={Boolean(errors.destinationCalendarId)}
-                    >
-                      <SelectValue placeholder="Select calendar" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {calendarOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.destinationCalendarId && (
-                    <p className="text-xs text-destructive">{errors.destinationCalendarId}</p>
-                  )}
-                </div>
+                  <SelectValue placeholder="Select account" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accountOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.destinationAccountId && (
+                <p className="text-xs text-destructive">{errors.destinationAccountId}</p>
               )}
-            </>
+            </div>
           )}
         </CardContent>
       </Card>

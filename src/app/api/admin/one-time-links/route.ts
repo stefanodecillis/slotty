@@ -1,94 +1,54 @@
 /**
- * GET /api/admin/one-time-links
- *
- * Returns all *pending* one-time invite links for the current user — each
- * row is a `isOneTime` EventType paired with its single non-terminal
- * BookingInvite (not used, not revoked, not expired). Once an invite is
- * consumed / revoked / expired, the link drops out of this list and is
- * pruned after a retention window by the `prune_booking_invites` job.
- *
- * The raw token is not re-derivable (only sha256 is stored), so the
- * response intentionally excludes the URL — it was shown exactly once
- * in the create dialog.
+ * GET  /api/admin/one-time-links — invitations the admin still cares about:
+ *      pending links (with their re-copyable URL) and booked meetings that
+ *      haven't ended yet. See `src/lib/one-time/service.ts` for the lifecycle.
+ * POST /api/admin/one-time-links — create a hidden + invite-only EventType
+ *      with its single BookingInvite (and, for custom hours, a private
+ *      schedule) in one transaction.
  */
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { csrf } from '@/lib/auth/csrf';
 import { requireUser } from '@/lib/auth/session';
-import { db } from '@/lib/db';
+import { oneTimeLinkInputSchema } from '@/lib/one-time/validator';
+import { createOneTimeLink, listOneTimeLinks, OneTimeLinkError } from '@/lib/one-time/service';
 
 export const dynamic = 'force-dynamic';
 
-interface PendingOneTimeLink {
-  eventTypeId: string;
-  title: string;
-  durationMinutes: number;
-  color: string;
-  inviteId: string;
-  note: string | null;
-  createdAt: string;
-  expiresAt: string | null;
-  hiddenGuestsCount: number;
+export async function GET(_req: NextRequest): Promise<Response> {
+  const user = await requireUser();
+  const links = await listOneTimeLinks(user.id);
+  return NextResponse.json({ links });
 }
 
-function parseHiddenGuestsCount(json: string | null | undefined): number {
-  if (!json) return 0;
+async function postHandler(req: NextRequest): Promise<Response> {
+  const user = await requireUser();
+
+  let body: unknown;
   try {
-    const parsed = JSON.parse(json) as unknown;
-    return Array.isArray(parsed) ? parsed.length : 0;
+    body = await req.json();
   } catch {
-    return 0;
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+  }
+
+  const parsed = oneTimeLinkInputSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Validation error', issues: parsed.error.flatten() },
+      { status: 422 },
+    );
+  }
+
+  try {
+    const created = await createOneTimeLink(user.id, parsed.data);
+    return NextResponse.json(created, { status: 201 });
+  } catch (err) {
+    if (err instanceof OneTimeLinkError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
   }
 }
 
-export async function GET(_req: NextRequest): Promise<Response> {
-  const user = await requireUser();
-
-  const now = new Date();
-  const rows = await db.eventType.findMany({
-    where: {
-      userId: user.id,
-      isOneTime: true,
-      archived: false,
-      // At least one invite that's still usable.
-      invites: {
-        some: {
-          usedAt: null,
-          revokedAt: null,
-          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-        },
-      },
-    },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      invites: {
-        where: {
-          usedAt: null,
-          revokedAt: null,
-          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 1,
-      },
-    },
-  });
-
-  const links: PendingOneTimeLink[] = rows
-    .filter((row) => row.invites.length > 0)
-    .map((row) => {
-      const invite = row.invites[0]!;
-      return {
-        eventTypeId: row.id,
-        title: row.title,
-        durationMinutes: row.durationMinutes,
-        color: row.color,
-        inviteId: invite.id,
-        note: invite.note,
-        createdAt: invite.createdAt.toISOString(),
-        expiresAt: invite.expiresAt ? invite.expiresAt.toISOString() : null,
-        hiddenGuestsCount: parseHiddenGuestsCount(invite.hiddenGuestsJson),
-      };
-    });
-
-  return NextResponse.json({ links });
-}
+export const POST = csrf(postHandler);

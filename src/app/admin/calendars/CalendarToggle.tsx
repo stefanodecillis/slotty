@@ -4,12 +4,11 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { Switch } from '@/components/ui/switch';
-import { calendarKeys, toggleCalendar } from '@/lib/api/calendars';
-import { eventTypeKeys } from '@/lib/api/event-types';
+import { calendarKeys, toggleCalendar, type CalendarToggleField } from '@/lib/api/calendars';
 
 interface Props {
   calendarId: string;
-  field: 'isBusySource' | 'isDestinationEligible';
+  field: CalendarToggleField;
   initialValue: boolean;
   label: string;
 }
@@ -36,8 +35,6 @@ export function CalendarToggle({ calendarId, field, initialValue, label }: Props
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: calendarKeys.all });
-      // Event-type form depends on the calendar list (eligible destinations).
-      void queryClient.invalidateQueries({ queryKey: eventTypeKeys.all });
     },
   });
 

@@ -1,47 +1,80 @@
 'use client';
 
 /**
- * Renders the "pending one-time links" list on /admin/event-types.
+ * Renders the one-time invitations list on /admin/event-types.
  *
- * Each row pairs a one-time EventType with its single still-usable
- * BookingInvite. URLs aren't shown here — the raw token is unrecoverable
- * after the create dialog closes (only sha256 is stored). The admin can
- * see what's outstanding and revoke; to re-share, revoke + create a new link.
+ * Two kinds of rows:
+ *   - pending — copy the link again, edit everything, or delete it.
+ *   - booked  — the meeting is coming up. Nothing is editable any more; the
+ *               only action is cancelling the meeting, which ends the
+ *               invitation.
+ * Invitations whose meeting is over (or that expired) disappear on their own.
  */
-import { useMemo } from 'react';
-import { Link2, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { CalendarCheck, Copy, Link2, Pencil, Trash2 } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { useOwnerTimezone } from '@/components/admin/owner-tz-provider';
+import { copyToClipboard } from '@/lib/clipboard';
+import { bookingKeys, cancelBookingAdmin } from '@/lib/api/bookings';
+import {
+  deleteOneTimeLink,
   listOneTimeLinks,
   oneTimeLinkKeys,
-  revokeInvite,
-  type PendingOneTimeLink,
+  type OneTimeLinkListItem,
 } from '@/lib/api/event-types';
+import {
+  EditOneTimeLinkDialog,
+  OneTimeLinkDialog,
+  type OneTimeLinkOptions,
+} from './one-time-link-dialog';
 
 interface Props {
-  trigger?: React.ReactNode;
+  options: OneTimeLinkOptions;
 }
 
-export function OneTimeLinksSection({ trigger }: Props) {
+type PendingAction =
+  | { kind: 'delete'; link: OneTimeLinkListItem }
+  | { kind: 'cancel-meeting'; link: OneTimeLinkListItem };
+
+export function OneTimeLinksSection({ options }: Props) {
   const queryClient = useQueryClient();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<PendingAction | null>(null);
 
   const query = useQuery({
     queryKey: oneTimeLinkKeys.list(),
     queryFn: listOneTimeLinks,
   });
 
-  const revokeMutation = useMutation({
-    mutationFn: (vars: { eventTypeId: string; inviteId: string }) =>
-      revokeInvite(vars.eventTypeId, vars.inviteId),
-    onSuccess: () => {
-      toast.success('Link revoked.');
-      void queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.list() });
+  const actionMutation = useMutation({
+    mutationFn: (action: PendingAction) =>
+      action.kind === 'delete'
+        ? deleteOneTimeLink(action.link.eventTypeId)
+        : cancelBookingAdmin(action.link.booking!.id),
+    onSuccess: (_data, action) => {
+      toast.success(action.kind === 'delete' ? 'Invitation deleted.' : 'Meeting cancelled.');
+      setConfirm(null);
+      void queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.all });
+      if (action.kind === 'cancel-meeting') {
+        void queryClient.invalidateQueries({ queryKey: bookingKeys.all });
+      }
     },
     onError: (err) => {
-      toast.error(err instanceof Error ? err.message : 'Could not revoke link.');
+      toast.error(err instanceof Error ? err.message : 'Something went wrong.');
+      // The invitation may have been booked meanwhile — show the fresh state.
+      void queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.list() });
     },
   });
 
@@ -51,12 +84,13 @@ export function OneTimeLinksSection({ trigger }: Props) {
     <section className="flex flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-foreground">One-time links</h2>
+          <h2 className="text-xl font-semibold text-foreground">One-time invitations</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Single-use invite URLs. They disappear here once used or revoked.
+            Private, single-use booking links. Editable until booked; gone once the meeting is
+            over.
           </p>
         </div>
-        {trigger ? <div>{trigger}</div> : null}
+        <OneTimeLinkDialog options={options} />
       </header>
 
       {query.isLoading ? (
@@ -64,49 +98,98 @@ export function OneTimeLinksSection({ trigger }: Props) {
       ) : links.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-6 py-10 text-center">
           <Link2 className="h-6 w-6 text-muted-foreground" aria-hidden />
-          <p className="text-sm text-muted-foreground">No pending one-time links.</p>
+          <p className="text-sm text-muted-foreground">No open invitations.</p>
           <p className="max-w-sm text-xs text-muted-foreground">
-            Click <strong>New one-time link</strong> above to generate one. URLs are shown only at
-            creation time.
+            Click <strong>New invitation</strong> above to create a link for one person, with its
+            own availability if you like.
           </p>
         </div>
       ) : (
-        <>
-          <p className="text-xs text-muted-foreground">
-            URLs are shown only at creation. Revoke and create a new link to share again.
-          </p>
-          <ul className="overflow-hidden rounded-lg border border-border bg-card">
-            {links.map((link, idx) => (
-              <OneTimeLinkRow
-                key={link.inviteId}
-                link={link}
-                isFirst={idx === 0}
-                onRevoke={() =>
-                  revokeMutation.mutate({ eventTypeId: link.eventTypeId, inviteId: link.inviteId })
-                }
-                revoking={
-                  revokeMutation.isPending &&
-                  revokeMutation.variables?.inviteId === link.inviteId
-                }
-              />
-            ))}
-          </ul>
-        </>
+        <ul className="overflow-hidden rounded-lg border border-border bg-card">
+          {links.map((link, idx) => (
+            <OneTimeLinkRow
+              key={link.eventTypeId}
+              link={link}
+              isFirst={idx === 0}
+              onEdit={() => setEditingId(link.eventTypeId)}
+              onDelete={() => setConfirm({ kind: 'delete', link })}
+              onCancelMeeting={() => setConfirm({ kind: 'cancel-meeting', link })}
+            />
+          ))}
+        </ul>
       )}
+
+      {editingId ? (
+        <EditOneTimeLinkDialog
+          eventTypeId={editingId}
+          options={options}
+          onClose={() => setEditingId(null)}
+        />
+      ) : null}
+
+      <Dialog open={confirm !== null} onOpenChange={(open) => (open ? undefined : setConfirm(null))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirm?.kind === 'cancel-meeting' ? 'Cancel meeting' : 'Delete invitation'}
+            </DialogTitle>
+            <DialogDescription>
+              {confirm?.kind === 'cancel-meeting'
+                ? 'The meeting is removed from your calendar and the booker and any guests are notified by Google Calendar. The invitation ends with it.'
+                : 'The link stops working immediately. This cannot be undone.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setConfirm(null)}
+              disabled={actionMutation.isPending}
+            >
+              Keep it
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => confirm && actionMutation.mutate(confirm)}
+              disabled={actionMutation.isPending}
+            >
+              {actionMutation.isPending
+                ? 'Working…'
+                : confirm?.kind === 'cancel-meeting'
+                  ? 'Cancel meeting'
+                  : 'Delete invitation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
 
 interface RowProps {
-  link: PendingOneTimeLink;
+  link: OneTimeLinkListItem;
   isFirst: boolean;
-  onRevoke: () => void;
-  revoking: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onCancelMeeting: () => void;
 }
 
-function OneTimeLinkRow({ link, isFirst, onRevoke, revoking }: RowProps) {
+function OneTimeLinkRow({ link, isFirst, onEdit, onDelete, onCancelMeeting }: RowProps) {
+  const ownerTz = useOwnerTimezone();
   const expiresLabel = useMemo(() => describeExpiry(link.expiresAt), [link.expiresAt]);
   const createdLabel = useMemo(() => describeAgo(link.createdAt), [link.createdAt]);
+  const booked = link.status === 'booked' && link.booking;
+
+  async function copyUrl() {
+    if (!link.url) return;
+    try {
+      await copyToClipboard(link.url);
+      toast.success('Link copied to clipboard.');
+    } catch {
+      toast.error('Could not copy the link.');
+    }
+  }
 
   return (
     <li
@@ -122,44 +205,119 @@ function OneTimeLinkRow({ link, isFirst, onRevoke, revoking }: RowProps) {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2">
           <span className="truncate text-base font-medium text-foreground">{link.title}</span>
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-            One-time
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <span>{link.durationMinutes} min</span>
-          <span aria-hidden="true">·</span>
-          <span>Created {createdLabel}</span>
-          <span aria-hidden="true">·</span>
-          <span>{expiresLabel}</span>
-          {link.hiddenGuestsCount > 0 && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>
-                +{link.hiddenGuestsCount} hidden guest
-                {link.hiddenGuestsCount === 1 ? '' : 's'}
-              </span>
-            </>
+          {booked ? (
+            <span className="rounded-full bg-emerald-600/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
+              Booked
+            </span>
+          ) : (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+              Awaiting booking
+            </span>
           )}
         </div>
+        {booked ? (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="text-foreground">
+              {formatMeeting(link.booking!.startAt, link.booking!.endAt, ownerTz)}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="truncate">
+              {link.booking!.bookerName} ({link.booking!.bookerEmail})
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{link.durationMinutes} min</span>
+            <span aria-hidden="true">·</span>
+            <span>{link.availabilityLabel}</span>
+            <span aria-hidden="true">·</span>
+            <span>Created {createdLabel}</span>
+            <span aria-hidden="true">·</span>
+            <span>{expiresLabel}</span>
+            {link.hiddenGuestsCount > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>
+                  +{link.hiddenGuestsCount} hidden guest
+                  {link.hiddenGuestsCount === 1 ? '' : 's'}
+                </span>
+              </>
+            )}
+          </div>
+        )}
         {link.note ? (
           <div className="mt-0.5 truncate text-xs italic text-muted-foreground">{link.note}</div>
         ) : null}
+        {!booked && !link.url ? (
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            Created before links could be copied again — the original URL still works.
+          </div>
+        ) : null}
       </div>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onRevoke}
-        disabled={revoking}
-        aria-label="Revoke link"
-        title="Revoke link"
-        className="text-muted-foreground hover:text-destructive"
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
+      {booked ? (
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="icon" asChild title="View booking">
+            <Link href={`/admin/bookings/${link.booking!.id}`} aria-label="View booking">
+              <CalendarCheck className="h-4 w-4" />
+            </Link>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onCancelMeeting}
+            aria-label="Cancel meeting"
+            title="Cancel meeting"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : (
+        <div className="flex shrink-0 items-center gap-1">
+          {link.url ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={copyUrl}
+              aria-label="Copy link"
+              title="Copy link"
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="icon" onClick={onEdit} aria-label="Edit" title="Edit">
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onDelete}
+            aria-label="Delete invitation"
+            title="Delete invitation"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </li>
   );
+}
+
+function formatMeeting(startIso: string, endIso: string, timeZone: string): string {
+  const day = new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone,
+  }).format(new Date(startIso));
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone,
+  });
+  return `${day}, ${time.format(new Date(startIso))}–${time.format(new Date(endIso))}`;
 }
 
 function describeExpiry(iso: string | null): string {

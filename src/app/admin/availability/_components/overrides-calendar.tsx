@@ -30,6 +30,22 @@ export interface OverrideData {
   label: string | null;
 }
 
+/** The subset of an override the calendar needs to render and edit it. */
+export interface OverrideEntry {
+  date: string; // YYYY-MM-DD
+  isBlocked: boolean;
+  startMinute: number | null;
+  endMinute: number | null;
+  source?: string;
+  label?: string | null;
+}
+
+export interface OverrideChange {
+  isBlocked: boolean;
+  startMinute?: number;
+  endMinute?: number;
+}
+
 interface OverridesCalendarProps {
   scheduleId: string;
   initialOverrides: OverrideData[];
@@ -50,9 +66,9 @@ function timeToMinutes(time: string): number {
 interface DayDialogProps {
   open: boolean;
   date: string | null;
-  existing: OverrideData | null;
+  existing: OverrideEntry | null;
   onClose: () => void;
-  onSave: (date: string, data: { isBlocked: boolean; startMinute?: number; endMinute?: number; label?: string }) => Promise<void>;
+  onSave: (date: string, data: OverrideChange) => Promise<void>;
   onRemove: (date: string) => Promise<void>;
 }
 
@@ -209,17 +225,6 @@ export function OverridesCalendar({
     }
     return map;
   });
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  // Build 3-month grid (current + next 2)
-  const now = DateTime.now().setZone(timezone);
-  const months = [now, now.plus({ months: 1 }), now.plus({ months: 2 })];
-
-  const handleDayClick = useCallback((dateStr: string) => {
-    setSelectedDate(dateStr);
-    setDialogOpen(true);
-  }, []);
 
   const invalidateAvailability = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: availabilityKeys.all });
@@ -265,10 +270,8 @@ export function OverridesCalendar({
   });
 
   const handleSave = useCallback(
-    (
-      date: string,
-      data: { isBlocked: boolean; startMinute?: number; endMinute?: number },
-    ) => upsertMutation.mutateAsync({ date, ...data }).then(() => undefined),
+    (date: string, data: OverrideChange) =>
+      upsertMutation.mutateAsync({ date, ...data }).then(() => undefined),
     [upsertMutation],
   );
 
@@ -276,6 +279,46 @@ export function OverridesCalendar({
     (date: string) => deleteMutation.mutateAsync(date).then(() => undefined),
     [deleteMutation],
   );
+
+  return (
+    <OverridesCalendarView
+      overrides={overrides}
+      timezone={timezone}
+      onSave={handleSave}
+      onRemove={handleRemove}
+    />
+  );
+}
+
+interface OverridesCalendarViewProps {
+  overrides: ReadonlyMap<string, OverrideEntry>;
+  timezone: string;
+  onSave: (date: string, data: OverrideChange) => Promise<void>;
+  onRemove: (date: string) => Promise<void>;
+}
+
+/**
+ * Three-month override calendar (current + next 2) without persistence —
+ * the caller decides what saving a day means. Used by `OverridesCalendar`
+ * and by one-time invitations for their private date overrides.
+ */
+export function OverridesCalendarView({
+  overrides,
+  timezone,
+  onSave,
+  onRemove,
+}: OverridesCalendarViewProps) {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Build 3-month grid (current + next 2)
+  const now = DateTime.now().setZone(timezone);
+  const months = [now, now.plus({ months: 1 }), now.plus({ months: 2 })];
+
+  const handleDayClick = useCallback((dateStr: string) => {
+    setSelectedDate(dateStr);
+    setDialogOpen(true);
+  }, []);
 
   return (
     <div className="flex flex-col gap-8">
@@ -353,8 +396,8 @@ export function OverridesCalendar({
           setDialogOpen(false);
           setSelectedDate(null);
         }}
-        onSave={handleSave}
-        onRemove={handleRemove}
+        onSave={onSave}
+        onRemove={onRemove}
       />
 
       {/* Legend */}

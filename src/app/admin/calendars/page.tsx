@@ -2,8 +2,9 @@
  * /admin/calendars — manage Google connections and per-calendar settings.
  *
  * Server component: lists ConnectedAccount rows + their Calendar children.
- * Each calendar gets two toggles (busy source / destination eligible) wired
- * through a tiny client component. No JS is needed for connect / disconnect /
+ * Each calendar gets a busy-source toggle wired through a tiny client
+ * component. Bookings always land on the account's primary calendar, so
+ * there's no per-calendar destination setting. No JS is needed for connect / disconnect /
  * resync — those are plain form POSTs.
  */
 import { Link2, AlertCircle, CalendarDays } from 'lucide-react';
@@ -212,12 +213,6 @@ export default async function CalendarsPage({
                         field="isBusySource"
                         initialValue={cal.isBusySource}
                         label="Busy source"
-                      />
-                      <CalendarToggle
-                        calendarId={cal.id}
-                        field="isDestinationEligible"
-                        initialValue={cal.isDestinationEligible}
-                        label="Destination"
                       />
                     </div>
                   </li>

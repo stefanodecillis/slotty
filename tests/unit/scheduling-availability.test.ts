@@ -15,6 +15,7 @@ function makeSchedule(zone: string, rules: { weekday: number; startMinute: numbe
     userId: 'u1',
     name: 'Test',
     isDefault: true,
+    isOneTime: false,
     timezone: zone,
     createdAt: new Date(),
     updatedAt: new Date(),

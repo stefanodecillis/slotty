@@ -1,5 +1,5 @@
 /**
- * Toggle `isBusySource` or `isDestinationEligible` for a single calendar.
+ * Toggle `isBusySource` for a single calendar.
  * Single endpoint for the admin UI's per-row switches.
  */
 import type { NextRequest } from 'next/server';
@@ -11,7 +11,7 @@ import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_FIELDS = new Set(['isBusySource', 'isDestinationEligible']);
+const ALLOWED_FIELDS = new Set(['isBusySource']);
 
 async function handler(req: NextRequest): Promise<Response> {
   await requireUser();
