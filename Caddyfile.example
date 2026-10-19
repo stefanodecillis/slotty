@@ -30,7 +30,7 @@
 #         proxy_set_header X-Forwarded-Proto $scheme;
 #     }
 #
-#     # -- Public routes (Google webhook must remain reachable) --
+#     # -- Public routes (Google webhook and /api/public/polls/* must remain reachable) --
 #     location / {
 #         proxy_pass http://127.0.0.1:3210;
 #         proxy_set_header Host              $host;
@@ -65,6 +65,11 @@ book.example.com {
     # Google POSTs push notifications here; do NOT put it behind the IP guard.
     # This route falls through to the general reverse_proxy below.
     # (No special block needed — the @admin matcher excludes /api/webhooks/*.)
+
+    # ── Group-poll Google import — must stay publicly reachable ──────────────
+    # Poll participants are redirected back here by Google after granting
+    # free/busy access: /api/public/polls/google/callback. It's outside the
+    # @admin matcher, so it falls through to the reverse_proxy below.
 
     # ── General reverse-proxy ────────────────────────────────────────────────
     reverse_proxy 127.0.0.1:3210 {

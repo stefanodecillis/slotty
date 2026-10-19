@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { timezoneSchema, weeklyRulesSchema } from '@/lib/availability/validators';
 import { LOCATION_KINDS } from '@/lib/eventtype/validator';
+import { groupPollSettingsSchema, MAX_POLL_WINDOW_DAYS } from '@/lib/group-poll/validator';
 
 // ─────────────────────────────────────────────────────────────
 // Availability — either reuse an existing schedule, or give this one
@@ -80,8 +81,17 @@ export const oneTimeLinkInputSchema = z
     confirmationMd: z.string().max(5000).nullable().optional(),
     sendReminders: z.boolean().default(true),
     brandId: z.string().nullable().optional(),
+    // "Find a time with a group" instead of a single booker.
+    groupPoll: groupPollSettingsSchema.default({}),
   })
   .superRefine((data, ctx) => {
+    if (data.groupPoll.enabled && data.bookingWindowDays > MAX_POLL_WINDOW_DAYS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['bookingWindowDays'],
+        message: `Group polls cover at most ${MAX_POLL_WINDOW_DAYS} days`,
+      });
+    }
     if (data.locationKind === 'in_person' && !data.locationValue?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
