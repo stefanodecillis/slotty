@@ -5,8 +5,11 @@ import { Calendar, LinkIcon } from 'lucide-react';
 import { db } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
 import { resolveInviteByRawToken } from '@/lib/booking/invite';
+import { getFinalizedPollMeeting, getPollStateForEventType } from '@/lib/group-poll/service';
 
 import { BookingFlow } from '../../[slug]/_components/booking-flow';
+import { GroupPollFlow } from './_components/group-poll-flow';
+import { PollConfirmedPanel } from './_components/poll-confirmed-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,12 +29,28 @@ interface PageProps {
  * panel rather than 404'ing — that lets the recipient see the difference
  * between "I mistyped the URL" and "this link was already used", without
  * leaking which case applies to a casual visitor.
+ *
+ * Group invitations (availability polls) render the poll instead, and once
+ * the owner has booked the common time, a "time confirmed" panel.
  */
 export default async function InvitePage({ params }: PageProps) {
   const resolved = await resolveInviteByRawToken(params.token);
 
   if (!resolved.eventType || resolved.eventType.archived) {
     return <UnavailablePanel reason="not_found" />;
+  }
+  const poll = await getPollStateForEventType(resolved.eventType.id);
+  if (poll && resolved.status === 'used') {
+    const meeting = await getFinalizedPollMeeting(resolved.eventType.id);
+    if (meeting) {
+      return (
+        <PollConfirmedPanel
+          title={resolved.eventType.title}
+          startIso={meeting.startAt.toISOString()}
+          endIso={meeting.endAt.toISOString()}
+        />
+      );
+    }
   }
   if (resolved.status !== 'ok') {
     return <UnavailablePanel reason={resolved.status} />;
@@ -59,6 +78,21 @@ export default async function InvitePage({ params }: PageProps) {
   if (!owner) notFound();
 
   const descriptionHtml = renderMarkdown(eventType.descriptionMd);
+
+  if (poll) {
+    return (
+      <GroupPollFlow
+        inviteToken={params.token}
+        title={eventType.title}
+        color={eventType.color}
+        durationMinutes={eventType.durationMinutes}
+        descriptionHtml={descriptionHtml}
+        ownerName={owner.displayName}
+        ownerAvatarPath={owner.avatarPath}
+        brand={brand}
+      />
+    );
+  }
 
   return (
     <BookingFlow

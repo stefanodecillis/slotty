@@ -9,10 +9,13 @@
  *               only action is cancelling the meeting, which ends the
  *               invitation.
  * Invitations whose meeting is over (or that expired) disappear on their own.
+ *
+ * Group invitations (availability polls) show how many people answered and
+ * open the answers dialog, where the owner books the common time.
  */
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { CalendarCheck, Copy, Link2, Pencil, Trash2 } from 'lucide-react';
+import { CalendarCheck, Copy, Link2, Pencil, Trash2, Users } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -39,6 +42,7 @@ import {
   OneTimeLinkDialog,
   type OneTimeLinkOptions,
 } from './one-time-link-dialog';
+import { PollResultsDialog } from './poll-results-dialog';
 
 interface Props {
   options: OneTimeLinkOptions;
@@ -51,6 +55,7 @@ type PendingAction =
 export function OneTimeLinksSection({ options }: Props) {
   const queryClient = useQueryClient();
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [answersFor, setAnswersFor] = useState<OneTimeLinkListItem | null>(null);
   const [confirm, setConfirm] = useState<PendingAction | null>(null);
 
   const query = useQuery({
@@ -86,8 +91,8 @@ export function OneTimeLinksSection({ options }: Props) {
         <div>
           <h2 className="text-xl font-semibold text-foreground">One-time invitations</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Private, single-use booking links. Editable until booked; gone once the meeting is
-            over.
+            Private, single-use booking links for one person or a whole group. Editable until
+            booked; gone once the meeting is over.
           </p>
         </div>
         <OneTimeLinkDialog options={options} />
@@ -112,12 +117,21 @@ export function OneTimeLinksSection({ options }: Props) {
               link={link}
               isFirst={idx === 0}
               onEdit={() => setEditingId(link.eventTypeId)}
+              onAnswers={() => setAnswersFor(link)}
               onDelete={() => setConfirm({ kind: 'delete', link })}
               onCancelMeeting={() => setConfirm({ kind: 'cancel-meeting', link })}
             />
           ))}
         </ul>
       )}
+
+      {answersFor ? (
+        <PollResultsDialog
+          eventTypeId={answersFor.eventTypeId}
+          title={answersFor.title}
+          onClose={() => setAnswersFor(null)}
+        />
+      ) : null}
 
       {editingId ? (
         <EditOneTimeLinkDialog
@@ -171,15 +185,17 @@ interface RowProps {
   link: OneTimeLinkListItem;
   isFirst: boolean;
   onEdit: () => void;
+  onAnswers: () => void;
   onDelete: () => void;
   onCancelMeeting: () => void;
 }
 
-function OneTimeLinkRow({ link, isFirst, onEdit, onDelete, onCancelMeeting }: RowProps) {
+function OneTimeLinkRow({ link, isFirst, onEdit, onAnswers, onDelete, onCancelMeeting }: RowProps) {
   const ownerTz = useOwnerTimezone();
   const expiresLabel = useMemo(() => describeExpiry(link.expiresAt), [link.expiresAt]);
   const createdLabel = useMemo(() => describeAgo(link.createdAt), [link.createdAt]);
   const booked = link.status === 'booked' && link.booking;
+  const poll = link.groupPoll;
 
   async function copyUrl() {
     if (!link.url) return;
@@ -209,6 +225,10 @@ function OneTimeLinkRow({ link, isFirst, onEdit, onDelete, onCancelMeeting }: Ro
             <span className="rounded-full bg-emerald-600/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400">
               Booked
             </span>
+          ) : poll ? (
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+              Group · {poll.responses} answer{poll.responses === 1 ? '' : 's'}
+            </span>
           ) : (
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
               Awaiting booking
@@ -222,7 +242,9 @@ function OneTimeLinkRow({ link, isFirst, onEdit, onDelete, onCancelMeeting }: Ro
             </span>
             <span aria-hidden="true">·</span>
             <span className="truncate">
-              {link.booking!.bookerName} ({link.booking!.bookerEmail})
+              {poll && poll.responses > 1
+                ? `${link.booking!.bookerName} and ${poll.responses - 1} other${poll.responses === 2 ? '' : 's'}`
+                : `${link.booking!.bookerName} (${link.booking!.bookerEmail})`}
             </span>
           </div>
         ) : (
@@ -275,6 +297,12 @@ function OneTimeLinkRow({ link, isFirst, onEdit, onDelete, onCancelMeeting }: Ro
         </div>
       ) : (
         <div className="flex shrink-0 items-center gap-1">
+          {poll ? (
+            <Button variant="ghost" size="sm" onClick={onAnswers} title="Answers and best times">
+              <Users className="h-4 w-4" />
+              Answers
+            </Button>
+          ) : null}
           {link.url ? (
             <Button
               variant="ghost"

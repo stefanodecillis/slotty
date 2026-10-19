@@ -20,6 +20,13 @@ does not require a public admin endpoint. Existing grants do not need relinking.
 
 Public booking/manage URLs and Google webhook channels continue using the public
 base. The cosmetic site URL override does not change either OAuth or webhooks.
+
+Group-poll participants are outside the private network, so their optional
+Google free/busy import uses a separate callback on the public base:
+`https://book.example.com/api/public/polls/google/callback`. Register it as a
+second authorized redirect URI and keep `/api/public/polls/*` reachable on the
+public proxy. It requires an HTTPS public URL on a real domain; otherwise the
+import is hidden and participants answer by hand.
 This setting is not an access-control boundary: restrict `/admin`, `/api/admin`
 and setup endpoints on the public reverse proxy, and expose the admin hostname
 only to the private network. Existing CSRF policy is unchanged.

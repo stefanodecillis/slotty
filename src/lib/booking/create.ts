@@ -55,6 +55,16 @@ export interface CreateBookingInput {
   answers?: Record<string, string>;
   clientRequestId?: string;
   password?: string;
+  /**
+   * Google event title override. Server-side callers only (group polls book
+   * for a whole group, so "<title> with <booker>" would be misleading).
+   */
+  eventSummary?: string;
+  /**
+   * Set only by group-poll finalization. Group-poll invitations can't be
+   * booked directly through their link — the owner picks the time.
+   */
+  viaGroupPoll?: boolean;
 }
 
 export interface CreatedBooking {
@@ -88,7 +98,8 @@ export type BookingErrorCode =
   | 'OWNER_MISSING'
   | 'INVITE_NOT_FOUND'
   | 'INVITE_UNAVAILABLE'
-  | 'INVITE_ONLY';
+  | 'INVITE_ONLY'
+  | 'GROUP_POLL';
 
 const RECHECK_WINDOW_DAYS = 2;
 
@@ -116,6 +127,7 @@ function buildGoogleEventPayload(args: {
   answers: Record<string, string>;
   questions: EventTypeQuestion[];
   manageUrl: string;
+  summary?: string;
 }): calendar_v3.Schema$Event {
   const {
     eventType,
@@ -131,6 +143,7 @@ function buildGoogleEventPayload(args: {
     answers,
     questions,
     manageUrl,
+    summary,
   } = args;
 
   const descriptionParts: string[] = [];
@@ -168,7 +181,7 @@ function buildGoogleEventPayload(args: {
   }
 
   const payload: calendar_v3.Schema$Event = {
-    summary: `${eventType.title} with ${bookerName}`,
+    summary: summary ?? `${eventType.title} with ${bookerName}`,
     description: descriptionParts.join('\n'),
     start: {
       dateTime: startAt.toISOString(),
@@ -272,6 +285,19 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     eventType = resolved.eventType;
     inviteId = resolved.invite.id;
     inviteHiddenGuestsJson = resolved.invite.hiddenGuestsJson;
+    if (!input.viaGroupPoll) {
+      const poll = await db.groupPoll.findUnique({
+        where: { eventTypeId: eventType.id },
+        select: { id: true },
+      });
+      if (poll) {
+        throw new BookingError(
+          'This invitation is a group poll — mark your availability instead of booking.',
+          'GROUP_POLL',
+          409,
+        );
+      }
+    }
   } else {
     if (!input.eventTypeSlug) {
       throw new BookingError('Missing eventTypeSlug or inviteToken', 'INVALID_INPUT', 400);
@@ -449,6 +475,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
     answers,
     questions: eventType.questions,
     manageUrl,
+    summary: input.eventSummary,
   });
 
   let needsSync = false;

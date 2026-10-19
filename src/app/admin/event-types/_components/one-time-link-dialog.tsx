@@ -14,9 +14,12 @@
  *
  * Availability is either one of the owner's schedules or custom weekly hours
  * + date overrides that belong to this invitation only.
+ *
+ * "A group" turns the invitation into a group availability poll: everyone
+ * with the link marks when they're free and the owner books the common slot.
  */
 import { useMemo, useState } from 'react';
-import { Copy, Link2, Plus } from 'lucide-react';
+import { Copy, Link2, Plus, Users } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -72,6 +75,8 @@ export interface OneTimeLinkOptions {
   defaultBrandId: string | null;
   /** Starting point when switching an invitation to custom hours. */
   defaultHours: { timezone: string; rules: RuleData[] };
+  /** Whether group-poll participants can import from Google on this deployment. */
+  participantGoogle: { available: boolean; redirectUri: string };
 }
 
 type LocationKind = OneTimeLinkPayload['locationKind'];
@@ -86,6 +91,10 @@ const LOCATION_KIND_OPTIONS: { value: LocationKind; label: string }[] = [
 ];
 
 const SLOT_INTERVAL_OPTIONS = [5, 10, 15, 20, 30, 60];
+
+// Must mirror MAX_POLL_WINDOW_DAYS in src/lib/group-poll/validator.ts.
+const MAX_POLL_WINDOW_DAYS = 31;
+const DEFAULT_POLL_WINDOW_DAYS = 14;
 
 // Server-side defaults (must mirror src/lib/one-time/validator.ts).
 const DEFAULTS = {
@@ -126,6 +135,9 @@ interface FormState {
   maxGuests: number;
   confirmationMd: string;
   sendReminders: boolean;
+  audience: 'one' | 'group';
+  pollShowNames: boolean;
+  pollAllowGoogle: boolean;
 }
 
 function emptyForm(options: OneTimeLinkOptions): FormState {
@@ -154,6 +166,9 @@ function emptyForm(options: OneTimeLinkOptions): FormState {
     maxGuests: DEFAULTS.maxGuests,
     confirmationMd: '',
     sendReminders: DEFAULTS.sendReminders,
+    audience: 'one',
+    pollShowNames: true,
+    pollAllowGoogle: true,
   };
 }
 
@@ -205,6 +220,9 @@ function formFromValues(values: OneTimeLinkPayload, options: OneTimeLinkOptions)
     maxGuests: values.maxGuests,
     confirmationMd: values.confirmationMd ?? '',
     sendReminders: values.sendReminders,
+    audience: values.groupPoll.enabled ? 'group' : 'one',
+    pollShowNames: values.groupPoll.showNames,
+    pollAllowGoogle: values.groupPoll.allowGoogle,
   };
 }
 
@@ -305,10 +323,13 @@ function CreateInvitation({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [result, setResult] = useState<OneTimeLinkCreated | null>(null);
+  const [result, setResult] = useState<(OneTimeLinkCreated & { group: boolean }) | null>(null);
 
   const mutation = useMutation({
-    mutationFn: createOneTimeLink,
+    mutationFn: async (payload: OneTimeLinkPayload) => ({
+      ...(await createOneTimeLink(payload)),
+      group: payload.groupPoll.enabled,
+    }),
     onSuccess: (data) => {
       setResult(data);
       void queryClient.invalidateQueries({ queryKey: oneTimeLinkKeys.all });
@@ -319,7 +340,7 @@ function CreateInvitation({
   });
 
   if (result) {
-    return <CreatedResult url={result.url} onClose={onClose} />;
+    return <CreatedResult url={result.url} group={result.group} onClose={onClose} />;
   }
 
   return (
@@ -374,7 +395,15 @@ function EditInvitation({
   );
 }
 
-function CreatedResult({ url, onClose }: { url: string; onClose: () => void }) {
+function CreatedResult({
+  url,
+  group,
+  onClose,
+}: {
+  url: string;
+  group: boolean;
+  onClose: () => void;
+}) {
   async function copyUrl() {
     try {
       await copyToClipboard(url);
@@ -389,8 +418,9 @@ function CreatedResult({ url, onClose }: { url: string; onClose: () => void }) {
       <DialogHeader>
         <DialogTitle>Invitation ready</DialogTitle>
         <DialogDescription>
-          Share this link with the person you&apos;re inviting. Until they book, you can edit the
-          invitation and copy the link again from the list.
+          {group
+            ? 'Share this link with everyone in the group. Each person marks when they can make it; follow the answers from the list and pick the time when you’re ready.'
+            : 'Share this link with the person you’re inviting. Until they book, you can edit the invitation and copy the link again from the list.'}
         </DialogDescription>
       </DialogHeader>
       <div className="flex flex-col gap-2 rounded-lg border border-input bg-muted/40 p-3">
@@ -496,6 +526,10 @@ function InvitationForm({
       );
       return;
     }
+    if (form.audience === 'group' && form.bookingWindowDays > MAX_POLL_WINDOW_DAYS) {
+      toast.error(`Group polls cover at most ${MAX_POLL_WINDOW_DAYS} days — shorten the booking window.`);
+      return;
+    }
     if (form.availabilityMode === 'custom') {
       const error = validateRules(form.customRules);
       if (error) {
@@ -551,7 +585,24 @@ function InvitationForm({
       confirmationMd: form.confirmationMd.trim() || null,
       sendReminders: form.sendReminders,
       brandId: form.brandId || null,
+      groupPoll: {
+        enabled: form.audience === 'group',
+        showNames: form.pollShowNames,
+        allowGoogle: form.pollAllowGoogle,
+      },
     });
+  }
+
+  function setAudience(audience: FormState['audience']) {
+    setForm((prev) => ({
+      ...prev,
+      audience,
+      // A poll grid over two months is unusable; start groups on two weeks.
+      bookingWindowDays:
+        audience === 'group' && prev.bookingWindowDays > MAX_POLL_WINDOW_DAYS
+          ? DEFAULT_POLL_WINDOW_DAYS
+          : prev.bookingWindowDays,
+    }));
   }
 
   const overrideCount = form.customOverrides.size;
@@ -561,10 +612,90 @@ function InvitationForm({
       <DialogHeader>
         <DialogTitle>{mode === 'create' ? 'New invitation' : 'Edit invitation'}</DialogTitle>
         <DialogDescription>
-          A private booking link for one person. It isn&apos;t listed on your public page, and it
-          stops working once they book.
+          {form.audience === 'group'
+            ? 'A private link for a group. Everyone marks when they can make it, then you book the time that works best for all of them.'
+            : 'A private booking link for one person. It isn’t listed on your public page, and it stops working once they book.'}
         </DialogDescription>
       </DialogHeader>
+
+      <div className="grid gap-3">
+        <Label>Who&apos;s invited</Label>
+        <div className="flex gap-2">
+          {(
+            [
+              ['one', 'One person'],
+              ['group', 'A group'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setAudience(value)}
+              aria-pressed={form.audience === value}
+              className={cn(
+                'flex flex-1 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+                form.audience === value
+                  ? 'border-primary bg-primary/[0.08] text-primary'
+                  : 'border-input text-foreground hover:bg-muted/50',
+              )}
+            >
+              {value === 'group' ? <Users className="h-4 w-4" aria-hidden /> : null}
+              {label}
+            </button>
+          ))}
+        </div>
+        {form.audience === 'group' ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-input p-3">
+            <p className="text-xs text-muted-foreground">
+              Everyone with the link marks when they&apos;re free within your availability over the
+              next {form.bookingWindowDays} days (change it under Advanced settings). You pick
+              the final time; everyone who answered is invited to the meeting. Up to 15 people.
+            </p>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col">
+                <Label htmlFor="ot-poll-names">Show names to participants</Label>
+                <p className="text-xs text-muted-foreground">
+                  Otherwise they only see how many people can make each time.
+                </p>
+              </div>
+              <Switch
+                id="ot-poll-names"
+                checked={form.pollShowNames}
+                onCheckedChange={(v) => set('pollShowNames', v)}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col">
+                <Label htmlFor="ot-poll-google">Allow importing from Google Calendar</Label>
+                <p className="text-xs text-muted-foreground">
+                  {options.participantGoogle.available ? (
+                    'Participants can pre-fill their answer from their free/busy. Only busy blocks are read, once, and nothing is stored.'
+                  ) : (
+                    <>
+                      Unavailable on this server: your public URL must be HTTPS on a real domain
+                      so Google can send participants back to it.
+                    </>
+                  )}
+                </p>
+                {options.participantGoogle.available ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Needs this redirect URI in your Google OAuth client:{' '}
+                    <code className="break-all text-foreground">
+                      {options.participantGoogle.redirectUri}
+                    </code>
+                  </p>
+                ) : null}
+              </div>
+              <Switch
+                id="ot-poll-google"
+                checked={form.pollAllowGoogle && options.participantGoogle.available}
+                disabled={!options.participantGoogle.available}
+                onCheckedChange={(v) => set('pollAllowGoogle', v)}
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       <div className="grid gap-2">
         <Label htmlFor="ot-title">
@@ -871,10 +1002,19 @@ function InvitationForm({
                 id="ot-booking-window"
                 type="number"
                 min={1}
-                max={365}
+                max={form.audience === 'group' ? MAX_POLL_WINDOW_DAYS : 365}
                 value={String(form.bookingWindowDays)}
                 onChange={(e) =>
-                  set('bookingWindowDays', Math.max(1, Math.min(365, Number(e.target.value) || 1)))
+                  set(
+                    'bookingWindowDays',
+                    Math.max(
+                      1,
+                      Math.min(
+                        form.audience === 'group' ? MAX_POLL_WINDOW_DAYS : 365,
+                        Number(e.target.value) || 1,
+                      ),
+                    ),
+                  )
                 }
                 className="w-24"
               />
@@ -961,7 +1101,7 @@ function InvitationForm({
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
+            <div className={cn('grid gap-2', form.audience === 'group' && 'hidden')}>
               <Label htmlFor="ot-max-guests">Max additional guests</Label>
               <Input
                 id="ot-max-guests"

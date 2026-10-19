@@ -17,6 +17,10 @@
  * Availability is either a reference to one of the owner's schedules, or a
  * private `Schedule` row (`isOneTime`) holding custom weekly hours and date
  * overrides that belong to this invitation alone.
+ *
+ * With `groupPoll.enabled` the invitation runs as a group availability poll
+ * (`GroupPoll`, see `src/lib/group-poll/service.ts`): many people answer,
+ * and the owner books the common slot. It stays "pending" while collecting.
  */
 import { randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
@@ -28,6 +32,7 @@ import { DefaultCalendarError, resolveDefaultCalendarId } from '@/lib/google/def
 import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
 import { getPublicUrl } from '@/lib/site-url/store';
 import { logger } from '@/lib/logger';
+import { MAX_POLL_PARTICIPANTS, type GroupPollSettings } from '@/lib/group-poll/validator';
 import type { OneTimeAvailabilityInput, OneTimeLinkInput } from './validator';
 
 export class OneTimeLinkError extends Error {
@@ -74,6 +79,8 @@ export interface OneTimeLinkListItem {
   /** "Custom hours", or the name of the schedule it follows. */
   availabilityLabel: string;
   booking: OneTimeLinkBooking | null;
+  /** Set when the invitation is a group availability poll. */
+  groupPoll: { responses: number } | null;
 }
 
 export interface OneTimeLinkDetail {
@@ -100,6 +107,7 @@ export interface OneTimeLinkDetail {
     confirmationMd: string | null;
     sendReminders: boolean;
     brandId: string | null;
+    groupPoll: GroupPollSettings;
   };
 }
 
@@ -281,7 +289,8 @@ function eventTypeFields(input: OneTimeLinkInput, destinationCalendarId: string)
     bufferAfterMin: input.bufferAfterMin,
     minNoticeMin: input.minNoticeMin,
     bookingWindowDays: input.bookingWindowDays,
-    maxGuests: input.maxGuests,
+    // A group booking invites every participant: booker + the rest as guests.
+    maxGuests: input.groupPoll.enabled ? MAX_POLL_PARTICIPANTS - 1 : input.maxGuests,
     slotIntervalMin: input.slotIntervalMin,
     confirmationMd: input.confirmationMd?.trim() || null,
     sendReminders: input.sendReminders,
@@ -337,6 +346,15 @@ export async function createOneTimeLink(
         hiddenGuestsJson: '[]', // event-type defaults already carry the cc list
       },
     });
+    if (input.groupPoll.enabled) {
+      await tx.groupPoll.create({
+        data: {
+          eventTypeId: et.id,
+          showNames: input.groupPoll.showNames,
+          allowGoogle: input.groupPoll.allowGoogle,
+        },
+      });
+    }
     return { eventType: et, invite: inv };
   });
 
@@ -369,6 +387,7 @@ async function loadOwned(userId: string, eventTypeId: string, now: Date) {
           overrides: { orderBy: { date: 'asc' } },
         },
       },
+      groupPoll: { include: { _count: { select: { participants: true } } } },
     },
   });
   if (!eventType) throw new OneTimeLinkError('Invitation not found', 404);
@@ -429,6 +448,9 @@ export async function getOneTimeLink(
       confirmationMd: et.confirmationMd,
       sendReminders: et.sendReminders,
       brandId: et.brandId,
+      groupPoll: et.groupPoll
+        ? { enabled: true, showNames: et.groupPoll.showNames, allowGoogle: et.groupPoll.allowGoogle }
+        : { enabled: false, showNames: true, allowGoogle: true },
     },
   };
 }
@@ -468,6 +490,7 @@ export async function listOneTimeLinks(
         take: 1,
       },
       schedule: { select: { name: true, isOneTime: true, isDefault: true } },
+      groupPoll: { select: { _count: { select: { participants: true } } } },
     },
   });
 
@@ -506,6 +529,7 @@ export async function listOneTimeLinks(
             bookerEmail: booking.bookerEmail,
           }
         : null,
+      groupPoll: row.groupPoll ? { responses: row.groupPoll._count.participants } : null,
     });
   }
   return items;
@@ -538,6 +562,12 @@ export async function updateOneTimeLink(
       ? await resolveSharedSchedule(userId, input.availability.scheduleId)
       : null;
   const previousPrivateScheduleId = et.schedule?.isOneTime ? et.schedule.id : null;
+  if (et.groupPoll && !input.groupPoll.enabled && et.groupPoll._count.participants > 0) {
+    throw new OneTimeLinkError(
+      'People have already answered this poll. Delete the invitation to start over.',
+      409,
+    );
+  }
 
   await db.$transaction(async (tx) => {
     // Guard against a booking landing between our read and this write: the
@@ -572,6 +602,28 @@ export async function updateOneTimeLink(
 
     if (previousPrivateScheduleId && scheduleId !== previousPrivateScheduleId) {
       await tx.schedule.delete({ where: { id: previousPrivateScheduleId } });
+    }
+
+    if (input.groupPoll.enabled) {
+      const settings = {
+        showNames: input.groupPoll.showNames,
+        allowGoogle: input.groupPoll.allowGoogle,
+      };
+      await tx.groupPoll.upsert({
+        where: { eventTypeId: et.id },
+        create: { eventTypeId: et.id, ...settings },
+        update: settings,
+      });
+    } else if (et.groupPoll) {
+      // Re-checked here so an answer landing mid-edit isn't silently dropped.
+      const answered = await tx.pollParticipant.count({ where: { pollId: et.groupPoll.id } });
+      if (answered > 0) {
+        throw new OneTimeLinkError(
+          'People have already answered this poll. Delete the invitation to start over.',
+          409,
+        );
+      }
+      await tx.groupPoll.delete({ where: { id: et.groupPoll.id } });
     }
   });
 

@@ -1,6 +1,10 @@
 import { requireUserOrRedirect } from '@/lib/auth/session';
 import { db } from '@/lib/db';
 import { getPublicUrl } from '@/lib/site-url/store';
+import {
+  participantGoogleAvailability,
+  participantRedirectUri,
+} from '@/lib/google/participant-oauth';
 import { Button } from '@/components/ui/button';
 import { CalendarPlus, Plus } from 'lucide-react';
 import { EventTypesList } from './_components/event-types-list';
@@ -84,6 +88,10 @@ export default async function EventTypesPage() {
     defaultHours: {
       timezone: defaultSchedule?.timezone ?? owner?.timezone ?? 'UTC',
       rules: defaultSchedule?.rules ?? [],
+    },
+    participantGoogle: {
+      available: participantGoogleAvailability().available,
+      redirectUri: participantRedirectUri(),
     },
   };
 

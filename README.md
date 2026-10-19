@@ -205,6 +205,10 @@ Slotty needs OAuth credentials to read your calendars and create events.
    - Application type: **Web application**.
    - Authorized redirect URIs: `<admin-origin>/api/admin/calendars/callback` (use `SLOTTY_ADMIN_ORIGIN` if set, otherwise `SLOTTY_PUBLIC_URL`)
      (e.g. `https://book.example.com/api/admin/calendars/callback`)
+   - Optional, for [group polls](#group-availability-polls): also add
+     `<SLOTTY_PUBLIC_URL>/api/public/polls/google/callback`
+     (e.g. `https://book.example.com/api/public/polls/google/callback`). This one is
+     on the **public** origin because poll participants aren't on your private network.
 5. Copy the **Client ID** and **Client secret** into your `.env`:
    ```
    SLOTTY_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
@@ -213,6 +217,30 @@ Slotty needs OAuth credentials to read your calendars and create events.
 6. Restart Slotty.
 
 You can connect multiple Google accounts (e.g., one per job) from **Admin → Calendars** once Phase 3 is shipped.
+
+### Group availability polls
+
+A one-time invitation can be created for **A group** instead of one person
+(**Admin → Event types → New invitation → Who's invited**). Everyone with the link
+marks when they can make it within the invitation's availability, the answers are
+tallied into "best times", and you book the time that suits the group. Everyone
+who answered is invited to that one meeting through Google Calendar.
+
+Participants can optionally pre-fill their answer from Google Calendar:
+
+- Only the `https://www.googleapis.com/auth/calendar.freebusy` scope is requested
+  (busy blocks of their primary calendar; no titles or details). Add it to your
+  consent screen's scopes.
+- The token is used once and revoked; only the resulting "available" marks are stored.
+- Google redirects the participant's browser to
+  `<SLOTTY_PUBLIC_URL>/api/public/polls/google/callback`, so that URL must be
+  reachable from the internet and registered as a redirect URI (see above). It
+  has to be HTTPS on a real domain — on deployments like `http://truenas:3210`
+  the import button is hidden and participants answer by hand. Tailscale Funnel
+  or Cloudflare Tunnel work if you don't want to open ports.
+- While your OAuth app is in *Testing*, only listed test users can sign in;
+  everyone else sees Google's "unverified app" screen until the app is verified.
+  Answering by hand always works.
 
 ---
 
@@ -230,7 +258,32 @@ Test it from **Admin → Settings → Email → Send test email** once Phase 2 i
 
 ## Reverse proxy
 
-The container listens on plain HTTP. **Always run it behind a reverse proxy that terminates TLS.** Examples:
+The container listens on plain HTTP. **Always run it behind a reverse proxy that terminates TLS.**
+
+### What the public URL must accept
+
+Bookers and group-poll participants are on the open internet, not on your LAN or
+Tailscale network, so these paths must be reachable on `SLOTTY_PUBLIC_URL` from
+anywhere. Only `/admin*`, `/api/admin/*` and `/setup` should be restricted.
+
+| Path | Called by | Why |
+| --- | --- | --- |
+| `/`, `/<slug>`, `/i/<token>`, `/b/<id>…` | Visitors' browsers | Public profile, booking pages, one-time invitations and group polls, booking management |
+| `/api/public/*` | Visitors' browsers | Slots, bookings, group-poll answers |
+| `/api/public/polls/google/callback` | Participants' browsers, redirected by Google | Group-poll "Import from Google Calendar". Must be **HTTPS on a real domain** and registered in Google Cloud as an authorized redirect URI, e.g. `https://book.example.com/api/public/polls/google/callback` |
+| `/api/webhooks/google` | Google's servers | Calendar push notifications |
+
+The owner's own Google callback, `/api/admin/calendars/callback`, is different: it
+only has to be reachable from *your* browser, so it can stay on the private admin
+origin (see [`docs/private-admin-origin.md`](docs/private-admin-origin.md)). Register
+both callbacks on the same OAuth client:
+
+```
+<SLOTTY_ADMIN_ORIGIN or SLOTTY_PUBLIC_URL>/api/admin/calendars/callback   # owner, private
+<SLOTTY_PUBLIC_URL>/api/public/polls/google/callback                      # poll participants, public
+```
+
+Examples:
 
 ### Caddy (recommended for simplicity)
 
@@ -246,7 +299,8 @@ book.example.com {
         reverse_proxy 127.0.0.1:3000
     }
 
-    # /api/webhooks/google must remain reachable from Google's IPs.
+    # /api/webhooks/google must remain reachable from Google's IPs, and
+    # /api/public/polls/* from group-poll participants.
     reverse_proxy 127.0.0.1:3000
 }
 ```
@@ -362,7 +416,8 @@ book.example.com {
     }
 
     # Everything else is public; Google's webhook lives at /api/webhooks/google
-    # and must remain publicly reachable.
+    # and group-poll participants come back from Google to
+    # /api/public/polls/google/callback — both must remain publicly reachable.
     reverse_proxy 127.0.0.1:3000 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-Proto https
@@ -519,7 +574,7 @@ Single Next.js 14 process (App Router). SQLite for storage. In-process job worke
 ```
 Browser ──► Caddy ──► Next.js (App Router) ──► middleware.ts (CSP/HSTS/CSRF)
                         │
-                        ├─ Public site (/, /<slug>, /b/<id>, /b/<id>/reschedule)
+                        ├─ Public site (/, /<slug>, /i/<token>, /b/<id>, /b/<id>/reschedule)
                         ├─ /admin/* (session-gated, IP-allowlisted at proxy)
                         ├─ /setup (only when zero User rows exist)
                         ├─ /api/public/* (rate-limited)
@@ -531,6 +586,7 @@ Browser ──► Caddy ──► Next.js (App Router) ──► middleware.ts (
                         │     • schedules, schedule_rules, date_overrides
                         │     • connected_accounts, calendars, busy_events
                         │     • event_types, event_type_questions, bookings, booking_history
+                        │     • booking_invites, group_polls, poll_participants, poll_votes
                         │     • webhook_endpoints, webhook_deliveries, backup_codes, jobs
                         │
                         ├─► Job worker (in-process, 5 s poll)
@@ -571,6 +627,9 @@ You're missing one of the required env vars or your `SLOTTY_ENCRYPTION_KEY` does
 
 **Can't connect Google account: `redirect_uri_mismatch`**
 The redirect URI configured in Google Cloud Console must exactly match `<admin-origin>/api/admin/calendars/callback` (use `SLOTTY_ADMIN_ORIGIN` if set, otherwise `SLOTTY_PUBLIC_URL`). Check for `http` vs `https`, trailing slash, and exact host.
+
+**Group poll participants get `redirect_uri_mismatch` from Google**
+Register `<SLOTTY_PUBLIC_URL>/api/public/polls/google/callback` as a second authorized redirect URI. It must use the public URL, not `SLOTTY_ADMIN_ORIGIN`, and your reverse proxy must not block it.
 
 **Booking page is empty / no slots**
 - Make sure your default schedule has at least one weekly rule.
