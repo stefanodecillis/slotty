@@ -316,6 +316,14 @@ export async function startJobScheduler(): Promise<void> {
   }, { maxAttempts: 3, retryOnError: true });
   scheduleRecurring('prune_booking_invites', 24 * 60 * 60 * 1000);
 
+  // Group polls whose answer-by deadline passed: tell the owner (and
+  // auto-book when asked). Answers trigger the same check on their own.
+  registerHandler('poll_deadlines', async () => {
+    const { checkPollDeadlines } = await import('@/lib/group-poll/service');
+    await checkPollDeadlines();
+  }, { maxAttempts: 3, retryOnError: true });
+  scheduleRecurring('poll_deadlines', 5 * 60 * 1000);
+
   runScheduler(5_000);
   logger.info({ event: 'scheduler.started' }, 'job scheduler started');
 }

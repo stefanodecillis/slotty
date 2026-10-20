@@ -33,6 +33,7 @@ import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
 import { getPublicUrl } from '@/lib/site-url/store';
 import { logger } from '@/lib/logger';
 import { MAX_POLL_PARTICIPANTS, type GroupPollSettings } from '@/lib/group-poll/validator';
+import { checkPollReady } from '@/lib/group-poll/service';
 import type { OneTimeAvailabilityInput, OneTimeLinkInput } from './validator';
 
 export class OneTimeLinkError extends Error {
@@ -80,7 +81,14 @@ export interface OneTimeLinkListItem {
   availabilityLabel: string;
   booking: OneTimeLinkBooking | null;
   /** Set when the invitation is a group availability poll. */
-  groupPoll: { responses: number } | null;
+  groupPoll: {
+    responses: number;
+    /** How many people are expected, and how many of them have answered. */
+    expected: number;
+    expectedAnswered: number;
+    /** When everyone expected answered (or the deadline passed). */
+    readyAt: string | null;
+  } | null;
 }
 
 export interface OneTimeLinkDetail {
@@ -303,6 +311,34 @@ function eventTypeFields(input: OneTimeLinkInput, destinationCalendarId: string)
 // Create
 // ─────────────────────────────────────────────────────────────
 
+/** The stored form of the group-poll settings. */
+function pollSettings(settings: GroupPollSettings) {
+  return {
+    showNames: settings.showNames,
+    allowGoogle: settings.allowGoogle,
+    expectedJson: JSON.stringify(settings.expected),
+    answerBy: settings.answerBy ? new Date(settings.answerBy) : null,
+    autoBook: settings.autoBook,
+  };
+}
+
+function pollSummary(poll: {
+  expectedJson: string;
+  readyAt: Date | null;
+  participants: { email: string; _count: { votes: number } }[];
+}): NonNullable<OneTimeLinkListItem['groupPoll']> {
+  const expected = parseEmails(poll.expectedJson).map((e) => e.toLowerCase());
+  const answered = new Set(
+    poll.participants.filter((p) => p._count.votes > 0).map((p) => p.email.toLowerCase()),
+  );
+  return {
+    responses: poll.participants.length,
+    expected: expected.length,
+    expectedAnswered: expected.filter((e) => answered.has(e)).length,
+    readyAt: poll.readyAt?.toISOString() ?? null,
+  };
+}
+
 export async function createOneTimeLink(
   userId: string,
   input: OneTimeLinkInput,
@@ -347,13 +383,7 @@ export async function createOneTimeLink(
       },
     });
     if (input.groupPoll.enabled) {
-      await tx.groupPoll.create({
-        data: {
-          eventTypeId: et.id,
-          showNames: input.groupPoll.showNames,
-          allowGoogle: input.groupPoll.allowGoogle,
-        },
-      });
+      await tx.groupPoll.create({ data: { eventTypeId: et.id, ...pollSettings(input.groupPoll) } });
     }
     return { eventType: et, invite: inv };
   });
@@ -449,8 +479,15 @@ export async function getOneTimeLink(
       sendReminders: et.sendReminders,
       brandId: et.brandId,
       groupPoll: et.groupPoll
-        ? { enabled: true, showNames: et.groupPoll.showNames, allowGoogle: et.groupPoll.allowGoogle }
-        : { enabled: false, showNames: true, allowGoogle: true },
+        ? {
+            enabled: true,
+            showNames: et.groupPoll.showNames,
+            allowGoogle: et.groupPoll.allowGoogle,
+            expected: parseEmails(et.groupPoll.expectedJson),
+            answerBy: et.groupPoll.answerBy?.toISOString() ?? null,
+            autoBook: et.groupPoll.autoBook,
+          }
+        : { enabled: false, showNames: true, allowGoogle: true, expected: [], answerBy: null, autoBook: false },
     },
   };
 }
@@ -490,7 +527,13 @@ export async function listOneTimeLinks(
         take: 1,
       },
       schedule: { select: { name: true, isOneTime: true, isDefault: true } },
-      groupPoll: { select: { _count: { select: { participants: true } } } },
+      groupPoll: {
+        select: {
+          expectedJson: true,
+          readyAt: true,
+          participants: { select: { email: true, _count: { select: { votes: true } } } },
+        },
+      },
     },
   });
 
@@ -529,7 +572,7 @@ export async function listOneTimeLinks(
             bookerEmail: booking.bookerEmail,
           }
         : null,
-      groupPoll: row.groupPoll ? { responses: row.groupPoll._count.participants } : null,
+      groupPoll: row.groupPoll ? pollSummary(row.groupPoll) : null,
     });
   }
   return items;
@@ -605,10 +648,9 @@ export async function updateOneTimeLink(
     }
 
     if (input.groupPoll.enabled) {
-      const settings = {
-        showNames: input.groupPoll.showNames,
-        allowGoogle: input.groupPoll.allowGoogle,
-      };
+      // Changing who's expected or the deadline re-arms "ready": it's checked
+      // again right after the edit.
+      const settings = { ...pollSettings(input.groupPoll), readyAt: null };
       await tx.groupPoll.upsert({
         where: { eventTypeId: et.id },
         create: { eventTypeId: et.id, ...settings },
@@ -630,6 +672,12 @@ export async function updateOneTimeLink(
   // Hours / duration / buffers may all have changed — drop cached slots so
   // the invitee sees the new availability immediately.
   invalidateSlotCache(et.id);
+
+  // New expected people or deadline: the poll may be ready right away.
+  if (input.groupPoll.enabled) {
+    const poll = await db.groupPoll.findUnique({ where: { eventTypeId: et.id }, select: { id: true } });
+    if (poll) await checkPollReady(poll.id, now);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

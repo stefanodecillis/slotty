@@ -12,6 +12,8 @@ export type WebhookEvent =
   | 'booking.cancelled'
   | 'booking.rescheduled'
   | 'booking.no_show'
+  /** A group poll has everyone's answers (or passed its deadline). */
+  | 'poll.ready'
   | 'webhook.test';
 
 /**

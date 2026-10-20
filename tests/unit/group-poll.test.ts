@@ -195,9 +195,16 @@ describe('group invitations', () => {
     expect(et.maxGuests).toBe(14);
 
     const detail = await getOneTimeLink(user.id, created.eventTypeId);
-    expect(detail.values.groupPoll).toEqual({ enabled: true, showNames: false, allowGoogle: true });
+    expect(detail.values.groupPoll).toEqual({
+      enabled: true,
+      showNames: false,
+      allowGoogle: true,
+      expected: [],
+      answerBy: null,
+      autoBook: false,
+    });
     const [item] = await listOneTimeLinks(user.id);
-    expect(item?.groupPoll).toEqual({ responses: 0 });
+    expect(item?.groupPoll).toEqual({ responses: 0, expected: 0, expectedAnswered: 0, readyAt: null });
   });
 
   it('rejects a poll window longer than 31 days', () => {

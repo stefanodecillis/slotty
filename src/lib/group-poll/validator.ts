@@ -17,6 +17,16 @@ export const groupPollSettingsSchema = z.object({
   enabled: z.boolean().default(false),
   showNames: z.boolean().default(true),
   allowGoogle: z.boolean().default(true),
+  /** Who should answer. When all of them have, the poll is ready. */
+  expected: z
+    .array(z.string().trim().toLowerCase().email().max(320))
+    .max(MAX_POLL_PARTICIPANTS)
+    .default([])
+    .transform((emails) => Array.from(new Set(emails))),
+  /** Once this passes (with at least one answer), the poll is ready. */
+  answerBy: z.string().datetime().nullable().default(null),
+  /** When ready, book the best time if it works for everyone who answered. */
+  autoBook: z.boolean().default(false),
 });
 
 export type GroupPollSettings = z.infer<typeof groupPollSettingsSchema>;

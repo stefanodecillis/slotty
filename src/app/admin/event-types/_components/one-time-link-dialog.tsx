@@ -109,6 +109,8 @@ const DEFAULTS = {
 
 // '__keep__' only exists when editing an invitation that already has an expiry.
 type ExpiryChoice = '__keep__' | '__never__' | '1' | '7' | '30';
+// Same idea for a group poll's answer-by deadline (days from now).
+type AnswerByChoice = '__keep__' | '__none__' | '1' | '2' | '3' | '7';
 
 interface FormState {
   title: string;
@@ -138,6 +140,11 @@ interface FormState {
   audience: 'one' | 'group';
   pollShowNames: boolean;
   pollAllowGoogle: boolean;
+  pollExpected: string[];
+  pollAnswerBy: AnswerByChoice;
+  /** The saved deadline, for "Keep" when editing. */
+  pollAnswerByInitial: string | null;
+  pollAutoBook: boolean;
 }
 
 function emptyForm(options: OneTimeLinkOptions): FormState {
@@ -169,6 +176,10 @@ function emptyForm(options: OneTimeLinkOptions): FormState {
     audience: 'one',
     pollShowNames: true,
     pollAllowGoogle: true,
+    pollExpected: [],
+    pollAnswerBy: '__none__',
+    pollAnswerByInitial: null,
+    pollAutoBook: false,
   };
 }
 
@@ -223,6 +234,10 @@ function formFromValues(values: OneTimeLinkPayload, options: OneTimeLinkOptions)
     audience: values.groupPoll.enabled ? 'group' : 'one',
     pollShowNames: values.groupPoll.showNames,
     pollAllowGoogle: values.groupPoll.allowGoogle,
+    pollExpected: values.groupPoll.expected,
+    pollAnswerBy: values.groupPoll.answerBy ? '__keep__' : '__none__',
+    pollAnswerByInitial: values.groupPoll.answerBy,
+    pollAutoBook: values.groupPoll.autoBook,
   };
 }
 
@@ -589,6 +604,14 @@ function InvitationForm({
         enabled: form.audience === 'group',
         showNames: form.pollShowNames,
         allowGoogle: form.pollAllowGoogle,
+        expected: form.pollExpected,
+        answerBy:
+          form.pollAnswerBy === '__keep__'
+            ? form.pollAnswerByInitial
+            : form.pollAnswerBy === '__none__'
+              ? null
+              : new Date(Date.now() + Number(form.pollAnswerBy) * 24 * 60 * 60 * 1000).toISOString(),
+        autoBook: form.pollAutoBook,
       },
     });
   }
@@ -691,6 +714,58 @@ function InvitationForm({
                 checked={form.pollAllowGoogle && options.participantGoogle.available}
                 disabled={!options.participantGoogle.available}
                 onCheckedChange={(v) => set('pollAllowGoogle', v)}
+              />
+            </div>
+            <div className="grid gap-2 border-t border-input pt-3">
+              <Label htmlFor="ot-poll-expected">Who should answer (optional)</Label>
+              <GuestChipInput
+                value={form.pollExpected}
+                onChange={(v) => set('pollExpected', v)}
+                max={15}
+              />
+              <p className="text-xs text-muted-foreground">
+                Their emails. Slotty tells you once all of them have answered, and shows who
+                you&apos;re still waiting for.
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ot-poll-answer-by">Answer by</Label>
+              <Select
+                value={form.pollAnswerBy}
+                onValueChange={(v) => set('pollAnswerBy', v as AnswerByChoice)}
+              >
+                <SelectTrigger id="ot-poll-answer-by">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {form.pollAnswerByInitial ? (
+                    <SelectItem value="__keep__">
+                      Keep ({new Date(form.pollAnswerByInitial).toLocaleString()})
+                    </SelectItem>
+                  ) : null}
+                  <SelectItem value="__none__">No deadline</SelectItem>
+                  <SelectItem value="1">In 1 day</SelectItem>
+                  <SelectItem value="2">In 2 days</SelectItem>
+                  <SelectItem value="3">In 3 days</SelectItem>
+                  <SelectItem value="7">In 7 days</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Once it passes, Slotty tells you the best times so far, even if not everyone answered.
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col">
+                <Label htmlFor="ot-poll-autobook">Book automatically</Label>
+                <p className="text-xs text-muted-foreground">
+                  When the poll is ready and a time works for everyone who answered, book the best
+                  one and invite everyone. Otherwise you pick, as usual.
+                </p>
+              </div>
+              <Switch
+                id="ot-poll-autobook"
+                checked={form.pollAutoBook}
+                onCheckedChange={(v) => set('pollAutoBook', v)}
               />
             </div>
           </div>

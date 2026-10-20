@@ -19,6 +19,7 @@ const VALID_EVENTS = [
   'booking.cancelled',
   'booking.rescheduled',
   'booking.no_show',
+  'poll.ready',
 ];
 
 const createSchema = z.object({
