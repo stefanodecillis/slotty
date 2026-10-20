@@ -125,6 +125,9 @@ export function GroupPollFlow(props: Props) {
     name: string | null;
     email: string | null;
   } | null>(null);
+  // Name and email typed before leaving for Google, restored whatever the
+  // import's outcome — over a saved answer's, since they're the newer edit.
+  const [restoreDraft, setRestoreDraft] = useState<{ name: string; email: string } | null>(null);
 
   // Pick up the timezone, a personal link (?p=) and a Google round-trip
   // result (?google=), then clean the URL so tokens don't linger in history.
@@ -137,6 +140,7 @@ export function GroupPollFlow(props: Props) {
     setParticipantToken(fromLink ?? readStoredToken(inviteToken));
     const google = url.searchParams.get('google');
     const draft = google ? takeDraft(inviteToken) : null;
+    if (draft) setRestoreDraft(draft);
     const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
     if (link) {
       setPrefill({ via: 'agent', ranges: link.ranges, name: link.name, email: link.email });
@@ -144,7 +148,7 @@ export function GroupPollFlow(props: Props) {
     }
     if (google === 'ok') {
       const ranges = decodeSpans(fragment.get(GOOGLE_FREE_PARAM)).map((s) => ({ ...s, value: 'yes' as const }));
-      setPrefill({ via: 'google', ranges, name: draft?.name ?? null, email: draft?.email ?? null });
+      setPrefill({ via: 'google', ranges, name: null, email: null });
       url.hash = '';
     } else if (google === 'empty')
       toast.message('Google Calendar shows you busy at every time in this poll. Mark the times you can make by hand.');
@@ -198,6 +202,19 @@ export function GroupPollFlow(props: Props) {
       setDirty(false);
     }
   }, [data, participantToken]);
+
+  useEffect(() => {
+    if (!data || !restoreDraft) return;
+    setRestoreDraft(null);
+    if (restoreDraft.name.trim()) setName(restoreDraft.name);
+    if (restoreDraft.email.trim()) setEmail(restoreDraft.email);
+    if (
+      data.me &&
+      (restoreDraft.name.trim() !== data.me.name || restoreDraft.email.trim() !== data.me.email)
+    ) {
+      setDirty(true);
+    }
+  }, [data, restoreDraft]);
 
   // Paint a pre-fill over whatever was there, as unsaved changes. Runs after
   // the saved answer (if any) has loaded above.

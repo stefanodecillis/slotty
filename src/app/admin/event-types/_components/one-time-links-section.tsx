@@ -13,7 +13,7 @@
  * Group invitations (availability polls) show how many people answered and
  * open the answers dialog, where the owner books the common time.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { CalendarCheck, Copy, Link2, Pencil, Trash2, Users } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -84,6 +84,19 @@ export function OneTimeLinksSection({ options }: Props) {
   });
 
   const links = query.data?.links ?? [];
+
+  // `?answers=<eventTypeId>` (the link in the poll.ready webhook) opens that
+  // poll's answers straight away.
+  useEffect(() => {
+    if (!query.data) return;
+    const url = new URL(window.location.href);
+    const id = url.searchParams.get('answers');
+    if (!id) return;
+    const link = query.data.links.find((l) => l.eventTypeId === id && l.groupPoll);
+    if (link) setAnswersFor(link);
+    url.searchParams.delete('answers');
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }, [query.data]);
 
   return (
     <section className="flex flex-col gap-4">
@@ -226,9 +239,22 @@ function OneTimeLinkRow({ link, isFirst, onEdit, onAnswers, onDelete, onCancelMe
               Booked
             </span>
           ) : poll ? (
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-              Group · {poll.responses} answer{poll.responses === 1 ? '' : 's'}
-            </span>
+            <>
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                Group ·{' '}
+                {poll.expected > 0
+                  ? `${poll.expectedAnswered} of ${poll.expected} answered`
+                  : `${poll.responses} answer${poll.responses === 1 ? '' : 's'}`}
+              </span>
+              {poll.readyAt ? (
+                <span
+                  className="rounded-full bg-emerald-600/10 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-400"
+                  title="Everyone you expected has answered, or the answer-by deadline passed"
+                >
+                  Ready to book
+                </span>
+              ) : null}
+            </>
           ) : (
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
               Awaiting booking

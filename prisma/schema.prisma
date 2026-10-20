@@ -453,6 +453,17 @@ model GroupPoll {
   showNames          Boolean  @default(true) @map("show_names")
   // Offer "Import from Google Calendar" (free/busy only) to participants.
   allowGoogle        Boolean  @default(true) @map("allow_google")
+  // Optional: who should answer (lowercased emails, JSON array). When all of
+  // them have answered, the poll is ready and the owner is told.
+  expectedJson       String   @default("[]") @map("expected_json")
+  // Optional deadline: once passed (with at least one answer) the poll is ready.
+  answerBy           DateTime? @map("answer_by")
+  // Book the best time automatically when the poll is ready and at least one
+  // time works for everyone who answered.
+  autoBook           Boolean  @default(false) @map("auto_book")
+  // When the poll became ready (and the owner was told). Null until then.
+  readyAt            DateTime? @map("ready_at")
+  readyReason        String?  @map("ready_reason") // everyone_answered | deadline
   finalizedBookingId String?  @unique @map("finalized_booking_id")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")

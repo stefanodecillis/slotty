@@ -229,6 +229,16 @@ who answered is invited to that one meeting through Google Calendar.
 
 An answer always marks at least one time: the poll refuses to save an empty one.
 
+The **Answers** dialog shows a calendar of everyone's availability (darker = more
+people, a ring = everyone) next to the ranked best times; click a time to book it.
+To be told when the group is done, list **who should answer** and/or an **answer-by**
+deadline on the invitation. When all of them have answered, or the deadline passes,
+the invitation shows **Ready to book** and Slotty fires the `poll.ready` webhook with
+the three best times and a link straight to the answers (point it at ntfy, Slack,
+Telegram… under **Settings → Webhooks**). With **Book automatically** on, Slotty
+books the best time itself when it works for everyone who answered; otherwise you
+pick.
+
 Participants can optionally pre-fill their answer from Google Calendar. The import
 only marks their free times in the grid; they check it and press Save like any other
 answer, so an abandoned import leaves nothing behind:

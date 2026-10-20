@@ -26,6 +26,7 @@ const VALID_EVENTS = [
   { value: 'booking.cancelled', label: 'Booking cancelled' },
   { value: 'booking.rescheduled', label: 'Booking rescheduled' },
   { value: 'booking.no_show', label: 'Booking no-show' },
+  { value: 'poll.ready', label: 'Group poll ready to book' },
 ];
 
 function generateRandomSecret(): string {

@@ -30,6 +30,8 @@ import {
 } from '@/lib/api/group-poll';
 import { cn } from '@/lib/utils/cn';
 
+import { PollHeatmap } from './poll-heatmap';
+
 interface Props {
   eventTypeId: string;
   title: string;
@@ -40,6 +42,7 @@ export function PollResultsDialog({ eventTypeId, title, onClose }: Props) {
   const queryClient = useQueryClient();
   const ownerTz = useOwnerTimezone();
   const [confirmStart, setConfirmStart] = useState<string | null>(null);
+  const [gridPick, setGridPick] = useState<AdminPollResults['slots'][number] | null>(null);
 
   const query = useQuery({
     queryKey: pollKeys.results(eventTypeId),
@@ -118,11 +121,59 @@ export function PollResultsDialog({ eventTypeId, title, onClose }: Props) {
               </p>
             ) : null}
 
+            <PollStatus data={data} timeZone={ownerTz} />
+
             <Participants
               data={data}
               removing={remove.isPending}
               onRemove={(id) => remove.mutate(id)}
             />
+
+            {data.participants.length > 0 ? (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-medium text-foreground">Calendar</h3>
+                <PollHeatmap
+                  data={data}
+                  timeZone={ownerTz}
+                  selected={gridPick?.startUtc ?? null}
+                  onPick={(slot) => setGridPick(slot)}
+                />
+                {gridPick ? (
+                  <div className="flex flex-col gap-2 rounded-lg border border-border px-3 py-3 sm:flex-row sm:items-center">
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-sm font-medium text-foreground">
+                        {formatSlot(gridPick.startUtc, gridPick.endUtc, ownerTz)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {gridPick.no.length === 0
+                          ? 'Everyone can make it.'
+                          : `${gridPick.yes.length + gridPick.maybe.length} of ${data.participants.length} can make it.`}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setGridPick(null)}
+                        disabled={finalize.isPending}
+                      >
+                        Back
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => finalize.mutate(gridPick.startUtc)}
+                        disabled={finalize.isPending}
+                      >
+                        <CalendarCheck className="h-4 w-4" />
+                        {finalize.isPending ? 'Booking…' : 'Confirm & invite all'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <section className="flex flex-col gap-2">
               <h3 className="text-sm font-medium text-foreground">Best times</h3>
@@ -224,6 +275,52 @@ export function PollResultsDialog({ eventTypeId, title, onClose }: Props) {
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Who the owner is still waiting for, the deadline, and whether the poll is ready. */
+function PollStatus({ data, timeZone }: { data: AdminPollResults; timeZone: string }) {
+  const waiting = data.expected.filter((e) => !e.answered);
+  const deadline = data.answerBy
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(
+        new Date(data.answerBy),
+      )
+    : null;
+  if (!data.readyAt && data.expected.length === 0 && !deadline && !data.autoBook) return null;
+
+  return (
+    <section
+      className={cn(
+        'flex flex-col gap-1 rounded-lg border px-3 py-2 text-xs',
+        data.readyAt ? 'border-emerald-600/30 bg-emerald-600/5' : 'border-input bg-muted/40',
+      )}
+    >
+      {data.readyAt ? (
+        <p className="font-medium text-emerald-700 dark:text-emerald-400">
+          Ready to book —{' '}
+          {data.readyReason === 'deadline'
+            ? 'the answer-by deadline has passed.'
+            : 'everyone you expected has answered.'}
+        </p>
+      ) : null}
+      {data.expected.length > 0 ? (
+        <p className="text-muted-foreground">
+          {waiting.length === 0
+            ? `All ${data.expected.length} expected people have answered.`
+            : `Waiting for ${waiting.map((e) => e.email).join(', ')} (${data.expected.length - waiting.length} of ${data.expected.length} answered).`}
+        </p>
+      ) : null}
+      {deadline ? <p className="text-muted-foreground">Answer by {deadline}.</p> : null}
+      {data.autoBook ? (
+        <p className="text-muted-foreground">
+          {!data.readyAt
+            ? 'When it’s ready, Slotty books the best time if it works for everyone who answered.'
+            : data.slots.some((t) => t.no.length === 0 && t.yes.length + t.maybe.length > 0)
+              ? 'Book automatically was on, but Slotty couldn’t book it (the time may have been taken meanwhile) — pick one below.'
+              : 'Book automatically was on, but no time worked for everyone who answered — pick one below.'}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
