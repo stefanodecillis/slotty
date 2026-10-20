@@ -87,7 +87,8 @@ export interface AgentLinkDescriptor {
     notice: string;
     steps: string[];
   };
-  content: {
+  /** Absent on closed links: a spent or withdrawn token no longer reveals the meeting. */
+  content?: {
     title: string;
     description: string | null;
     durationMinutes: number;
@@ -105,7 +106,8 @@ export interface AgentLinkDescriptor {
     windowStart: string;
     windowEnd: string;
   };
-  meeting?: { startUtc: string; endUtc: string };
+  /** Finalized polls only — what the human "time confirmed" panel shows. */
+  meeting?: { title: string; startUtc: string; endUtc: string };
   availability?: {
     timezone: string;
     from: string;
@@ -205,11 +207,22 @@ async function slotPage(args: {
   pageUrl: (from: string) => string;
 }): Promise<NonNullable<AgentLinkDescriptor['availability']>> {
   const { eventType, owner, tz, from, to, now } = args;
+  // The engine clips availability at `from` before fitting buffers, which
+  // would drop a page's first slots when there's a before-buffer. Compute
+  // from a day earlier and cut at the cursor instead.
+  const fromIso = from.toISOString();
   const result =
     to > from
-      ? await computeSlots({ eventType, user: owner, from, to, bookerTz: tz, now })
+      ? await computeSlots({
+          eventType,
+          user: owner,
+          from: new Date(from.getTime() - DAY_MS),
+          to,
+          bookerTz: tz,
+          now,
+        })
       : { days: [] };
-  const all = result.days.flatMap((d) => d.slots);
+  const all = result.days.flatMap((d) => d.slots).filter((s) => s.startUtc >= fromIso);
   const slots = all.slice(0, DESCRIPTOR_MAX_SLOTS).map((s) => ({
     startUtc: s.startUtc,
     endUtc: s.endUtc,
@@ -218,7 +231,7 @@ async function slotPage(args: {
   const next = all[DESCRIPTOR_MAX_SLOTS];
   return {
     timezone: tz,
-    from: from.toISOString(),
+    from: fromIso,
     to: to.toISOString(),
     slots,
     truncated: Boolean(next),
@@ -255,7 +268,6 @@ function bookingActions(
     maxGuests: number;
     questions: AgentQuestion[];
     slotsUrl: string;
-    canReschedule: boolean;
   },
 ): Record<string, AgentAction> {
   const answersExample = Object.fromEntries(
@@ -369,25 +381,30 @@ function bookingActions(
       body: { reason: { type: 'string', required: false, description: 'Shown to the host.' } },
     },
   };
-  if (opts.canReschedule) {
-    actions.reschedule = {
-      description: 'Move a booking you made to another slot from `listSlots`.',
-      method: 'POST',
-      url: `${base}/api/public/bookings/{id}/reschedule?t={rescheduleToken}`,
-      headers: { 'Content-Type': 'application/json' },
-      body: {
-        startAt: {
-          type: 'ISO 8601 instant',
-          required: true,
-          description: 'A `startUtc` from listSlots.',
-        },
+  actions.listRescheduleSlots = {
+    description:
+      'Times a booking you made can be moved to (at most 90 days per call). Works even after an invitation is used up.',
+    method: 'GET',
+    url: `${base}/api/public/bookings/{id}/slots?t={rescheduleToken}&from={ISO instant}&to={ISO instant}&tz={IANA timezone}`,
+    returns: '{ days: [{ date, slots: [{ startUtc, endUtc, startInBookerTz }] }] }',
+  };
+  actions.reschedule = {
+    description: 'Move a booking you made to a slot from `listRescheduleSlots`.',
+    method: 'POST',
+    url: `${base}/api/public/bookings/{id}/reschedule?t={rescheduleToken}`,
+    headers: { 'Content-Type': 'application/json' },
+    body: {
+      startAt: {
+        type: 'ISO 8601 instant',
+        required: true,
+        description: 'A `startUtc` from listRescheduleSlots.',
       },
-    };
-  }
+    },
+  };
   return actions;
 }
 
-function bookingSteps(opts: { requiresPassword: boolean; canReschedule: boolean }): string[] {
+function bookingSteps(opts: { requiresPassword: boolean }): string[] {
   return [
     'Read `availability.slots` (follow `availability.nextPageUrl` or use `actions.listSlots` for later dates).',
     CONFIRM_STEP,
@@ -397,9 +414,7 @@ function bookingSteps(opts: { requiresPassword: boolean; canReschedule: boolean 
     'Answer every required question in `booking.questions` using its `answerFormat`.',
     'POST `actions.book` once, with a fresh clientRequestId. On a network error retry with the same clientRequestId.',
     'Tell your user the confirmed time (the response has startAt/endAt) and share manageUrl and meetingUrl.',
-    opts.canReschedule
-      ? 'To change it later use `actions.reschedule` or `actions.cancel` with the tokens from the booking response.'
-      : 'To cancel later use `actions.cancel`; to move it, your user opens manageUrl in a browser.',
+    'To change it later use `actions.listRescheduleSlots` + `actions.reschedule`, or `actions.cancel`, with the id and tokens from the booking response.',
   ];
 }
 
@@ -447,7 +462,7 @@ export async function describeEventTypeLink(
       descriptorUrl,
       markdownUrl: withQuery(descriptorUrl, { format: 'markdown' }),
     },
-    protocol: { notice: NOTICE, steps: bookingSteps({ requiresPassword, canReschedule: true }) },
+    protocol: { notice: NOTICE, steps: bookingSteps({ requiresPassword }) },
     content: describeContent(eventType, await hostName(eventType, eventType.user)),
     booking: { requiresPassword, maxAdditionalGuests: eventType.maxGuests, questions },
     availability,
@@ -459,7 +474,6 @@ export async function describeEventTypeLink(
         maxGuests: eventType.maxGuests,
         questions,
         slotsUrl: `${base}/api/public/event-types/${enc}/slots?from={ISO instant}&to={ISO instant}&tz={IANA timezone}`,
-        canReschedule: true,
       },
     ),
     errors: ERRORS,
@@ -499,7 +513,6 @@ export async function describeInviteLink(
   const enc = encodeURIComponent(token);
   const descriptorUrl = `${base}/api/agent/invites/${enc}`;
   const humanUrl = `${base}/i/${enc}`;
-  const content = describeContent(eventType, await hostName(eventType, owner));
   const kind: AgentLinkKind = poll ? 'group_poll' : 'invite';
 
   let status: AgentLinkStatus =
@@ -533,10 +546,10 @@ export async function describeInviteLink(
           'Tell your user this link can no longer be used, and why (see `link.statusMessage`).',
         ],
       },
-      content,
       ...(meeting && status === 'finalized'
         ? {
             meeting: {
+              title: eventType.title,
               startUtc: meeting.startAt.toISOString(),
               endUtc: meeting.endAt.toISOString(),
             },
@@ -546,6 +559,7 @@ export async function describeInviteLink(
     };
   }
 
+  const content = describeContent(eventType, await hostName(eventType, owner));
   if (!poll) {
     const questions = describeQuestions(eventType.questions);
     const from = new Date(Math.max((opts.from ?? now).getTime(), now.getTime()));
@@ -556,7 +570,7 @@ export async function describeInviteLink(
       // The token is the credential: invitations never ask for the event type's password.
       protocol: {
         notice: NOTICE,
-        steps: bookingSteps({ requiresPassword: false, canReschedule: false }),
+        steps: bookingSteps({ requiresPassword: false }),
       },
       content,
       booking: { requiresPassword: false, maxAdditionalGuests: eventType.maxGuests, questions },
@@ -577,7 +591,6 @@ export async function describeInviteLink(
           maxGuests: eventType.maxGuests,
           questions,
           slotsUrl: `${base}/api/public/invites/${enc}/slots?from={ISO instant}&to={ISO instant}&tz={IANA timezone}`,
-          canReschedule: false,
         },
       ),
       errors: ERRORS,

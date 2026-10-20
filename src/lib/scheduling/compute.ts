@@ -59,7 +59,7 @@ export interface ComputeSlotsArgs {
     byDay: Map<string, number>;
     byWeek: Map<string, number>;
   };
-  /** Booking left out of the cap counts (the one being rescheduled). */
+  /** Booking left out of the cap counts (the one being rescheduled). Bypasses the cache. */
   excludeBookingId?: string;
   /** Skip the cache (used by tests). */
   noCache?: boolean;
@@ -320,7 +320,9 @@ export async function computeSlots(args: ComputeSlotsArgs): Promise<SlotResult> 
     busyMaxUpdatedAtMs: Math.max(busyMaxUpdatedAtMs, bookingMaxUpdatedAtMs),
   });
 
-  if (!args.noCache) {
+  // Results that leave a booking out of the caps aren't shareable.
+  const useCache = !args.noCache && !args.excludeBookingId;
+  if (useCache) {
     const hit = cacheGet(cacheKey);
     if (hit) return hit;
   }
@@ -397,7 +399,7 @@ export async function computeSlots(args: ComputeSlotsArgs): Promise<SlotResult> 
     eventTypeId: eventType.id,
   };
 
-  if (!args.noCache) cacheSet(cacheKey, result);
+  if (useCache) cacheSet(cacheKey, result);
   return result;
 }
 

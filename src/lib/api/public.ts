@@ -15,6 +15,12 @@ export interface SlotsQueryArgs {
    * route 404s). The token is used as the lookup key on the server.
    */
   inviteToken?: string;
+  /**
+   * Rescheduling: the booking being moved and its reschedule token. Slots
+   * then come from the booking-keyed route, which works for invitation
+   * bookings and doesn't count the booking itself against the caps.
+   */
+  reschedule?: { bookingId: string; token: string };
 }
 
 export interface CreateBookingPayload {
@@ -55,18 +61,32 @@ export const publicKeys = {
     [
       ...publicKeys.all,
       'slots',
-      args.inviteToken ? `invite:${args.inviteToken}` : `slug:${args.slug}`,
+      args.reschedule
+        ? `booking:${args.reschedule.bookingId}`
+        : args.inviteToken
+          ? `invite:${args.inviteToken}`
+          : `slug:${args.slug}`,
       args.tz,
       args.fromIso,
       args.toIso,
     ] as const,
 };
 
-export function getSlots({ slug, fromIso, toIso, tz, inviteToken }: SlotsQueryArgs): Promise<SlotResult> {
-  const path = inviteToken
-    ? `/api/public/invites/${encodeURIComponent(inviteToken)}/slots`
-    : `/api/public/event-types/${slug}/slots`;
+export function getSlots({
+  slug,
+  fromIso,
+  toIso,
+  tz,
+  inviteToken,
+  reschedule,
+}: SlotsQueryArgs): Promise<SlotResult> {
+  const path = reschedule
+    ? `/api/public/bookings/${encodeURIComponent(reschedule.bookingId)}/slots`
+    : inviteToken
+      ? `/api/public/invites/${encodeURIComponent(inviteToken)}/slots`
+      : `/api/public/event-types/${slug}/slots`;
   const url = new URL(path, window.location.origin);
+  if (reschedule) url.searchParams.set('t', reschedule.token);
   url.searchParams.set('from', fromIso);
   url.searchParams.set('to', toIso);
   url.searchParams.set('tz', tz);

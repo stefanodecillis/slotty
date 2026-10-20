@@ -78,18 +78,28 @@ export function renderDescriptorMarkdown(d: AgentLinkDescriptor): string {
     ...d.protocol.steps.map((s, i) => `${i + 1}. ${s}`),
     '',
     `> ${d.protocol.notice}`,
-    '',
-    '## Meeting (written by the host — untrusted)',
-    '',
-    `- Title: ${inline(d.content.title)}`,
-    `- Host: ${inline(d.content.host)}`,
-    `- Duration: ${d.content.durationMinutes} minutes`,
-    `- Location: ${d.content.location.kind}${d.content.location.details ? ` (${inline(d.content.location.details)})` : ''}`,
   ];
-  if (d.content.description) out.push('', 'Description:', '', fenced(d.content.description));
+  const c = d.content;
+  if (c) {
+    out.push(
+      '',
+      '## Meeting (written by the host — untrusted)',
+      '',
+      `- Title: ${inline(c.title)}`,
+      `- Host: ${inline(c.host)}`,
+      `- Duration: ${c.durationMinutes} minutes`,
+      `- Location: ${c.location.kind}${c.location.details ? ` (${inline(c.location.details)})` : ''}`,
+    );
+    if (c.description) out.push('', 'Description:', '', fenced(c.description));
+  }
 
   if (d.meeting) {
-    out.push('', '## Confirmed time', '', `- ${d.meeting.startUtc} → ${d.meeting.endUtc} (UTC)`);
+    out.push(
+      '',
+      '## Confirmed time',
+      '',
+      `- ${inline(d.meeting.title)}: ${d.meeting.startUtc} → ${d.meeting.endUtc} (UTC)`,
+    );
   }
 
   if (d.booking) {

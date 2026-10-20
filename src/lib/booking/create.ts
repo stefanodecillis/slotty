@@ -25,8 +25,7 @@
  * load-bearing correctness properties here; the rest is plumbing.
  */
 import type { calendar_v3 } from 'googleapis';
-import { Prisma } from '@prisma/client';
-import type { Booking, EventType, EventTypeQuestion, User } from '@prisma/client';
+import type { Booking, EventType, EventTypeQuestion, Prisma, User } from '@prisma/client';
 
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -466,13 +465,12 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
       return created;
     });
   } catch (err) {
-    // A concurrent request with the same clientRequestId won the unique index:
-    // hand back its booking instead of a 500.
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === 'P2002' &&
-      input.clientRequestId
-    ) {
+    // A concurrent copy of this request may have committed first. Depending
+    // on timing we see that as the unique index (P2002), the slot it just
+    // took (SLOT_UNAVAILABLE) or the invite it just used (INVITE_UNAVAILABLE).
+    // Either way the booking exists: hand it back instead of an error that
+    // would send the client off to book another time.
+    if (input.clientRequestId) {
       const raced = await findIdempotentReplay(eventType.id, input);
       if (raced) return raced;
     }

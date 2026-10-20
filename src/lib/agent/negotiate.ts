@@ -96,7 +96,13 @@ export function agentPathFor(pathname: string): string | null {
  * them away from the agent view (see `agentFormatFromAccept`).
  */
 export function isFrameworkRequest(headers: Headers): boolean {
-  for (const h of ['rsc', 'next-router-prefetch', 'next-router-state-tree', 'next-url', 'next-action']) {
+  for (const h of [
+    'rsc',
+    'next-router-prefetch',
+    'next-router-state-tree',
+    'next-url',
+    'next-action',
+  ]) {
     if (headers.has(h)) return true;
   }
   const purpose = (headers.get('purpose') ?? headers.get('sec-purpose') ?? '').toLowerCase();

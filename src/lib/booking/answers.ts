@@ -10,7 +10,10 @@
  */
 import type { EventTypeQuestion } from '@prisma/client';
 
-export type AnswerQuestion = Pick<EventTypeQuestion, 'id' | 'label' | 'kind' | 'required' | 'optionsJson'>;
+export type AnswerQuestion = Pick<
+  EventTypeQuestion,
+  'id' | 'label' | 'kind' | 'required' | 'optionsJson'
+>;
 
 export interface AnswerProblem {
   questionId: string;
@@ -29,7 +32,8 @@ export function questionOptions(optionsJson: string | null): string[] {
 
 /**
  * Returns the answers keyed by known question ids only (unknown ids are
- * dropped), plus every rule they break.
+ * dropped; values are kept as sent, a select/radio answer as the option it
+ * names), plus every rule they break.
  */
 export function checkAnswers(
   questions: readonly AnswerQuestion[],
@@ -39,27 +43,40 @@ export function checkAnswers(
   const problems: AnswerProblem[] = [];
   for (const q of questions) {
     const raw = answers[q.id];
-    const value = typeof raw === 'string' ? raw.trim() : '';
+    const value = typeof raw === 'string' ? raw : '';
+    const blank = value.trim() === '';
     if (q.kind === 'checkbox') {
-      if (value !== '' && value !== 'on') {
+      if (!blank && value.trim() !== 'on') {
         problems.push({ questionId: q.id, message: `"${q.label}" must be "on" or empty.` });
-        continue;
-      }
-      if (q.required && value !== 'on') {
+      } else if (q.required && blank) {
         problems.push({ questionId: q.id, message: `"${q.label}" must be checked.` });
-        continue;
+      } else if (!blank) {
+        clean[q.id] = 'on';
       }
-    } else if (value === '') {
+      continue;
+    }
+    if (blank) {
       if (q.required) problems.push({ questionId: q.id, message: `"${q.label}" is required.` });
       continue;
-    } else if (q.kind === 'select' || q.kind === 'radio') {
+    }
+    if (q.kind === 'select' || q.kind === 'radio') {
       const options = questionOptions(q.optionsJson);
-      if (options.length > 0 && !options.includes(value)) {
-        problems.push({ questionId: q.id, message: `"${q.label}" must be one of the listed options.` });
+      // Exact match first; surrounding whitespace on either side is forgiven.
+      const option =
+        options.length === 0
+          ? value
+          : (options.find((o) => o === value) ?? options.find((o) => o.trim() === value.trim()));
+      if (option === undefined) {
+        problems.push({
+          questionId: q.id,
+          message: `"${q.label}" must be one of the listed options.`,
+        });
         continue;
       }
+      clean[q.id] = option;
+      continue;
     }
-    if (value !== '') clean[q.id] = value;
+    clean[q.id] = value;
   }
   return { answers: clean, problems };
 }

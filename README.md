@@ -25,13 +25,14 @@ Connect multiple Google Workspace calendars, share a public booking link, and le
 7. [Reverse proxy](#reverse-proxy)
 8. [First-run setup](#first-run-setup)
 9. [Production deployment](#production-deployment)
-10. [Security model](#security-model)
-11. [Performance](#performance)
-12. [Backup & restore](#backup--restore)
-13. [Migration from Calendly / Cal.com](#migration-from-calendly--calcom)
-14. [Architecture](#architecture)
-15. [Troubleshooting](#troubleshooting)
-16. [License](#license)
+10. [Booking with AI assistants](#booking-with-ai-assistants)
+11. [Security model](#security-model)
+12. [Performance](#performance)
+13. [Backup & restore](#backup--restore)
+14. [Migration from Calendly / Cal.com](#migration-from-calendly--calcom)
+15. [Architecture](#architecture)
+16. [Troubleshooting](#troubleshooting)
+17. [License](#license)
 
 ---
 
@@ -272,7 +273,8 @@ anywhere. Only `/admin*`, `/api/admin/*` and `/setup` should be restricted.
 | Path | Called by | Why |
 | --- | --- | --- |
 | `/`, `/<slug>`, `/i/<token>`, `/b/<id>…` | Visitors' browsers | Public profile, booking pages, one-time invitations and group polls, booking management |
-| `/api/public/*` | Visitors' browsers | Slots, bookings, group-poll answers |
+| `/api/public/*` | Visitors' browsers and AI assistants | Slots, bookings, group-poll answers |
+| `/api/agent/*`, `/llms.txt` | AI assistants | Machine-readable descriptions of booking links (see [Booking with AI assistants](#booking-with-ai-assistants)) |
 | `/api/public/polls/google/callback` | Participants' browsers, redirected by Google | Group-poll "Import from Google Calendar". Must be **HTTPS on a real domain** and registered in Google Cloud as an authorized redirect URI, e.g. `https://book.example.com/api/public/polls/google/callback` |
 | `/api/webhooks/google` | Google's servers | Calendar push notifications |
 
@@ -482,6 +484,36 @@ The schema migrates automatically on container start (`prisma migrate deploy`).
 
 ---
 
+## Booking with AI assistants
+
+Every link you share works for people **and** for their AI assistants — no
+separate link, no account, no Google sign-in. An assistant that already sees its
+user's calendars (one Google account or several, Outlook, anything) opens the same
+URL and books, or answers a group poll, on their behalf.
+
+| Link | What the assistant does |
+| --- | --- |
+| `/<slug>` (public, hidden or password-protected) | Picks an approved free slot and books it (asks its user for the password if there is one) |
+| `/i/<token>` single-use / one-time invitation | Books it; the token replaces any password |
+| `/i/<token>` group poll | Sends its user's free time ranges; you still pick the final time |
+
+How an assistant finds its way:
+
+- Requesting the page with `Accept: text/markdown` or `Accept: application/json`
+  returns the link's **descriptor** instead of HTML (browsers are unaffected).
+- Every booking page links to it in `<head>` (`rel="alternate"`) and in a small
+  "Using an AI assistant?" line under the booking flow.
+- `/llms.txt` explains the scheme for the whole instance.
+
+A descriptor (`/api/agent/links/<slug>` or `/api/agent/invites/<token>`, add
+`?format=markdown` / `?tz=Europe/Rome`) says whether the link is still usable, lists
+the next bookable times, and spells out the exact request to send. Assistants send
+`via: "agent"`, so their bookings are marked in the booking history and their poll
+answers show an **Assistant** badge in the poll results. Details, the JSON shape and
+the safety rules are in [`docs/ai-assistants.md`](docs/ai-assistants.md).
+
+---
+
 ## Security model
 
 Slotty is built around a "single owner, public booking surface" threat model.
@@ -496,10 +528,12 @@ Slotty is built around a "single owner, public booking surface" threat model.
 - **Rate limits.**
   - `/api/admin/login`: 10 fails per IP, exponential lockout afterwards.
   - `/api/public/bookings` (POST): 10/min/IP.
-  - `/api/public/event-types/[slug]/slots`: 60/min/IP.
+  - `/api/public/event-types/[slug]/slots`: 60/min/IP, shared with `/api/agent/links/[slug]` (a descriptor computes the same slots). Invitation slots and `/api/agent/invites/[token]` share a 60/min/IP bucket likewise.
   - All other `/api/public/*` endpoints: 120/min/IP default.
   - 429 responses always carry `Retry-After`.
-- **Idempotent booking writes.** Submit a booking with a `clientRequestId`; subsequent retries with the same id return the original booking instead of duplicating it.
+- **Idempotent booking writes.** Submit a booking with a `clientRequestId`; subsequent retries with the same id return the original booking instead of duplicating it (reusing the id for a different time or booker is refused with 409). Group-poll first answers accept a `clientRequestId` too.
+- **Server-side booking rules.** Required questions, option lists, guest limits and `maxPerDay` / `maxPerWeek` caps are enforced by the server, not just the booking form, so scripts and AI assistants get the same rules as people.
+- **AI-assistant descriptors** expose only what the booking page shows (never passwords, invite notes, hidden guests or other participants' answers), are sent `no-store` + `noindex`, and mark host-written text as untrusted so it can't steer an assistant.
 - **No Slotty-side email.** Confirmation, reschedule and cancel emails are sent by Google Calendar (`sendUpdates=all`) — Slotty never has its own message body that could leak booker PII through misconfiguration. SMTP is reserved for owner-side reminders.
 - **Booker tokens.** Cancel and reschedule URLs include a 32-byte random token; the DB stores a SHA-256 hash. Constant-time comparison; tokens are never returned a second time after the original confirmation response.
 - **Outgoing webhooks signed with HMAC-SHA256.** Deliveries retry with exponential backoff (up to 24 hours). Endpoint secrets are encrypted at rest.
