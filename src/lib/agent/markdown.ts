@@ -148,6 +148,23 @@ export function renderDescriptorMarkdown(d: AgentLinkDescriptor): string {
     for (const [name, a] of actions) out.push(renderAction(name, a), '');
   }
 
+  if (d.handoff) {
+    const h = d.handoff;
+    out.push(
+      '## Can only read web pages? Give your user a confirmation link',
+      '',
+      h.description,
+      '',
+      `Page: ${h.url}`,
+      '',
+      'Fields:',
+    );
+    for (const [k, f] of Object.entries(h.fields)) {
+      out.push(`- \`${k}\` (${f.type}${f.required ? ', required' : ''}) — ${f.description}`);
+    }
+    out.push('', 'Example:', '', h.example, '');
+  }
+
   if (d.errors) {
     out.push('## Errors', '', ...Object.entries(d.errors).map(([k, v]) => `- **${k}**: ${v}`));
   }

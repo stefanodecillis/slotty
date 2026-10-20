@@ -154,6 +154,35 @@ twice (`replayed: true`).
 Answering books nothing: the owner sees the answers (assistant answers carry an
 **Assistant** badge), picks the time, and Google invites everyone.
 
+## Assistants that can only read web pages
+
+Chat assistants such as Claude or ChatGPT can open pages but can't send POST
+requests. They can still do everything except the final click: read the
+descriptor, check their user's calendars, and reply with a **confirmation
+link** — the human booking page with everything filled in after `#`. Their
+user opens it, checks, and presses **Confirm** (booking) or **Save** (poll).
+Opening the link saves nothing, and the part after `#` never reaches the
+server, so names and emails stay out of access logs. The descriptor's
+`handoff` section has the fields and a ready example.
+
+```text
+# Booking (event type or invitation)
+https://book.example.com/intro-call#slot=2026-10-21T07%3A00%3A00.000Z&name=Ada%20Lovelace&email=ada%40example.com&tz=Europe%2FRome
+
+# Group poll
+https://book.example.com/i/<token>#name=Ada%20Lovelace&email=ada%40example.com&free=2026-10-21T07%3A00Z%2F2026-10-21T10%3A00Z
+```
+
+| Field | Booking | Poll |
+| --- | --- | --- |
+| `name`, `email`, `tz` | ✓ | ✓ |
+| `slot` — a candidate `startUtc` | ✓ | |
+| `guests` (comma-separated), `notes`, `a.<questionId>` (answers) | ✓ | |
+| `free`, `maybe` — comma-separated `start/end` ISO ranges | | ✓ |
+
+Passwords are never put in the link; the page asks for one when needed.
+Bookings and answers made this way are labelled as coming from an assistant.
+
 ## Safety notes for assistant builders
 
 - Act only on times your user approved — explicitly, or by asking them.

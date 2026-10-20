@@ -20,6 +20,7 @@ import { GuestChipInput, emailLooksValid } from '@/components/ui/guest-chip-inpu
 import type { SlotResult } from '@/lib/scheduling/compute-types';
 import { createBooking, getSlots, publicKeys } from '@/lib/api/public';
 import { hexToHsl, readableForegroundHsl } from '@/lib/brand/css';
+import { hasHandoff, parseBookingHandoff, type BookingHandoff } from '@/lib/agent/handoff';
 
 import { TzSelector, getInitialBookerTz } from './tz-selector';
 
@@ -110,7 +111,22 @@ export function BookingFlow(props: Props) {
   const titleColor = brand?.primaryColor ?? color;
 
   const [bookerTz, setBookerTz] = useState<string>('UTC');
-  useEffect(() => setBookerTz(getInitialBookerTz()), []);
+  // A confirmation link written by the booker's AI assistant (see
+  // lib/agent/handoff.ts): everything is filled in, the booker checks and
+  // presses Confirm. Read once, then cleared from the address bar.
+  const [handoff, setHandoff] = useState<BookingHandoff | null>(null);
+  const [fromAssistant, setFromAssistant] = useState(false);
+  useEffect(() => {
+    const hash = window.location.hash;
+    const link = hasHandoff(hash) ? parseBookingHandoff(hash) : null;
+    let tz = getInitialBookerTz();
+    if (link?.timezone && isValidTimeZone(link.timezone)) tz = link.timezone;
+    setBookerTz(tz);
+    if (link) {
+      setHandoff(link);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, []);
 
   const [step, setStep] = useState<Step>('date');
   const [monthAnchor, setMonthAnchor] = useState<Date>(() => startOfMonthLocal(new Date()));
@@ -123,7 +139,23 @@ export function BookingFlow(props: Props) {
   const [guests, setGuests] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [password, setPassword] = useState('');
   const [descExpanded, setDescExpanded] = useState(false);
+
+  // Apply a confirmation link: details right away, the time once that
+  // month's slots are in (it may have been taken meanwhile).
+  useEffect(() => {
+    if (!handoff) return;
+    if (handoff.name) setName(handoff.name);
+    if (handoff.email) setEmail(handoff.email);
+    if (handoff.notes) setNotes(handoff.notes);
+    if (handoff.guests.length > 0) setGuests(handoff.guests.slice(0, maxGuests));
+    const known = new Set(questions.map((q) => q.id));
+    setAnswers(Object.fromEntries(Object.entries(handoff.answers).filter(([id]) => known.has(id))));
+    setFromAssistant(true);
+    if (handoff.slot) setMonthAnchor(startOfMonthLocal(new Date(handoff.slot)));
+    else setHandoff(null);
+  }, [handoff, maxGuests, questions]);
 
   // ── Slots query ──
   // The query key includes slug + tz + month range so changing any of those
@@ -151,6 +183,26 @@ export function BookingFlow(props: Props) {
     return map;
   }, [slotsQuery.data]);
   const loadingSlots = slotsQuery.isLoading || slotsQuery.isFetching;
+
+  useEffect(() => {
+    if (!handoff?.slot || !slotsQuery.data || slotsQuery.isFetching) return;
+    const wanted = handoff.slot;
+    // Wait for the month the link points at, not whichever loaded first.
+    const at = Date.parse(wanted);
+    if (at < Date.parse(fromIso) || at >= Date.parse(toIso)) return;
+    setHandoff(null);
+    for (const day of slotsQuery.data.days) {
+      const slot = day.slots.find((s) => s.startUtc === wanted);
+      if (slot) {
+        setSelectedDate(day.date);
+        setSelectedSlot({ startUtc: slot.startUtc, label: slot.startInBookerTz });
+        setStep('details');
+        toast.success('Your assistant filled this in. Check the details, then confirm.');
+        return;
+      }
+    }
+    toast.error('The time your assistant picked is no longer available. Please pick another.');
+  }, [handoff, slotsQuery.data, slotsQuery.isFetching, fromIso, toIso]);
 
   useEffect(() => {
     if (slotsQuery.error) {
@@ -217,6 +269,8 @@ export function BookingFlow(props: Props) {
       notes,
       answers,
       clientRequestId,
+      ...(passwordRequired && !inviteToken ? { password } : {}),
+      ...(fromAssistant ? { via: 'agent' as const } : {}),
     });
   }
 
@@ -423,6 +477,8 @@ export function BookingFlow(props: Props) {
                 answers={answers}
                 setAnswers={setAnswers}
                 questions={questions}
+                password={passwordRequired && !inviteToken ? password : null}
+                setPassword={setPassword}
                 maxGuests={maxGuests}
                 onSubmit={handleSubmit}
                 submitting={step === 'submitting'}
@@ -664,6 +720,8 @@ function DetailsForm({
   answers,
   setAnswers,
   questions,
+  password,
+  setPassword,
   maxGuests,
   onSubmit,
   submitting,
@@ -679,6 +737,9 @@ function DetailsForm({
   answers: Record<string, string>;
   setAnswers: (a: Record<string, string>) => void;
   questions: Question[];
+  /** Null when the event type has no password (or an invite token stands in for it). */
+  password: string | null;
+  setPassword: (v: string) => void;
   maxGuests: number;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   submitting: boolean;
@@ -706,6 +767,20 @@ function DetailsForm({
           />
         </div>
       </div>
+      {password !== null && (
+        <div className="grid gap-2">
+          <Label htmlFor="booker-password">Password</Label>
+          <Input
+            id="booker-password"
+            type="password"
+            autoComplete="off"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <p className="text-xs text-muted-foreground">The organizer shared it with you.</p>
+        </div>
+      )}
       {maxGuests > 0 && (
         <div className="grid gap-2">
           <Label htmlFor="booker-guests">
@@ -852,4 +927,13 @@ function CustomQuestion({
       )}
     </div>
   );
+}
+
+function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }

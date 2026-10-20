@@ -72,6 +72,14 @@ export interface AgentQuestion {
   answerFormat: string;
 }
 
+export interface AgentHandoff {
+  description: string;
+  /** The human page; append `#` and the fields below as `key=value&…`. */
+  url: string;
+  fields: Record<string, AgentField>;
+  example: string;
+}
+
 export interface AgentLinkDescriptor {
   schema: typeof AGENT_LINK_SCHEMA;
   generatedAt: string;
@@ -117,6 +125,11 @@ export interface AgentLinkDescriptor {
     nextPageUrl: string | null;
   };
   actions: Record<string, AgentAction>;
+  /**
+   * For assistants that can only read web pages: a link to the human page
+   * with everything filled in, for the user to open and confirm.
+   */
+  handoff?: AgentHandoff;
   errors?: Record<string, string>;
 }
 
@@ -404,8 +417,100 @@ function bookingActions(
   return actions;
 }
 
+const HANDOFF_STEP =
+  'If you cannot send HTTP POST requests (for example you can only open web pages), do everything else ' +
+  'below and then give your user the confirmation link described in `handoff` instead of POSTing. ' +
+  'They open it, check what you filled in and press one button. Opening the link saves nothing.';
+
+const FRAGMENT_NOTE =
+  'Put the fields after `#` as key=value pairs joined by `&`, percent-encoding values (space → %20, + → %2B, / → %2F, @ → %40). ' +
+  'The fragment never reaches the server.';
+
+function bookingHandoff(
+  humanUrl: string,
+  opts: { requiresPassword: boolean; questions: AgentQuestion[]; exampleSlot?: string },
+): AgentHandoff {
+  const fields: Record<string, AgentField> = {
+    slot: {
+      type: 'ISO 8601 instant',
+      required: true,
+      description: 'A `startUtc` from the available slots.',
+    },
+    name: { type: 'string', required: true, description: "Your user's name." },
+    email: { type: 'email', required: true, description: "Your user's email." },
+    tz: {
+      type: 'IANA timezone',
+      required: false,
+      description: 'Shows the page in this timezone, e.g. Europe/Rome.',
+    },
+    guests: {
+      type: 'comma-separated emails',
+      required: false,
+      description: 'Other people to invite.',
+    },
+    notes: { type: 'string', required: false, description: 'Anything the host should know.' },
+  };
+  for (const q of opts.questions) {
+    fields[`a.${q.id}`] = {
+      type: 'string',
+      required: q.required,
+      description: `Answer to question ${q.id} — ${q.answerFormat}`,
+    };
+  }
+  return {
+    description:
+      `A link to the booking page with the slot and details filled in; your user presses Confirm. ${FRAGMENT_NOTE}` +
+      (opts.requiresPassword
+        ? ' Never put the password in the link: the page asks your user for it.'
+        : ''),
+    url: humanUrl,
+    fields,
+    example: `${humanUrl}#slot=${encodeURIComponent(opts.exampleSlot ?? '2030-01-07T09:00:00.000Z')}&name=Ada%20Lovelace&email=ada%40example.com&tz=Europe%2FRome`,
+  };
+}
+
+function pollHandoff(humanUrl: string, exampleSlot?: AgentSlot): AgentHandoff {
+  const range = exampleSlot
+    ? `${exampleSlot.startUtc}/${exampleSlot.endUtc}`
+    : '2030-01-07T09:00:00.000Z/2030-01-07T12:00:00.000Z';
+  return {
+    description: `A link to the poll page with your user's free times marked; they press Save. ${FRAGMENT_NOTE}`,
+    url: humanUrl,
+    fields: {
+      name: {
+        type: 'string',
+        required: true,
+        description: "Your user's name, as the group knows them.",
+      },
+      email: {
+        type: 'email',
+        required: true,
+        description: 'Where the final calendar invitation goes.',
+      },
+      tz: {
+        type: 'IANA timezone',
+        required: false,
+        description: 'Shows the grid in this timezone.',
+      },
+      free: {
+        type: 'comma-separated ISO ranges start/end',
+        required: true,
+        description:
+          'Times your user is free. Every candidate that fits entirely inside one is marked "yes".',
+      },
+      maybe: {
+        type: 'comma-separated ISO ranges start/end',
+        required: false,
+        description: 'Times that work only if needed, marked "maybe".',
+      },
+    },
+    example: `${humanUrl}#name=Ada%20Lovelace&email=ada%40example.com&tz=Europe%2FRome&free=${encodeURIComponent(range)}`,
+  };
+}
+
 function bookingSteps(opts: { requiresPassword: boolean }): string[] {
   return [
+    HANDOFF_STEP,
     'Read `availability.slots` (follow `availability.nextPageUrl` or use `actions.listSlots` for later dates).',
     CONFIRM_STEP,
     ...(opts.requiresPassword
@@ -465,6 +570,11 @@ export async function describeEventTypeLink(
     protocol: { notice: NOTICE, steps: bookingSteps({ requiresPassword }) },
     content: describeContent(eventType, await hostName(eventType, eventType.user)),
     booking: { requiresPassword, maxAdditionalGuests: eventType.maxGuests, questions },
+    handoff: bookingHandoff(`${base}/${enc}`, {
+      requiresPassword,
+      questions,
+      exampleSlot: availability.slots[0]?.startUtc,
+    }),
     availability,
     actions: bookingActions(
       base,
@@ -563,6 +673,15 @@ export async function describeInviteLink(
   if (!poll) {
     const questions = describeQuestions(eventType.questions);
     const from = new Date(Math.max((opts.from ?? now).getTime(), now.getTime()));
+    const availability = await slotPage({
+      eventType,
+      owner,
+      tz: opts.tz,
+      from,
+      to: new Date(from.getTime() + DESCRIPTOR_DAYS * DAY_MS),
+      now,
+      pageUrl: (next) => withQuery(descriptorUrl, { tz: opts.tz, from: next }),
+    });
     return {
       schema: AGENT_LINK_SCHEMA,
       generatedAt: now.toISOString(),
@@ -574,15 +693,12 @@ export async function describeInviteLink(
       },
       content,
       booking: { requiresPassword: false, maxAdditionalGuests: eventType.maxGuests, questions },
-      availability: await slotPage({
-        eventType,
-        owner,
-        tz: opts.tz,
-        from,
-        to: new Date(from.getTime() + DESCRIPTOR_DAYS * DAY_MS),
-        now,
-        pageUrl: (next) => withQuery(descriptorUrl, { tz: opts.tz, from: next }),
+      handoff: bookingHandoff(humanUrl, {
+        requiresPassword: false,
+        questions,
+        exampleSlot: availability.slots[0]?.startUtc,
       }),
+      availability,
       actions: bookingActions(
         base,
         { inviteToken: token },
@@ -599,6 +715,15 @@ export async function describeInviteLink(
 
   const window = pollWindow(eventType, now);
   const from = new Date(Math.max((opts.from ?? window.from).getTime(), window.from.getTime()));
+  const pollSlots = await slotPage({
+    eventType,
+    owner,
+    tz: opts.tz,
+    from,
+    to: window.to,
+    now,
+    pageUrl: (next) => withQuery(descriptorUrl, { tz: opts.tz, from: next }),
+  });
   const pollUrl = `${base}/api/public/polls/${enc}`;
   return {
     schema: AGENT_LINK_SCHEMA,
@@ -610,6 +735,7 @@ export async function describeInviteLink(
     protocol: {
       notice: NOTICE,
       steps: [
+        HANDOFF_STEP,
         `Work out when your user is free between poll.windowStart and poll.windowEnd, across all of their calendars and commitments. The candidate times are in \`availability.slots\` (each lasts ${eventType.durationMinutes} minutes).`,
         CONFIRM_STEP,
         'POST `actions.respond` once with `available`: the time ranges your user is free (preferred), or `votes`: the exact candidate starts. Anything you leave out counts as "can\'t make it" — only include times you checked. The answer must cover at least one candidate; if none work for your user, don\'t answer — tell them to let the host know instead.',
@@ -619,21 +745,14 @@ export async function describeInviteLink(
       ],
     },
     content,
+    handoff: pollHandoff(humanUrl, pollSlots.slots[0]),
     poll: {
       respondents: poll._count.participants,
       maxParticipants: MAX_POLL_PARTICIPANTS,
       windowStart: window.from.toISOString(),
       windowEnd: window.to.toISOString(),
     },
-    availability: await slotPage({
-      eventType,
-      owner,
-      tz: opts.tz,
-      from,
-      to: window.to,
-      now,
-      pageUrl: (next) => withQuery(descriptorUrl, { tz: opts.tz, from: next }),
-    }),
+    availability: pollSlots,
     actions: {
       respond: {
         description: "Record (or, with X-Poll-Participant, replace) your user's availability.",
@@ -698,7 +817,8 @@ export async function describeInviteLink(
     },
     errors: {
       '422 Validation error': 'The body is malformed — fix the fields listed in `issues`.',
-      '422 (error message)': 'Your answer marks no current candidate time: a range must contain a whole candidate, and votes must be current `startUtc` values. Re-read the descriptor and try again.',
+      '422 (error message)':
+        'Your answer marks no current candidate time: a range must contain a whole candidate, and votes must be current `startUtc` values. Re-read the descriptor and try again.',
       '403': 'The X-Poll-Participant token is not valid for this poll.',
       '409': 'The poll is full.',
       '410': 'The poll closed (the host picked a time or withdrew the invitation).',
