@@ -4,6 +4,10 @@
  * Runs on every request in the Edge runtime. Responsible for:
  *   - Defense-in-depth security headers (CSP, HSTS, frame-options, etc.)
  *   - Lightweight policy decisions that don't need DB access
+ *   - "One link for humans and AI assistants": a GET for a booking page
+ *     (`/<slug>`, `/i/<token>`) that explicitly prefers JSON or Markdown
+ *     over HTML is rewritten to that link's agent descriptor
+ *     (`/api/agent/…`). Browsers and Next's own router requests never are.
  *
  * Per-route rate limiting is intentionally NOT done here — see the README's
  * "Security model" section. Edge middleware can't share state with our
@@ -27,6 +31,8 @@
  */
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+
+import { agentFormatFromAccept, agentPathFor, isFrameworkRequest } from '@/lib/agent/negotiate';
 
 const STATIC_PATH_PREFIXES = [
   '/_next/',
@@ -161,15 +167,44 @@ export function middleware(req: NextRequest): NextResponse {
   if (isStaticAsset(req.nextUrl.pathname)) {
     return NextResponse.next();
   }
-  const res = NextResponse.next({
-    request: {
-      headers: new Headers({
-        ...Object.fromEntries(req.headers.entries()),
-        'x-pathname': req.nextUrl.pathname,
-      }),
-    },
+  const requestHeaders = new Headers({
+    ...Object.fromEntries(req.headers.entries()),
+    'x-pathname': req.nextUrl.pathname,
   });
+
+  const agentRewrite = agentRewriteUrl(req);
+  if (agentRewrite) {
+    const res = NextResponse.rewrite(agentRewrite, { request: { headers: requestHeaders } });
+    appendVary(res, 'Accept');
+    return applySecurityHeaders(req, res);
+  }
+
+  // The HTML side of a negotiated booking page can't carry `Vary: Accept`
+  // (Next sets the page's Vary itself), but those pages are `no-store`, so
+  // no cache can hand the HTML to an agent or the descriptor to a browser.
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
   return applySecurityHeaders(req, res);
+}
+
+/** Where to serve an agent's request for a booking page, or null to serve the page. */
+function agentRewriteUrl(req: NextRequest): URL | null {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return null;
+  const target = agentPathFor(req.nextUrl.pathname);
+  if (!target || isFrameworkRequest(req.headers)) return null;
+  const format = agentFormatFromAccept(req.headers.get('accept'));
+  if (!format) return null;
+  const url = req.nextUrl.clone();
+  url.pathname = target;
+  if (!url.searchParams.has('format')) url.searchParams.set('format', format);
+  return url;
+}
+
+function appendVary(res: NextResponse, value: string): void {
+  const current = res.headers.get('Vary');
+  const parts = current ? current.split(',').map((v) => v.trim().toLowerCase()) : [];
+  if (!parts.includes(value.toLowerCase())) {
+    res.headers.set('Vary', current ? `${current}, ${value}` : value);
+  }
 }
 
 export const config = {
@@ -181,4 +216,4 @@ export const config = {
 };
 
 // Exported for unit tests.
-export const __testing = { applySecurityHeaders, buildCsp, isHttps };
+export const __testing = { applySecurityHeaders, buildCsp, isHttps, agentRewriteUrl };

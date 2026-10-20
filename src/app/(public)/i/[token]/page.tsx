@@ -6,7 +6,9 @@ import { db } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
 import { resolveInviteByRawToken } from '@/lib/booking/invite';
 import { getFinalizedPollMeeting, getPollStateForEventType } from '@/lib/group-poll/service';
+import { agentAlternates, agentLinksForInvite } from '@/lib/agent/links';
 
+import { AgentHint } from '../../_components/agent-hint';
 import { BookingFlow } from '../../[slug]/_components/booking-flow';
 import { GroupPollFlow } from './_components/group-poll-flow';
 import { PollConfirmedPanel } from './_components/poll-confirmed-panel';
@@ -78,49 +80,56 @@ export default async function InvitePage({ params }: PageProps) {
   if (!owner) notFound();
 
   const descriptionHtml = renderMarkdown(eventType.descriptionMd);
+  const agentHint = <AgentHint href={(await agentLinksForInvite(params.token)).markdown} />;
 
   if (poll) {
     return (
-      <GroupPollFlow
-        inviteToken={params.token}
-        title={eventType.title}
-        color={eventType.color}
-        durationMinutes={eventType.durationMinutes}
-        descriptionHtml={descriptionHtml}
-        ownerName={owner.displayName}
-        ownerAvatarPath={owner.avatarPath}
-        brand={brand}
-      />
+      <>
+        <GroupPollFlow
+          inviteToken={params.token}
+          title={eventType.title}
+          color={eventType.color}
+          durationMinutes={eventType.durationMinutes}
+          descriptionHtml={descriptionHtml}
+          ownerName={owner.displayName}
+          ownerAvatarPath={owner.avatarPath}
+          brand={brand}
+        />
+        {agentHint}
+      </>
     );
   }
 
   return (
-    <BookingFlow
-      slug={eventType.slug}
-      title={eventType.title}
-      color={eventType.color}
-      durationMinutes={eventType.durationMinutes}
-      descriptionHtml={descriptionHtml}
-      eventTypeId={eventType.id}
-      ownerTimezone={owner.timezone}
-      ownerName={owner.displayName}
-      ownerAvatarPath={owner.avatarPath}
-      weekStart={owner.weekStart}
-      maxGuests={eventType.maxGuests}
-      questions={eventType.questions.map((q) => ({
-        id: q.id,
-        label: q.label,
-        helperText: q.helperText,
-        kind: q.kind,
-        required: q.required,
-        optionsJson: q.optionsJson,
-      }))}
-      // Invite mode bypasses the password gate server-side, so the banner is
-      // hidden regardless of the underlying event type's passwordHash.
-      passwordRequired={false}
-      brand={brand}
-      inviteToken={params.token}
-    />
+    <>
+      <BookingFlow
+        slug={eventType.slug}
+        title={eventType.title}
+        color={eventType.color}
+        durationMinutes={eventType.durationMinutes}
+        descriptionHtml={descriptionHtml}
+        eventTypeId={eventType.id}
+        ownerTimezone={owner.timezone}
+        ownerName={owner.displayName}
+        ownerAvatarPath={owner.avatarPath}
+        weekStart={owner.weekStart}
+        maxGuests={eventType.maxGuests}
+        questions={eventType.questions.map((q) => ({
+          id: q.id,
+          label: q.label,
+          helperText: q.helperText,
+          kind: q.kind,
+          required: q.required,
+          optionsJson: q.optionsJson,
+        }))}
+        // Invite mode bypasses the password gate server-side, so the banner is
+        // hidden regardless of the underlying event type's passwordHash.
+        passwordRequired={false}
+        brand={brand}
+        inviteToken={params.token}
+      />
+      {agentHint}
+    </>
   );
 }
 
@@ -138,14 +147,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return {
     title: `${eventType.title}${titleSuffix}`,
     icons: brand?.faviconPath ? { icon: brand.faviconPath } : undefined,
+    alternates: agentAlternates(await agentLinksForInvite(params.token)),
   };
 }
 
-function UnavailablePanel({
-  reason,
-}: {
-  reason: 'not_found' | 'used' | 'expired' | 'revoked';
-}) {
+function UnavailablePanel({ reason }: { reason: 'not_found' | 'used' | 'expired' | 'revoked' }) {
   const copy: Record<typeof reason, { title: string; body: string }> = {
     not_found: {
       title: 'Link not found',

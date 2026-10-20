@@ -48,9 +48,10 @@ export function ReschedulePicker({
     return d.toISOString();
   }, [monthAnchor]);
 
+  const slotsArgs = { slug, tz: bookerTz, fromIso, toIso, reschedule: { bookingId, token } };
   const slotsQuery = useQuery({
-    queryKey: publicKeys.slots({ slug, tz: bookerTz, fromIso, toIso }),
-    queryFn: () => getSlots({ slug, tz: bookerTz, fromIso, toIso }),
+    queryKey: publicKeys.slots(slotsArgs),
+    queryFn: () => getSlots(slotsArgs),
   });
   const slotsByDay = useMemo(() => {
     const map = new Map<string, SlotResult['days'][number]['slots']>();

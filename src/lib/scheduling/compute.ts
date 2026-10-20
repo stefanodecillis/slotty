@@ -51,13 +51,16 @@ export interface ComputeSlotsArgs {
   now?: Date;
   /**
    * Optional injected counts of *existing bookings* for the maxPerDay /
-   * maxPerWeek caps. Phase 7 will populate this from the Booking table; for
-   * Phase 6 callers can omit it (treated as zero).
+   * maxPerWeek caps, keyed like `isoDateInZone` / `isoWeekInZone` in the
+   * schedule's timezone. When omitted and the event type has a cap, they're
+   * counted from the event type's confirmed bookings.
    */
   bookingsCount?: {
     byDay: Map<string, number>;
     byWeek: Map<string, number>;
   };
+  /** Booking left out of the cap counts (the one being rescheduled). Bypasses the cache. */
+  excludeBookingId?: string;
   /** Skip the cache (used by tests). */
   noCache?: boolean;
 }
@@ -206,6 +209,43 @@ function applyFrequencyLimits(
   });
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The event type's live bookings bucketed by day and ISO week in the
+ * schedule's timezone — what `maxPerDay` / `maxPerWeek` are measured against.
+ * Only reads the weeks the candidate slots fall in.
+ */
+async function countBookingsForCaps(
+  eventType: EventType,
+  scheduleTz: string,
+  slots: number[],
+  excludeBookingId: string | undefined,
+): Promise<ComputeSlotsArgs['bookingsCount']> {
+  if ((eventType.maxPerDay == null && eventType.maxPerWeek == null) || slots.length === 0) {
+    return undefined;
+  }
+  const bookings = await db.booking.findMany({
+    where: {
+      eventTypeId: eventType.id,
+      status: { not: 'cancelled' },
+      startAt: { gte: new Date(slots[0]! - WEEK_MS), lt: new Date(slots[slots.length - 1]! + WEEK_MS) },
+      ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+    },
+    select: { startAt: true },
+  });
+  const byDay = new Map<string, number>();
+  const byWeek = new Map<string, number>();
+  for (const b of bookings) {
+    const ms = b.startAt.getTime();
+    const day = isoDateInZone(ms, scheduleTz);
+    const week = isoWeekInZone(ms, scheduleTz);
+    byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+  }
+  return { byDay, byWeek };
+}
+
 function groupByDay(
   slots: number[],
   bookerTz: string,
@@ -280,7 +320,9 @@ export async function computeSlots(args: ComputeSlotsArgs): Promise<SlotResult> 
     busyMaxUpdatedAtMs: Math.max(busyMaxUpdatedAtMs, bookingMaxUpdatedAtMs),
   });
 
-  if (!args.noCache) {
+  // Results that leave a booking out of the caps aren't shareable.
+  const useCache = !args.noCache && !args.excludeBookingId;
+  if (useCache) {
     const hit = cacheGet(cacheKey);
     if (hit) return hit;
   }
@@ -346,7 +388,10 @@ export async function computeSlots(args: ComputeSlotsArgs): Promise<SlotResult> 
   slots = slots.filter((s) => s >= noticeCutoff);
 
   // 6) Frequency caps.
-  slots = applyFrequencyLimits(slots, eventType, schedule.timezone, args.bookingsCount);
+  const bookingsCount =
+    args.bookingsCount ??
+    (await countBookingsForCaps(eventType, schedule.timezone, slots, args.excludeBookingId));
+  slots = applyFrequencyLimits(slots, eventType, schedule.timezone, bookingsCount);
 
   const result: SlotResult = {
     days: groupByDay(slots, bookerTz, durationMs),
@@ -354,7 +399,7 @@ export async function computeSlots(args: ComputeSlotsArgs): Promise<SlotResult> 
     eventTypeId: eventType.id,
   };
 
-  if (!args.noCache) cacheSet(cacheKey, result);
+  if (useCache) cacheSet(cacheKey, result);
   return result;
 }
 

@@ -3,7 +3,9 @@ import type { Metadata } from 'next';
 
 import { db } from '@/lib/db';
 import { renderMarkdown } from '@/lib/markdown';
+import { agentAlternates, agentLinksForSlug } from '@/lib/agent/links';
 
+import { AgentHint } from '../_components/agent-hint';
 import { BookingFlow } from './_components/booking-flow';
 
 export const dynamic = 'force-dynamic';
@@ -22,6 +24,7 @@ const RESERVED_SLUGS = new Set([
   'avatars',
   '_next',
   'favicon.ico',
+  'llms.txt',
 ]);
 
 function durationLabel(min: number): string {
@@ -74,40 +77,44 @@ export default async function EventTypePage({ params }: PageProps) {
 
   // Sanitised by renderMarkdown via DOMPurify allowlist.
   const descriptionHtml = renderMarkdown(eventType.descriptionMd);
+  const agentLinks = await agentLinksForSlug(eventType.slug);
 
   return (
-    <BookingFlow
-      slug={eventType.slug}
-      title={eventType.title}
-      color={eventType.color}
-      durationMinutes={eventType.durationMinutes}
-      descriptionHtml={descriptionHtml}
-      eventTypeId={eventType.id}
-      ownerTimezone={eventType.user.timezone}
-      ownerName={eventType.user.displayName}
-      ownerAvatarPath={eventType.user.avatarPath}
-      weekStart={eventType.user.weekStart}
-      maxGuests={eventType.maxGuests}
-      questions={eventType.questions.map((q) => ({
-        id: q.id,
-        label: q.label,
-        helperText: q.helperText,
-        kind: q.kind,
-        required: q.required,
-        optionsJson: q.optionsJson,
-      }))}
-      passwordRequired={Boolean(eventType.passwordHash)}
-      brand={
-        eventType.brand
-          ? {
-              name: eventType.brand.name,
-              primaryColor: eventType.brand.primaryColor,
-              accentColor: eventType.brand.accentColor,
-              logoPath: eventType.brand.logoPath,
-            }
-          : null
-      }
-    />
+    <>
+      <BookingFlow
+        slug={eventType.slug}
+        title={eventType.title}
+        color={eventType.color}
+        durationMinutes={eventType.durationMinutes}
+        descriptionHtml={descriptionHtml}
+        eventTypeId={eventType.id}
+        ownerTimezone={eventType.user.timezone}
+        ownerName={eventType.user.displayName}
+        ownerAvatarPath={eventType.user.avatarPath}
+        weekStart={eventType.user.weekStart}
+        maxGuests={eventType.maxGuests}
+        questions={eventType.questions.map((q) => ({
+          id: q.id,
+          label: q.label,
+          helperText: q.helperText,
+          kind: q.kind,
+          required: q.required,
+          optionsJson: q.optionsJson,
+        }))}
+        passwordRequired={Boolean(eventType.passwordHash)}
+        brand={
+          eventType.brand
+            ? {
+                name: eventType.brand.name,
+                primaryColor: eventType.brand.primaryColor,
+                accentColor: eventType.brand.accentColor,
+                logoPath: eventType.brand.logoPath,
+              }
+            : null
+        }
+      />
+      <AgentHint href={agentLinks.markdown} />
+    </>
   );
 }
 
@@ -126,8 +133,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const titleSuffix = eventType.brand?.name ? ` — ${eventType.brand.name}` : '';
   return {
     title: `${eventType.title}${titleSuffix}`,
-    icons: eventType.brand?.faviconPath
-      ? { icon: eventType.brand.faviconPath }
-      : undefined,
+    icons: eventType.brand?.faviconPath ? { icon: eventType.brand.faviconPath } : undefined,
+    alternates: agentAlternates(await agentLinksForSlug(params.slug)),
   };
 }

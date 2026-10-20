@@ -2,9 +2,10 @@
  * GET  /api/public/polls/[token]?tz=… — the group poll behind a one-time
  *      invite: candidate slots in the participant's timezone, how many people
  *      can make each one, and (with a personal token) the caller's own answer.
- * POST /api/public/polls/[token] — submit or replace an answer. New
- *      participants get their personal token back once; it's the only way to
- *      edit the answer later.
+ * POST /api/public/polls/[token] — submit or replace an answer, as explicit
+ *      `votes` or as free-time `available` ranges (what AI assistants send).
+ *      New participants get their personal token back once; it's the only way
+ *      to edit the answer later. The response echoes the votes stored.
  *
  * `[token]` is the invite token from `/i/<token>`. The personal token travels
  * in the `X-Poll-Participant` header so it stays out of URLs and access logs.
@@ -28,6 +29,9 @@ const PARTICIPANT_HEADER = 'x-poll-participant';
 
 const READ_LIMIT = { capacity: 60, windowMs: 60_000 };
 const WRITE_LIMIT = { capacity: 20, windowMs: 60_000 };
+/** A full grid of votes at the finest interval stays well under this. */
+const MAX_BODY_BYTES = 1_000_000;
+const NO_STORE = { 'Cache-Control': 'private, no-store' };
 
 function rateLimited(retryAfterMs: number, limit: number): Response {
   return NextResponse.json(
@@ -50,7 +54,7 @@ function isValidIanaTz(tz: string): boolean {
 
 function pollErrorResponse(err: unknown): Response {
   if (err instanceof PollError) {
-    return NextResponse.json({ error: err.message }, { status: err.status });
+    return NextResponse.json({ error: err.message }, { status: err.status, headers: NO_STORE });
   }
   throw err;
 }
@@ -66,7 +70,7 @@ export async function GET(req: NextRequest, { params }: RouteParams): Promise<Re
 
   try {
     const view = await getPublicPollView(params.token, tz, req.headers.get(PARTICIPANT_HEADER));
-    return NextResponse.json(view, { headers: { 'Cache-Control': 'private, no-store' } });
+    return NextResponse.json(view, { headers: NO_STORE });
   } catch (err) {
     return pollErrorResponse(err);
   }
@@ -76,6 +80,9 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
   const decision = consume('public-poll-write', getClientIp(req.headers), WRITE_LIMIT);
   if (!decision.allowed) return rateLimited(decision.retryAfterMs, decision.limit);
 
+  if (Number(req.headers.get('content-length') ?? 0) > MAX_BODY_BYTES) {
+    return NextResponse.json({ error: 'Request body too large' }, { status: 413 });
+  }
   let body: unknown;
   try {
     body = await req.json();
@@ -99,7 +106,15 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
       parsed.data,
       req.headers.get(PARTICIPANT_HEADER),
     );
-    return NextResponse.json({ participantToken: result.participantToken });
+    return NextResponse.json(
+      {
+        participantToken: result.participantToken,
+        replayed: result.replayed,
+        votes: result.votes,
+        droppedVotes: result.droppedVotes,
+      },
+      { headers: NO_STORE },
+    );
   } catch (err) {
     return pollErrorResponse(err);
   }

@@ -38,6 +38,7 @@ import { emit } from '@/lib/webhooks/emit';
 import { getPublicUrl } from '@/lib/site-url/store';
 import { resolveInviteByRawToken, claimInviteAtomically } from './invite';
 import { parseHiddenGuests } from '@/lib/eventtype/service';
+import { checkAnswers, type AnswerProblem } from './answers';
 
 export type EventTypeWithQuestions = EventType & { questions: EventTypeQuestion[] };
 
@@ -55,6 +56,8 @@ export interface CreateBookingInput {
   answers?: Record<string, string>;
   clientRequestId?: string;
   password?: string;
+  /** Self-reported client kind, recorded in the booking history. Not an authorization. */
+  via?: 'agent';
   /**
    * Google event title override. Server-side callers only (group polls book
    * for a whole group, so "<title> with <booker>" would be misleading).
@@ -88,6 +91,8 @@ export class BookingError extends Error {
     message: string,
     public readonly code: BookingErrorCode,
     public readonly httpStatus = 400,
+    /** Per-question problems for `INVALID_ANSWERS`. */
+    public readonly problems?: AnswerProblem[],
   ) {
     super(message);
     this.name = 'BookingError';
@@ -100,6 +105,8 @@ export type BookingErrorCode =
   | 'PASSWORD_INVALID'
   | 'SLOT_UNAVAILABLE'
   | 'INVALID_INPUT'
+  | 'INVALID_ANSWERS'
+  | 'IDEMPOTENCY_CONFLICT'
   | 'TOO_MANY_GUESTS'
   | 'OWNER_MISSING'
   | 'INVITE_NOT_FOUND'
@@ -298,7 +305,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
       // The booking that consumed the invite may be this very request, retried
       // after a lost response — replay it instead of reporting the link gone.
       if (!(await blockedAsPoll())) {
-        const replay = await findIdempotentReplay(eventTypeId, input.clientRequestId);
+        const replay = await findIdempotentReplay(eventTypeId, input);
         if (replay) return replay;
       }
       throw new BookingError('This invite link is no longer available.', 'INVITE_UNAVAILABLE', 410);
@@ -365,8 +372,21 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   }
 
   // Idempotency: if (eventTypeId, clientRequestId) already exists, return it.
-  const replay = await findIdempotentReplay(eventType.id, input.clientRequestId);
+  const replay = await findIdempotentReplay(eventType.id, input);
   if (replay) return replay;
+
+  // Group-poll finalization books on behalf of everyone and has no answers.
+  const checked = input.viaGroupPoll
+    ? { answers: input.answers ?? {}, problems: [] }
+    : checkAnswers(eventType.questions, input.answers ?? {});
+  if (checked.problems.length > 0) {
+    throw new BookingError(
+      'Some answers are missing or invalid.',
+      'INVALID_ANSWERS',
+      422,
+      checked.problems,
+    );
+  }
 
   // Generate tokens before the transaction — both halves of the create are
   // idempotent if anything fails before commit.
@@ -399,49 +419,63 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   for (const g of eventHiddenGuests) pushIfNew(g);
   for (const g of inviteHiddenGuests) pushIfNew(g);
 
-  const answers = input.answers ?? {};
+  const answers = checked.answers;
 
   const eventTypeForTx = eventType;
-  const booking = await db.$transaction(async (tx) => {
-    // We use the live `db` client for the slot re-check because computeSlots
-    // pulls from many tables — the read-after-write race is closed by the
-    // unique index on (eventTypeId, clientRequestId) and by the cache
-    // invalidation that happens at the end of this function.
-    await assertSlotStillAvailable(eventTypeForTx, owner, startAt, input.bookerTimezone);
+  let booking: Booking;
+  try {
+    booking = await db.$transaction(async (tx) => {
+      // We use the live `db` client for the slot re-check because computeSlots
+      // pulls from many tables — the read-after-write race is closed by the
+      // unique index on (eventTypeId, clientRequestId) and by the cache
+      // invalidation that happens at the end of this function.
+      await assertSlotStillAvailable(eventTypeForTx, owner, startAt, input.bookerTimezone);
 
-    const created = await tx.booking.create({
-      data: {
-        eventTypeId: eventTypeForTx.id,
-        googleAccountId: eventTypeForTx.destinationAccountId,
-        googleCalendarId: eventTypeForTx.destinationCalendarId,
-        startAt,
-        endAt,
-        status: 'confirmed',
-        bookerName: input.bookerName,
-        bookerEmail: input.bookerEmail,
-        bookerTimezone: input.bookerTimezone,
-        additionalGuestsJson: JSON.stringify(additionalGuests),
-        notes: input.notes ?? null,
-        answersJson: JSON.stringify(answers),
-        cancelTokenHash: cancelTok.hash,
-        rescheduleTokenHash: rescheduleTok.hash,
-        clientRequestId: input.clientRequestId ?? null,
-        needsSync: false,
-      },
+      const created = await tx.booking.create({
+        data: {
+          eventTypeId: eventTypeForTx.id,
+          googleAccountId: eventTypeForTx.destinationAccountId,
+          googleCalendarId: eventTypeForTx.destinationCalendarId,
+          startAt,
+          endAt,
+          status: 'confirmed',
+          bookerName: input.bookerName,
+          bookerEmail: input.bookerEmail,
+          bookerTimezone: input.bookerTimezone,
+          additionalGuestsJson: JSON.stringify(additionalGuests),
+          notes: input.notes ?? null,
+          answersJson: JSON.stringify(answers),
+          cancelTokenHash: cancelTok.hash,
+          rescheduleTokenHash: rescheduleTok.hash,
+          clientRequestId: input.clientRequestId ?? null,
+          needsSync: false,
+        },
+      });
+
+      // Atomic single-use claim. If a concurrent booking already claimed this
+      // invite, updateMany returns count=0 and the helper throws — rolling back
+      // the booking insert above so we don't leave an orphan row.
+      if (inviteId) {
+        await claimInviteAtomically(tx, inviteId, created.id);
+      }
+      if (input.inTransaction) {
+        await input.inTransaction(tx, created);
+      }
+
+      return created;
     });
-
-    // Atomic single-use claim. If a concurrent booking already claimed this
-    // invite, updateMany returns count=0 and the helper throws — rolling back
-    // the booking insert above so we don't leave an orphan row.
-    if (inviteId) {
-      await claimInviteAtomically(tx, inviteId, created.id);
+  } catch (err) {
+    // A concurrent copy of this request may have committed first. Depending
+    // on timing we see that as the unique index (P2002), the slot it just
+    // took (SLOT_UNAVAILABLE) or the invite it just used (INVITE_UNAVAILABLE).
+    // Either way the booking exists: hand it back instead of an error that
+    // would send the client off to book another time.
+    if (input.clientRequestId) {
+      const raced = await findIdempotentReplay(eventType.id, input);
+      if (raced) return raced;
     }
-    if (input.inTransaction) {
-      await input.inTransaction(tx, created);
-    }
-
-    return created;
-  });
+    throw err;
+  }
 
   // Best-effort Google insert. We resolve the actual googleCalendarId from
   // the destination Calendar row (the FK references our internal id, but the
@@ -546,6 +580,7 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
         endAt: endAt.toISOString(),
         bookerEmail: input.bookerEmail,
         needsSync,
+        ...(input.via ? { via: input.via } : {}),
       }),
       actor: 'booker',
     },
@@ -570,16 +605,32 @@ export async function createBooking(input: CreateBookingInput): Promise<CreatedB
   };
 }
 
-/** The booking a previous request with the same clientRequestId created, if any. */
+/**
+ * The booking a previous request with the same clientRequestId created, if
+ * any. A key reused for a different time or booker is a client bug, not a
+ * retry, and is refused rather than silently answered with the old booking.
+ */
 async function findIdempotentReplay(
   eventTypeId: string,
-  clientRequestId: string | undefined,
+  input: Pick<CreateBookingInput, 'clientRequestId' | 'startAtIso' | 'bookerEmail'>,
 ): Promise<CreatedBooking | null> {
+  const { clientRequestId } = input;
   if (!clientRequestId) return null;
   const existing = await db.booking.findUnique({
     where: { eventTypeId_clientRequestId: { eventTypeId, clientRequestId } },
   });
   if (!existing) return null;
+  const requestedStart = new Date(input.startAtIso).getTime();
+  if (
+    existing.startAt.getTime() !== requestedStart ||
+    existing.bookerEmail.trim().toLowerCase() !== input.bookerEmail.trim().toLowerCase()
+  ) {
+    throw new BookingError(
+      'This clientRequestId was already used for a different booking. Use a new one.',
+      'IDEMPOTENCY_CONFLICT',
+      409,
+    );
+  }
   return {
     booking: existing,
     // Tokens are unrecoverable from hash; on idempotent replay we only

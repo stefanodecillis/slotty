@@ -472,14 +472,18 @@ model PollParticipant {
   timezone       String
   // sha256 of the participant's personal edit token (same pattern as cancel tokens).
   editTokenHash  String    @unique @map("edit_token_hash")
-  source         String    @default("manual") // manual | google
+  source         String    @default("manual") // manual | google | agent
   googleSyncedAt DateTime? @map("google_synced_at")
+  // sha256 of the optional clientRequestId sent with the first answer, so a
+  // retried submission updates this participant instead of adding another.
+  clientRequestHash String? @map("client_request_hash")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
   poll  GroupPoll  @relation(fields: [pollId], references: [id], onDelete: Cascade)
   votes PollVote[]
 
+  @@unique([pollId, clientRequestHash])
   @@index([pollId, createdAt])
   @@map("poll_participants")
 }
