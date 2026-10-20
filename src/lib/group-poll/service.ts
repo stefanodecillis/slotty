@@ -106,8 +106,9 @@ export interface AdminPollResults {
   expected: { email: string; answered: boolean }[];
   answerBy: string | null;
   autoBook: boolean;
-  /** When the poll became ready to book (everyone answered / deadline passed). */
+  /** When the poll became ready to book, and why. */
   readyAt: string | null;
+  readyReason: PollReadyReason | null;
   candidateCount: number;
   google:
     | { available: true; redirectUri: string }
@@ -591,7 +592,7 @@ export async function checkPollReady(
   // Exactly once, even with answers landing concurrently.
   const claimed = await db.groupPoll.updateMany({
     where: { id: poll.id, status: 'collecting', readyAt: null },
-    data: { readyAt: now },
+    data: { readyAt: now, readyReason: reason },
   });
   if (claimed.count !== 1) return null;
 
@@ -743,6 +744,8 @@ export async function getPollResults(
     answerBy: poll.answerBy?.toISOString() ?? null,
     autoBook: poll.autoBook,
     readyAt: poll.readyAt?.toISOString() ?? null,
+    readyReason:
+      poll.readyReason === 'everyone_answered' || poll.readyReason === 'deadline' ? poll.readyReason : null,
     candidateCount: candidates.length,
     google: availability.available
       ? { available: true, redirectUri }

@@ -209,6 +209,7 @@ describe('poll ready', () => {
 
     results = await getPollResults(user.id, created.eventTypeId);
     expect(results.readyAt).toBeTruthy();
+    expect(results.readyReason).toBe('everyone_answered');
     expect(results.slots).toHaveLength(results.candidateCount);
   });
 
@@ -225,6 +226,7 @@ describe('poll ready', () => {
       (await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } })).readyAt,
     ).not.toBeNull();
     expect((await readyEvents(endpoint.id))[0]?.data.reason).toBe('deadline');
+    expect((await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } })).readyReason).toBe('deadline');
   });
 
   it('books the best time automatically only when it works for everyone who answered', async () => {

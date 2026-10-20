@@ -463,6 +463,7 @@ model GroupPoll {
   autoBook           Boolean  @default(false) @map("auto_book")
   // When the poll became ready (and the owner was told). Null until then.
   readyAt            DateTime? @map("ready_at")
+  readyReason        String?  @map("ready_reason") // everyone_answered | deadline
   finalizedBookingId String?  @unique @map("finalized_booking_id")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")

@@ -298,9 +298,9 @@ function PollStatus({ data, timeZone }: { data: AdminPollResults; timeZone: stri
       {data.readyAt ? (
         <p className="font-medium text-emerald-700 dark:text-emerald-400">
           Ready to book —{' '}
-          {data.expected.length > 0 && waiting.length === 0
-            ? 'everyone you expected has answered.'
-            : 'the answer-by deadline has passed.'}
+          {data.readyReason === 'deadline'
+            ? 'the answer-by deadline has passed.'
+            : 'everyone you expected has answered.'}
         </p>
       ) : null}
       {data.expected.length > 0 ? (
@@ -313,7 +313,9 @@ function PollStatus({ data, timeZone }: { data: AdminPollResults; timeZone: stri
       {deadline ? <p className="text-muted-foreground">Answer by {deadline}.</p> : null}
       {data.autoBook ? (
         <p className="text-muted-foreground">
-          When it&apos;s ready, Slotty books the best time if it works for everyone who answered.
+          {data.readyAt
+            ? 'Book automatically was on, but no time worked for everyone who answered — pick one below.'
+            : 'When it’s ready, Slotty books the best time if it works for everyone who answered.'}
         </p>
       ) : null}
     </section>

@@ -666,7 +666,7 @@ export async function updateOneTimeLink(
 
     if (input.groupPoll.enabled) {
       // Re-armed polls are checked again right after the edit.
-      const settings = { ...nextPoll, ...(rearm ? { readyAt: null } : {}) };
+      const settings = { ...nextPoll, ...(rearm ? { readyAt: null, readyReason: null } : {}) };
       await tx.groupPoll.upsert({
         where: { eventTypeId: et.id },
         create: { eventTypeId: et.id, ...settings },

@@ -24,7 +24,7 @@ interface Props {
   onPick: (slot: Slot) => void;
 }
 
-function parts(iso: string, timeZone: string): { day: string; time: string } {
+function parts(iso: string, timeZone: string): { day: string; time: string; offset: string } {
   const p = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
@@ -33,11 +33,13 @@ function parts(iso: string, timeZone: string): { day: string; time: string } {
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
+    timeZoneName: 'shortOffset',
   }).formatToParts(new Date(iso));
   const get = (t: string) => p.find((x) => x.type === t)?.value ?? '';
   return {
     day: `${get('year')}-${get('month')}-${get('day')}`,
     time: `${get('hour')}:${get('minute')}`,
+    offset: get('timeZoneName'),
   };
 }
 
@@ -62,17 +64,22 @@ export function PollHeatmap({ data, timeZone, selected, onPick }: Props) {
     const grid = new Map<string, Map<string, Slot>>();
     const rows = new Set<string>();
     for (const slot of data.slots) {
-      const { day, time } = parts(slot.startUtc, timeZone);
-      rows.add(time);
+      const { day, time, offset } = parts(slot.startUtc, timeZone);
       const byTime = grid.get(day) ?? new Map<string, Slot>();
-      byTime.set(time, slot);
+      // When clocks fall back the same wall time happens twice: keep both,
+      // the second labelled with its UTC offset.
+      const row = byTime.has(time) ? `${time} ${offset}` : time;
+      rows.add(row);
+      byTime.set(row, slot);
       grid.set(day, byTime);
     }
     return { days: Array.from(grid.keys()).sort(), rows: Array.from(rows).sort(), grid };
   }, [data.slots, timeZone]);
 
-  const [page, setPage] = useState(0);
+  const [requestedPage, setPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(days.length / DAYS_PER_PAGE));
+  // Fewer days after a refetch (slots filled, window moved): stay in range.
+  const page = Math.min(requestedPage, pageCount - 1);
   const visible = days.slice(page * DAYS_PER_PAGE, (page + 1) * DAYS_PER_PAGE);
   const visibleRows = rows.filter((r) => visible.some((d) => grid.get(d)?.has(r)));
 
@@ -91,7 +98,7 @@ export function PollHeatmap({ data, timeZone, selected, onPick }: Props) {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
             aria-label="Previous days"
           >
@@ -102,7 +109,7 @@ export function PollHeatmap({ data, timeZone, selected, onPick }: Props) {
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            onClick={() => setPage(Math.min(pageCount - 1, page + 1))}
             disabled={page >= pageCount - 1}
             aria-label="Next days"
           >
