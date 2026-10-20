@@ -33,7 +33,7 @@ import { invalidate as invalidateSlotCache } from '@/lib/scheduling/cache';
 import { getPublicUrl } from '@/lib/site-url/store';
 import { logger } from '@/lib/logger';
 import { MAX_POLL_PARTICIPANTS, type GroupPollSettings } from '@/lib/group-poll/validator';
-import { checkPollReady } from '@/lib/group-poll/service';
+import { answeredEmails, checkPollReady } from '@/lib/group-poll/service';
 import type { OneTimeAvailabilityInput, OneTimeLinkInput } from './validator';
 
 export class OneTimeLinkError extends Error {
@@ -322,17 +322,18 @@ function pollSettings(settings: GroupPollSettings) {
   };
 }
 
-function pollSummary(poll: {
-  expectedJson: string;
-  readyAt: Date | null;
-  participants: { email: string; _count: { votes: number } }[];
-}): NonNullable<OneTimeLinkListItem['groupPoll']> {
+async function pollSummary(
+  poll: { id: string; expectedJson: string; readyAt: Date | null; _count: { participants: number } },
+  pending: boolean,
+  now: Date,
+): Promise<NonNullable<OneTimeLinkListItem['groupPoll']>> {
   const expected = parseEmails(poll.expectedJson).map((e) => e.toLowerCase());
-  const answered = new Set(
-    poll.participants.filter((p) => p._count.votes > 0).map((p) => p.email.toLowerCase()),
-  );
+  // Same rule as readiness and the answers dialog: only answers that mark a
+  // current time count, so the list never claims "everyone" too early.
+  const answered =
+    pending && expected.length > 0 ? await answeredEmails(poll.id, now) : new Set<string>();
   return {
-    responses: poll.participants.length,
+    responses: poll._count.participants,
     expected: expected.length,
     expectedAnswered: expected.filter((e) => answered.has(e)).length,
     readyAt: poll.readyAt?.toISOString() ?? null,
@@ -528,11 +529,7 @@ export async function listOneTimeLinks(
       },
       schedule: { select: { name: true, isOneTime: true, isDefault: true } },
       groupPoll: {
-        select: {
-          expectedJson: true,
-          readyAt: true,
-          participants: { select: { email: true, _count: { select: { votes: true } } } },
-        },
+        select: { id: true, expectedJson: true, readyAt: true, _count: { select: { participants: true } } },
       },
     },
   });
@@ -572,7 +569,7 @@ export async function listOneTimeLinks(
             bookerEmail: booking.bookerEmail,
           }
         : null,
-      groupPoll: row.groupPoll ? pollSummary(row.groupPoll) : null,
+      groupPoll: row.groupPoll ? await pollSummary(row.groupPoll, pending, now) : null,
     });
   }
   return items;

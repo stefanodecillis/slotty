@@ -645,6 +645,28 @@ export async function checkPollReady(
   return { reason, bookingId };
 }
 
+/**
+ * Emails of the people whose answer marks at least one current candidate —
+ * the same rule readiness and the answers dialog use (votes on times that
+ * have passed or filled up don't count).
+ */
+export async function answeredEmails(pollId: string, now: Date = new Date()): Promise<Set<string>> {
+  const poll = await db.groupPoll.findUnique({
+    where: { id: pollId },
+    include: { eventType: true, participants: { include: { votes: true } } },
+  });
+  if (!poll) return new Set();
+  const owner = await loadOwner(poll.eventType);
+  const open = new Set(
+    flatten(await loadCandidates(poll.eventType, owner, owner.timezone, now)).map((c) => c.startUtc),
+  );
+  return new Set(
+    poll.participants
+      .filter((p) => p.votes.some((v) => open.has(v.slotStart.toISOString())))
+      .map((p) => p.email.toLowerCase()),
+  );
+}
+
 /** Polls whose answer-by deadline passed and that aren't ready yet (the scheduler sweep). */
 export async function checkPollDeadlines(now: Date = new Date()): Promise<number> {
   const due = await db.groupPoll.findMany({

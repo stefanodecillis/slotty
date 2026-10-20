@@ -383,4 +383,30 @@ describe('poll ready', () => {
     );
     expect(await readyEvents(endpoint.id)).toHaveLength(1);
   });
+
+  it('counts only answers that mark a current time in the invitations list', async () => {
+    const { db, user, token, poll, slots } = await setup({
+      expected: ['ann@example.com', 'bob@example.com'],
+    });
+    await submitPollResponse(token, answer('Ann', [slots[0]!.startUtc]), null);
+    const bob = await db.pollParticipant.create({
+      data: {
+        pollId: poll.id,
+        name: 'Bob',
+        email: 'bob@example.com',
+        timezone: 'UTC',
+        editTokenHash: 'b',
+      },
+    });
+    await db.pollVote.create({
+      data: { participantId: bob.id, slotStart: new Date(Date.now() - DAY_MS), value: 'yes' },
+    });
+    const [item] = await listOneTimeLinks(user.id);
+    expect(item?.groupPoll).toMatchObject({
+      responses: 2,
+      expected: 2,
+      expectedAnswered: 1,
+      readyAt: null,
+    });
+  });
 });
