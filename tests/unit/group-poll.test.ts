@@ -265,7 +265,7 @@ describe('participants', () => {
     const { user, created, token, slots } = await setupPoll({ groupPoll: { enabled: true, showNames: false } });
     const s0 = slots[0]!.startUtc;
     const first = await submitPollResponse(token, answer('Ann', [{ startUtc: s0, value: 'yes' }]), null);
-    const probe = await submitPollResponse(token, answer('Ann', []), null);
+    const probe = await submitPollResponse(token, answer('Ann', [{ startUtc: s0, value: 'maybe' }]), null);
     expect(probe.participantToken).toBeTruthy();
     expect(probe.participantId).not.toBe(first.participantId);
 
@@ -281,10 +281,11 @@ describe('participants', () => {
 
   it('never lets concurrent first saves overshoot the participant cap', async () => {
     const { db } = await import('@/lib/db');
-    const { token } = await setupPoll();
+    const { token, slots } = await setupPoll();
+    const one = [{ startUtc: slots[0]!.startUtc, value: 'yes' as const }];
     const attempts = MAX_POLL_PARTICIPANTS + 5;
     const outcomes = await Promise.allSettled(
-      Array.from({ length: attempts }, (_, i) => submitPollResponse(token, answer(`P${i}`, []), null)),
+      Array.from({ length: attempts }, (_, i) => submitPollResponse(token, answer(`P${i}`, one), null)),
     );
     const ok = outcomes.filter((o) => o.status === 'fulfilled').length;
     const full = outcomes.filter(
@@ -297,11 +298,12 @@ describe('participants', () => {
 
   it('refuses a new answer once the poll is full, without leaving a row behind', async () => {
     const { db } = await import('@/lib/db');
-    const { token } = await setupPoll();
+    const { token, slots } = await setupPoll();
+    const one = [{ startUtc: slots[0]!.startUtc, value: 'yes' as const }];
     for (let i = 0; i < MAX_POLL_PARTICIPANTS; i++) {
-      await submitPollResponse(token, answer(`P${i}`, []), null);
+      await submitPollResponse(token, answer(`P${i}`, one), null);
     }
-    await expect(submitPollResponse(token, answer('Late', []), null)).rejects.toThrow(/full/);
+    await expect(submitPollResponse(token, answer('Late', one), null)).rejects.toThrow(/full/);
     expect(await db.pollParticipant.count({ where: { email: 'late@example.com' } })).toBe(0);
   });
 
@@ -453,7 +455,7 @@ describe('finalizePoll', () => {
     const start = slots[0]!.startUtc;
     await submitPollResponse(token, answer('Ann', [{ startUtc: start, value: 'yes' }]), null);
     await submitPollResponse(token, answer('Bob', [{ startUtc: start, value: 'yes' }]), null);
-    await submitPollResponse(token, answer('Bob', []), null);
+    await submitPollResponse(token, answer('Bob', [{ startUtc: slots[1]!.startUtc, value: 'yes' }]), null);
     const { bookingId } = await finalizePoll(user.id, created.eventTypeId, start);
     const booking = await db.booking.findUniqueOrThrow({ where: { id: bookingId } });
     expect(booking.bookerEmail).toBe('ann@example.com');
@@ -474,6 +476,66 @@ describe('finalizePoll', () => {
   });
 });
 
+describe('an answer always marks a time', () => {
+  it('refuses an empty answer and saves nothing', async () => {
+    const { db } = await import('@/lib/db');
+    const { token } = await setupPoll();
+    const err = await submitPollResponse(token, answer('Ann', []), null).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PollError);
+    expect((err as PollError).status).toBe(422);
+    expect((err as PollError).message).toMatch(/at least one time/);
+    expect(await db.pollParticipant.count()).toBe(0);
+  });
+
+  it('refuses an answer whose times are all gone, and free ranges that cover no time', async () => {
+    const { db } = await import('@/lib/db');
+    const { token, slots } = await setupPoll();
+    await expect(
+      submitPollResponse(token, answer('Ann', [{ startUtc: '2001-01-01T09:00:00.000Z', value: 'yes' }]), null),
+    ).rejects.toThrow(/no longer open/);
+    const half = new Date(Date.parse(slots[0]!.startUtc) + 30 * 60_000).toISOString();
+    await expect(
+      submitPollResponse(
+        token,
+        { ...answer('Ann', []), votes: undefined, available: [{ start: slots[0]!.startUtc, end: half, value: 'yes' }] },
+        null,
+      ),
+    ).rejects.toThrow(/covers a whole candidate/);
+    expect(await db.pollParticipant.count()).toBe(0);
+  });
+
+  it("won't clear an existing answer", async () => {
+    const { token, slots } = await setupPoll();
+    const me = await submitPollResponse(token, answer('Ann', [{ startUtc: slots[0]!.startUtc, value: 'yes' }]), null);
+    await expect(submitPollResponse(token, answer('Ann', []), me.participantToken)).rejects.toThrow(/at least one time/);
+    const view = await getPublicPollView(token, 'UTC', me.participantToken);
+    expect(view.me!.votes).toEqual([{ startUtc: slots[0]!.startUtc, value: 'yes' }]);
+  });
+
+  it('shows the owner how many current times each answer marks', async () => {
+    const { db } = await import('@/lib/db');
+    const { user, created, token, slots } = await setupPoll();
+    await submitPollResponse(
+      token,
+      answer('Ann', [
+        { startUtc: slots[0]!.startUtc, value: 'yes' },
+        { startUtc: slots[1]!.startUtc, value: 'maybe' },
+      ]),
+      null,
+    );
+    // An empty answer saved before this rule existed.
+    const poll = await db.groupPoll.findUniqueOrThrow({ where: { eventTypeId: created.eventTypeId } });
+    await db.pollParticipant.create({
+      data: { pollId: poll.id, name: 'Old', email: 'old@example.com', timezone: 'UTC', editTokenHash: 'x' },
+    });
+    const results = await getPollResults(user.id, created.eventTypeId);
+    expect(results.participants.map((p) => [p.name, p.marked])).toEqual([
+      ['Ann', 2],
+      ['Old', 0],
+    ]);
+  });
+});
+
 describe('Google free/busy import', () => {
   it('uses the public redirect URI and only the free/busy scope', async () => {
     const { token, slots } = await setupPoll();
@@ -485,33 +547,95 @@ describe('Google free/busy import', () => {
     expect(url.searchParams.get('access_type')).toBe('online');
   });
 
-  it('turns busy blocks into votes and sends the participant back to the poll', async () => {
+  function mockBusy(busy: { start: Date; end: Date }[]) {
+    const fetchBusy = spyOn(participantOAuth, 'fetchParticipantBusy').mockResolvedValue(busy);
+    cleanups.push(() => fetchBusy.mockRestore());
+    return fetchBusy;
+  }
+
+  const ann = { name: 'Ann', email: 'ann@example.com', timezone: 'UTC' };
+
+  it('adds someone new only once Google comes back with free time, and hands them their token', async () => {
     const { db } = await import('@/lib/db');
     const { token, slots } = await setupPoll();
-    const me = await submitPollResponse(token, answer('Ann', []), null);
     const { authUrl, cookieValue } = await startGoogleImport({
       inviteToken: token,
-      participantToken: me.participantToken!,
+      participantToken: null,
+      details: ann,
     });
-    const state = new URL(authUrl).searchParams.get('state');
+    // Nothing is saved before the round-trip.
+    expect(await db.pollParticipant.count()).toBe(0);
 
     const busySlot = slots[1]!;
-    const fetchBusy = spyOn(participantOAuth, 'fetchParticipantBusy').mockResolvedValue([
-      { start: new Date(busySlot.startUtc), end: new Date(busySlot.endUtc) },
-    ]);
-    cleanups.push(() => fetchBusy.mockRestore());
-
+    mockBusy([{ start: new Date(busySlot.startUtc), end: new Date(busySlot.endUtc) }]);
+    const state = new URL(authUrl).searchParams.get('state');
     const out = await completeGoogleImport({ code: 'c', state, oauthError: null, cookieValue });
-    expect(out).toEqual({ redirectPath: `/i/${token}?google=ok`, outcome: 'ok' });
+    expect(out.outcome).toBe('ok');
+    const back = new URL(out.redirectPath, 'http://x');
+    expect(back.pathname).toBe(`/i/${token}`);
+    expect(back.searchParams.get('google')).toBe('ok');
+    const personal = back.searchParams.get('p')!;
 
-    const view = await getPublicPollView(token, 'UTC', me.participantToken);
+    const view = await getPublicPollView(token, 'UTC', personal);
     const voted = view.me!.votes.map((v) => v.startUtc);
     expect(voted).toHaveLength(slots.length - 1);
     expect(voted).not.toContain(busySlot.startUtc);
-    expect(view.me!.source).toBe('google');
+    expect(view.me).toMatchObject({ name: 'Ann', source: 'google' });
+    expect(view.me!.googleSyncedAt).toBeTruthy();
 
     // Nothing from Google besides the resulting votes is kept.
     expect(await db.connectedAccount.count()).toBe(1);
+  });
+
+  it('saves nobody when Google shows no free time, or when the import is abandoned', async () => {
+    const { db } = await import('@/lib/db');
+    const { token, slots } = await setupPoll();
+    const { authUrl, cookieValue } = await startGoogleImport({
+      inviteToken: token,
+      participantToken: null,
+      details: ann,
+    });
+    mockBusy([{ start: new Date(slots[0]!.startUtc), end: new Date(Date.now() + 365 * 86_400_000) }]);
+    const state = new URL(authUrl).searchParams.get('state');
+    const out = await completeGoogleImport({ code: 'c', state, oauthError: null, cookieValue });
+    expect(out).toEqual({ redirectPath: `/i/${token}?google=empty`, outcome: 'empty' });
+    expect((await completeGoogleImport({ code: null, state: null, oauthError: 'access_denied', cookieValue })).outcome).toBe('denied');
+    expect(await db.pollParticipant.count()).toBe(0);
+  });
+
+  it("re-imports for an existing participant, keeping their answer when Google shows no free time", async () => {
+    const { token, slots } = await setupPoll();
+    const me = await submitPollResponse(token, answer('Ann', [{ startUtc: slots[0]!.startUtc, value: 'maybe' }]), null);
+    const start = async () => {
+      const r = await startGoogleImport({ inviteToken: token, participantToken: me.participantToken! });
+      return { cookieValue: r.cookieValue, state: new URL(r.authUrl).searchParams.get('state') };
+    };
+
+    const allBusy = mockBusy([{ start: new Date(slots[0]!.startUtc), end: new Date(Date.now() + 365 * 86_400_000) }]);
+    const first = await start();
+    expect((await completeGoogleImport({ code: 'c', ...first, oauthError: null })).outcome).toBe('empty');
+    let view = await getPublicPollView(token, 'UTC', me.participantToken);
+    expect(view.me!.votes).toEqual([{ startUtc: slots[0]!.startUtc, value: 'maybe' }]);
+    expect(view.me!.source).toBe('manual');
+
+    allBusy.mockResolvedValue([]);
+    const second = await start();
+    const out = await completeGoogleImport({ code: 'c', ...second, oauthError: null });
+    expect(out).toEqual({ redirectPath: `/i/${token}?google=ok`, outcome: 'ok' });
+    view = await getPublicPollView(token, 'UTC', me.participantToken);
+    expect(view.me!.votes).toHaveLength(slots.length);
+    expect(view.me!.source).toBe('google');
+  });
+
+  it('needs the details of someone new, and reports a full poll', async () => {
+    const { token, slots } = await setupPoll();
+    await expect(startGoogleImport({ inviteToken: token, participantToken: null })).rejects.toThrow(/name and email/);
+    for (let i = 0; i < MAX_POLL_PARTICIPANTS; i++) {
+      await submitPollResponse(token, answer(`P${i}`, [{ startUtc: slots[0]!.startUtc, value: 'yes' }]), null);
+    }
+    await expect(
+      startGoogleImport({ inviteToken: token, participantToken: null, details: ann }),
+    ).rejects.toThrow(/full/);
   });
 
   it("reads free/busy once and doesn't revoke the shared client's grant", async () => {
@@ -537,8 +661,7 @@ describe('Google free/busy import', () => {
 
   it('rejects a mismatched state and reports a denied consent', async () => {
     const { token } = await setupPoll();
-    const me = await submitPollResponse(token, answer('Ann', []), null);
-    const { cookieValue } = await startGoogleImport({ inviteToken: token, participantToken: me.participantToken! });
+    const { cookieValue } = await startGoogleImport({ inviteToken: token, participantToken: null, details: ann });
     const fetchBusy = spyOn(participantOAuth, 'fetchParticipantBusy').mockResolvedValue([]);
     cleanups.push(() => fetchBusy.mockRestore());
 
@@ -550,9 +673,8 @@ describe('Google free/busy import', () => {
 
   it('is refused when the owner turned it off', async () => {
     const { token } = await setupPoll({ groupPoll: { enabled: true, allowGoogle: false } });
-    const me = await submitPollResponse(token, answer('Ann', []), null);
     await expect(
-      startGoogleImport({ inviteToken: token, participantToken: me.participantToken! }),
+      startGoogleImport({ inviteToken: token, participantToken: null, details: ann }),
     ).rejects.toThrow(/not available/);
     expect((await getPublicPollView(token, 'UTC', null)).google.enabled).toBe(false);
   });

@@ -248,6 +248,18 @@ function Participants({
           <li key={p.id} className="flex items-center gap-2 text-sm">
             <span className="truncate text-foreground">{p.name}</span>
             <span className="truncate text-xs text-muted-foreground">{p.email}</span>
+            {p.marked === 0 ? (
+              <span
+                className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-400"
+                title="This answer doesn't mark any of the current times (they may have saved before choosing, or the times they picked are gone). Ask them to open their link again."
+              >
+                No times marked
+              </span>
+            ) : (
+              <span className="shrink-0 text-[11px] text-muted-foreground">
+                {p.marked} time{p.marked === 1 ? '' : 's'}
+              </span>
+            )}
             {(emailCounts.get(p.email) ?? 0) > 1 ? (
               <span
                 className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-400"

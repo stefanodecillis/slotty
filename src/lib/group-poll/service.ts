@@ -87,6 +87,8 @@ export interface AdminPollParticipant {
   source: string;
   googleSyncedAt: string | null;
   updatedAt: string;
+  /** Times this answer marks among the current candidates. 0 means it says nothing. */
+  marked: number;
 }
 
 export interface AdminPollResults {
@@ -265,6 +267,46 @@ export async function getPublicPollView(
   };
 }
 
+/** Who is answering — everything a new participant row needs besides votes. */
+export interface ParticipantDetails {
+  name: string;
+  email: string;
+  timezone: string;
+}
+
+/**
+ * Add a participant, unless the poll is full or (with `clientRequestHash`) a
+ * retry of the same answer already added them. One statement checks both and
+ * inserts, so it is atomic: concurrent first saves can't push the poll over
+ * the cap or add the same answer twice, and nothing is left to undo.
+ * (Prisma can't express a conditional insert, and its interactive
+ * transactions stall under write contention on SQLite.) DateTime columns
+ * hold epoch milliseconds, which is how Prisma writes them on SQLite.
+ */
+async function insertParticipant(args: {
+  pollId: string;
+  details: ParticipantDetails;
+  source: string;
+  clientRequestHash: string | null;
+  googleSyncedAt?: Date;
+}): Promise<{ id: string; token: string } | null> {
+  const { pollId, details, source, clientRequestHash } = args;
+  const token = generateToken(24);
+  const id = randomUUID();
+  const at = Date.now();
+  const synced = args.googleSyncedAt ? args.googleSyncedAt.getTime() : null;
+  const inserted = await db.$executeRaw`
+    INSERT INTO "poll_participants"
+      ("id", "poll_id", "name", "email", "timezone", "edit_token_hash", "source", "client_request_hash", "google_synced_at", "created_at", "updated_at")
+    SELECT ${id}, ${pollId}, ${details.name}, ${details.email}, ${details.timezone}, ${token.hash}, ${source}, ${clientRequestHash}, ${synced}, ${at}, ${at}
+    WHERE (SELECT COUNT(*) FROM "poll_participants" WHERE "poll_id" = ${pollId}) < ${MAX_POLL_PARTICIPANTS}
+      AND NOT EXISTS (
+        SELECT 1 FROM "poll_participants"
+        WHERE "poll_id" = ${pollId} AND "client_request_hash" = ${clientRequestHash}
+      )`;
+  return inserted === 1 ? { id, token: token.token } : null;
+}
+
 /** What a saved answer ended up as, so a client can check it against what it meant. */
 export interface PollSubmitResult {
   participantId: string;
@@ -304,6 +346,19 @@ export async function submitPollResponse(
 
   const candidates = flatten(await loadCandidates(eventType, owner, 'UTC', now));
   const { votes, droppedVotes } = resolveVotes(candidates, input);
+  // An answer is the times someone can make. Without any it would sit in the
+  // results as a name with nothing behind it; "none of these work" is
+  // something to tell the organizer, not an answer.
+  if (votes.length === 0) {
+    throw new PollError(
+      input.available
+        ? 'None of those free times covers a whole candidate time. Mark at least one time you can make.'
+        : droppedVotes.length > 0
+          ? 'The times you picked are no longer open. Pick from the current times.'
+          : 'Mark at least one time you can make.',
+      422,
+    );
+  }
   const source = input.via === 'agent' ? 'agent' : undefined;
   const clientRequestHash =
     !existing && input.clientRequestId ? hashToken(`${poll.id}:${input.clientRequestId}`) : null;
@@ -331,27 +386,15 @@ export async function submitPollResponse(
     replayed = Boolean(retried);
     await update(participantId);
   } else {
-    const token = generateToken(24);
-    // One statement checks the cap (and that no retry of this answer landed
-    // first) and inserts, so it is atomic: concurrent first saves can't push
-    // the poll over it or add the same answer twice, and nothing is left to
-    // undo. (Prisma can't express a conditional insert, and its interactive
-    // transactions stall under write contention on SQLite.) DateTime columns
-    // hold epoch milliseconds, which is how Prisma writes them on SQLite.
-    const id = randomUUID();
-    const at = Date.now();
-    const inserted = await db.$executeRaw`
-      INSERT INTO "poll_participants"
-        ("id", "poll_id", "name", "email", "timezone", "edit_token_hash", "source", "client_request_hash", "created_at", "updated_at")
-      SELECT ${id}, ${poll.id}, ${input.name}, ${input.email}, ${input.timezone}, ${token.hash}, ${source ?? 'manual'}, ${clientRequestHash}, ${at}, ${at}
-      WHERE (SELECT COUNT(*) FROM "poll_participants" WHERE "poll_id" = ${poll.id}) < ${MAX_POLL_PARTICIPANTS}
-        AND NOT EXISTS (
-          SELECT 1 FROM "poll_participants"
-          WHERE "poll_id" = ${poll.id} AND "client_request_hash" = ${clientRequestHash}
-        )`;
-    if (inserted === 1) {
-      participantId = id;
-      newToken = token.token;
+    const created = await insertParticipant({
+      pollId: poll.id,
+      details: input,
+      source: source ?? 'manual',
+      clientRequestHash,
+    });
+    if (created) {
+      participantId = created.id;
+      newToken = created.token;
     } else {
       // Either a concurrent retry of this answer inserted first, or the poll is full.
       const raced = await findRetried();
@@ -398,57 +441,35 @@ function resolveVotes(
 }
 
 /**
- * Validate that a participant may start a Google import right now.
- * Returns what the OAuth round-trip needs to carry.
+ * Validate that a Google import may start right now: for an existing
+ * participant (re-import, needs their personal token), or for someone new.
+ * A new participant isn't saved until Google comes back with free time, so
+ * an abandoned or empty import never leaves an empty answer behind.
  */
 export async function prepareGoogleImport(
   rawToken: string,
-  participantToken: string,
-): Promise<{ participantId: string }> {
+  participantToken: string | null,
+): Promise<{ pollId: string; participantId: string | null }> {
   const { poll } = await resolveOpenPoll(rawToken);
   if (!googleEnabledFor(poll)) {
     throw new PollError('Google Calendar import is not available for this poll.', 403);
   }
-  const participant = await findParticipant(poll.id, participantToken);
-  if (!participant) throw new PollError('Answer the poll first.', 403);
-  return { participantId: participant.id };
+  if (participantToken) {
+    const participant = await findParticipant(poll.id, participantToken);
+    return { pollId: poll.id, participantId: participant!.id };
+  }
+  const count = await db.pollParticipant.count({ where: { pollId: poll.id } });
+  if (count >= MAX_POLL_PARTICIPANTS) throw new PollError('This poll is full.', 409);
+  return { pollId: poll.id, participantId: null };
 }
 
-/** The [from, to) window to read a participant's free/busy for. */
-export async function googleImportWindow(
-  participantId: string,
-  now: Date = new Date(),
-): Promise<{ from: Date; to: Date }> {
-  const participant = await db.pollParticipant.findUnique({
-    where: { id: participantId },
-    include: { poll: { include: { eventType: true } } },
+/** A poll that still collects answers, with the event type its candidates come from. */
+async function loadLivePoll(pollId: string, now: Date) {
+  const poll = await db.groupPoll.findUnique({
+    where: { id: pollId },
+    include: { eventType: { include: { invites: { orderBy: { createdAt: 'desc' }, take: 1 } } } },
   });
-  if (!participant) throw new PollError('Not found', 404);
-  return pollWindow(participant.poll.eventType, now);
-}
-
-/**
- * Replace a participant's answer with "available" on every candidate slot
- * that doesn't overlap their Google busy blocks. Only the resulting votes
- * are kept — the busy blocks themselves are discarded.
- */
-export async function applyGoogleBusy(
-  participantId: string,
-  busy: readonly BusyInterval[],
-  now: Date = new Date(),
-): Promise<{ availableSlots: number }> {
-  const participant = await db.pollParticipant.findUnique({
-    where: { id: participantId },
-    include: {
-      poll: {
-        include: {
-          eventType: { include: { invites: { orderBy: { createdAt: 'desc' }, take: 1 } } },
-        },
-      },
-    },
-  });
-  if (!participant) throw new PollError('Not found', 404);
-  const { poll } = participant;
+  if (!poll) throw new PollError('Not found', 404);
   const invite = poll.eventType.invites[0];
   const inviteLive =
     invite &&
@@ -456,10 +477,41 @@ export async function applyGoogleBusy(
     !invite.revokedAt &&
     (!invite.expiresAt || invite.expiresAt.getTime() > now.getTime());
   if (poll.status !== 'collecting' || !inviteLive) throw new PollError('This poll is closed.', 410);
+  return poll;
+}
 
+/** The [from, to) window to read free/busy for, for a poll. */
+export async function googleImportWindow(
+  pollId: string,
+  now: Date = new Date(),
+): Promise<{ from: Date; to: Date }> {
+  const poll = await db.groupPoll.findUnique({ where: { id: pollId }, include: { eventType: true } });
+  if (!poll) throw new PollError('Not found', 404);
+  return pollWindow(poll.eventType, now);
+}
+
+async function freeCandidates(pollId: string, busy: readonly BusyInterval[], now: Date): Promise<string[]> {
+  const poll = await loadLivePoll(pollId, now);
   const owner = await loadOwner(poll.eventType);
   const candidates = flatten(await loadCandidates(poll.eventType, owner, 'UTC', now));
-  const free = freeSlotsFromBusy(candidates, busy);
+  return freeSlotsFromBusy(candidates, busy);
+}
+
+/**
+ * Replace a participant's answer with "available" on every candidate slot
+ * that doesn't overlap their Google busy blocks. Only the resulting votes
+ * are kept — the busy blocks themselves are discarded. When Google shows no
+ * free candidate at all, the existing answer is left alone.
+ */
+export async function applyGoogleBusy(
+  participantId: string,
+  busy: readonly BusyInterval[],
+  now: Date = new Date(),
+): Promise<{ availableSlots: number }> {
+  const participant = await db.pollParticipant.findUnique({ where: { id: participantId } });
+  if (!participant) throw new PollError('Not found', 404);
+  const free = await freeCandidates(participant.pollId, busy, now);
+  if (free.length === 0) return { availableSlots: 0 };
 
   await replaceVotes(
     participantId,
@@ -470,6 +522,34 @@ export async function applyGoogleBusy(
     data: { source: 'google', googleSyncedAt: now },
   });
   return { availableSlots: free.length };
+}
+
+/**
+ * Add someone whose first answer comes from Google: their free candidates
+ * become "yes" votes. Nobody is added when Google shows no free candidate.
+ * Returns the raw personal token for the new participant.
+ */
+export async function createParticipantFromGoogle(
+  pollId: string,
+  details: ParticipantDetails,
+  busy: readonly BusyInterval[],
+  now: Date = new Date(),
+): Promise<{ availableSlots: number; participantToken: string | null }> {
+  const free = await freeCandidates(pollId, busy, now);
+  if (free.length === 0) return { availableSlots: 0, participantToken: null };
+  const created = await insertParticipant({
+    pollId,
+    details,
+    source: 'google',
+    clientRequestHash: null,
+    googleSyncedAt: now,
+  });
+  if (!created) throw new PollError('This poll is full.', 409);
+  await replaceVotes(
+    created.id,
+    free.map((startUtc) => ({ startUtc, value: 'yes' as const })),
+  );
+  return { availableSlots: free.length, participantToken: created.token };
 }
 
 /** Finalized time for a closed poll, for the "time confirmed" panel. */
@@ -519,6 +599,7 @@ export async function getPollResults(
       poll.participants.map((p) => ({ id: p.id, votes: votesMap(p.votes) })),
     ),
   ).slice(0, RANKED_LIMIT);
+  const open = new Set(candidates.map((c) => c.startUtc));
 
   const availability = participantGoogleAvailability();
   const redirectUri = participantRedirectUri();
@@ -534,6 +615,7 @@ export async function getPollResults(
       source: p.source,
       googleSyncedAt: p.googleSyncedAt?.toISOString() ?? null,
       updatedAt: p.updatedAt.toISOString(),
+      marked: p.votes.filter((v) => open.has(v.slotStart.toISOString())).length,
     })),
     ranked,
     candidateCount: candidates.length,

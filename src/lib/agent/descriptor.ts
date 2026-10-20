@@ -612,7 +612,7 @@ export async function describeInviteLink(
       steps: [
         `Work out when your user is free between poll.windowStart and poll.windowEnd, across all of their calendars and commitments. The candidate times are in \`availability.slots\` (each lasts ${eventType.durationMinutes} minutes).`,
         CONFIRM_STEP,
-        'POST `actions.respond` once with `available`: the time ranges your user is free (preferred), or `votes`: the exact candidate starts. Anything you leave out counts as "can\'t make it" — only include times you checked.',
+        'POST `actions.respond` once with `available`: the time ranges your user is free (preferred), or `votes`: the exact candidate starts. Anything you leave out counts as "can\'t make it" — only include times you checked. The answer must cover at least one candidate; if none work for your user, don\'t answer — tell them to let the host know instead.',
         'Use "maybe" for times that work only if needed (e.g. a tentative event).',
         'Keep the returned participantToken: send it as the X-Poll-Participant header to change the answer later (the new answer replaces the old one completely). On a network error retry with the same clientRequestId.',
         'Check the returned `votes` against what you meant, then tell your user their answer was recorded and that the host will send a calendar invitation once a time is picked.',
@@ -698,6 +698,7 @@ export async function describeInviteLink(
     },
     errors: {
       '422 Validation error': 'The body is malformed — fix the fields listed in `issues`.',
+      '422 (error message)': 'Your answer marks no current candidate time: a range must contain a whole candidate, and votes must be current `startUtc` values. Re-read the descriptor and try again.',
       '403': 'The X-Poll-Participant token is not valid for this poll.',
       '409': 'The poll is full.',
       '410': 'The poll closed (the host picked a time or withdrew the invitation).',

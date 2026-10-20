@@ -26,20 +26,25 @@ export const MAX_POLL_RANGES = 500;
 
 const instant = z.string().datetime({ offset: true });
 
+/** Who is answering. Also sent on its own to start a first-time Google import. */
+export const pollParticipantDetailsSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  email: z.string().trim().toLowerCase().email().max(320),
+  timezone: z.string().min(1).max(100),
+});
+
 /**
  * A participant's answer, posted from the public poll page or by an AI
- * assistant. Exactly one of:
+ * assistant. It must amount to at least one vote (checked against the
+ * current candidates by the service). Exactly one of:
  *   - `votes`: the candidate slots the person can make, one by one;
  *   - `available`: time ranges the person is free. Every candidate that fits
  *     entirely inside a range gets that range's value. Anything not covered
  *     counts as "can't make it", so an incomplete calendar read can't turn
  *     into a false "yes".
  */
-export const pollResponseSchema = z
-  .object({
-    name: z.string().trim().min(1).max(200),
-    email: z.string().trim().toLowerCase().email().max(320),
-    timezone: z.string().min(1).max(100),
+export const pollResponseSchema = pollParticipantDetailsSchema
+  .extend({
     votes: z
       .array(
         z.object({

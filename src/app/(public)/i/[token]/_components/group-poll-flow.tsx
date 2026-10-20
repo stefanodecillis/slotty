@@ -98,6 +98,9 @@ export function GroupPollFlow(props: Props) {
     setParticipantToken(fromLink ?? readStoredToken(inviteToken));
     const google = url.searchParams.get('google');
     if (google === 'ok') toast.success('Imported your free time from Google Calendar. Check it and adjust if needed.');
+    else if (google === 'empty')
+      toast.message('Google Calendar shows you busy at every time in this poll, so nothing was saved. Mark the times you can make by hand.');
+    else if (google === 'full') toast.error('This poll is full.');
     else if (google === 'denied') toast.message('Google Calendar import cancelled.');
     else if (google === 'failed') toast.error('Could not import from Google Calendar. You can still mark your times by hand.');
     if (fromLink || google) {
@@ -200,24 +203,24 @@ export function GroupPollFlow(props: Props) {
   }
 
   async function handleGoogleImport() {
-    if (!validateDetails()) return;
-    let token = participantToken;
-    try {
-      // Google import needs a participant to attach to — save first.
-      const res = await save.mutateAsync();
-      token = res.participantToken ?? token;
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Could not save your answer.');
-      return;
-    }
-    if (!token) return;
+    // Someone new is only saved once Google comes back with free time, so
+    // their details travel with the import instead of an empty answer first.
+    if (!participantToken && !validateDetails()) return;
+    const fields: [string, string][] = participantToken
+      ? [
+          ['inviteToken', inviteToken],
+          ['participantToken', participantToken],
+        ]
+      : [
+          ['inviteToken', inviteToken],
+          ['name', name.trim()],
+          ['email', email.trim()],
+          ['timezone', tz],
+        ];
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/api/public/polls/google/start';
-    for (const [k, v] of [
-      ['inviteToken', inviteToken],
-      ['participantToken', token],
-    ] as const) {
+    for (const [k, v] of fields) {
       const input = document.createElement('input');
       input.type = 'hidden';
       input.name = k;
@@ -477,12 +480,19 @@ export function GroupPollFlow(props: Props) {
 
               {tab === 'mine' && !full ? (
                 <div className="flex flex-wrap items-center gap-3">
-                  <Button type="button" onClick={handleSave} disabled={save.isPending}>
+                  <Button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={save.isPending || votes.size === 0}
+                    title={votes.size === 0 ? 'Mark at least one time you can make' : undefined}
+                  >
                     <Check className="h-4 w-4" />
                     {save.isPending ? 'Saving…' : data.me ? 'Save changes' : 'Save my availability'}
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    {votes.size} time{votes.size === 1 ? '' : 's'} marked
+                    {votes.size === 0
+                      ? 'Mark at least one time you can make'
+                      : `${votes.size} time${votes.size === 1 ? '' : 's'} marked`}
                     {dirty ? ' · unsaved changes' : ''}
                   </span>
                 </div>
