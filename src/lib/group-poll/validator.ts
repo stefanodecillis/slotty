@@ -26,7 +26,7 @@ export const MAX_POLL_RANGES = 500;
 
 const instant = z.string().datetime({ offset: true });
 
-/** Who is answering. Also sent on its own to start a first-time Google import. */
+/** Who is answering. */
 export const pollParticipantDetailsSchema = z.object({
   name: z.string().trim().min(1).max(200),
   email: z.string().trim().toLowerCase().email().max(320),
@@ -72,8 +72,9 @@ export const pollResponseSchema = pollParticipantDetailsSchema
     // participant. Long and random, like any credential: a retry with it can
     // replace the answer.
     clientRequestId: z.string().min(16).max(100).optional(),
-    // Self-reported by AI assistants; shown to the owner, grants nothing.
-    via: z.enum(['agent']).optional(),
+    // Self-reported provenance, shown to the owner, grants nothing: an AI
+    // assistant, or a grid pre-filled by the Google import.
+    via: z.enum(['agent', 'google']).optional(),
   })
   .refine((d) => (d.votes === undefined) !== (d.available === undefined), {
     message: 'Send exactly one of `votes` or `available`',

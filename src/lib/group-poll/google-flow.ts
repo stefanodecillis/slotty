@@ -3,20 +3,18 @@
  * plumbing (cookies / redirects live in the route handlers so this stays
  * testable under bun).
  *
- *   start    — participant POSTs the invite token plus either their personal
- *              token (re-import) or, for someone new, their name / email /
- *              timezone. We check they may import, then hand back Google's
- *              consent URL and an encrypted, short-lived cookie that binds
- *              the OAuth `state` to that participant (or those details) and
- *              to where they came from.
+ *   start    — participant POSTs the invite token. We check the poll takes
+ *              imports, then hand back Google's consent URL and an
+ *              encrypted, short-lived cookie that binds the OAuth `state` to
+ *              that poll and to where they came from.
  *   complete — Google redirects the participant's browser to the PUBLIC
  *              callback. We verify state against the cookie, exchange the
- *              code, read free/busy once, turn it into votes, and send them
- *              back to the poll page. Nothing from Google is stored.
+ *              code, read free/busy once, and send the free candidate times
+ *              back to the poll page in the URL fragment.
  *
- * A new participant is only saved once Google shows at least one free
- * candidate — an abandoned or empty import leaves no empty answer behind.
- * Their personal token comes back as `?p=`, like a personal link.
+ * The import only pre-fills the grid: the participant checks it and saves
+ * their answer like any other. Nothing from Google is stored, and an
+ * abandoned import leaves nothing behind.
  *
  * The callback is reachable by anyone on the internet, so every failure
  * collapses to a generic `google=failed` on the poll page.
@@ -27,14 +25,8 @@ import { decrypt, encrypt, safeEqual } from '@/lib/crypto';
 import { env } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import * as participantOAuth from '@/lib/google/participant-oauth';
-import {
-  applyGoogleBusy,
-  createParticipantFromGoogle,
-  googleImportWindow,
-  PollError,
-  prepareGoogleImport,
-  type ParticipantDetails,
-} from './service';
+import { freeCandidates, googleImportWindow, prepareGoogleImport } from './service';
+import { encodeSpans, GOOGLE_FREE_PARAM, spansFromSlots } from './prefill';
 
 export const POLL_OAUTH_COOKIE = 'slotty_poll_oauth';
 /** Scope the cookie to the callback so it never rides along elsewhere. */
@@ -44,10 +36,6 @@ export const POLL_OAUTH_TTL_S = 10 * 60;
 interface CookiePayload {
   nonce: string;
   pollId: string;
-  /** Re-import for an existing participant… */
-  participantId: string | null;
-  /** …or the details of someone new, saved only if Google shows free time. */
-  details: ParticipantDetails | null;
   returnPath: string;
   issuedAt: number;
 }
@@ -62,24 +50,13 @@ function pollPath(inviteToken: string): string {
 
 export async function startGoogleImport(input: {
   inviteToken: string;
-  participantToken: string | null;
-  /** Required without a participant token. */
-  details?: ParticipantDetails;
   now?: Date;
 }): Promise<{ authUrl: string; cookieValue: string }> {
-  if (!input.participantToken && !input.details) {
-    throw new PollError('Enter your name and email first.', 400);
-  }
-  const { pollId, participantId } = await prepareGoogleImport(
-    input.inviteToken,
-    input.participantToken,
-  );
+  const { pollId } = await prepareGoogleImport(input.inviteToken);
   const nonce = randomBytes(24).toString('base64url');
   const payload: CookiePayload = {
     nonce,
     pollId,
-    participantId,
-    details: participantId ? null : input.details!,
     returnPath: pollPath(input.inviteToken),
     issuedAt: Math.floor((input.now ?? new Date()).getTime() / 1000),
   };
@@ -90,8 +67,8 @@ export async function startGoogleImport(input: {
   };
 }
 
-/** `empty`: Google showed no free candidate, so nothing was saved or changed. */
-export type GoogleImportOutcome = 'ok' | 'empty' | 'full' | 'denied' | 'failed';
+/** `empty`: Google showed no free candidate, so there's nothing to pre-fill. */
+export type GoogleImportOutcome = 'ok' | 'empty' | 'denied' | 'failed';
 
 export async function completeGoogleImport(input: {
   code: string | null;
@@ -119,10 +96,10 @@ export async function completeGoogleImport(input: {
   ) {
     return { redirectPath: '/', outcome: 'failed' };
   }
-  const back = (outcome: GoogleImportOutcome, participantToken?: string) => ({
-    redirectPath:
-      `${payload!.returnPath}?google=${outcome}` +
-      (participantToken ? `&p=${encodeURIComponent(participantToken)}` : ''),
+  // The free times ride in the fragment: the browser keeps it across the
+  // redirect but never sends it to a server, so it stays out of logs.
+  const back = (outcome: GoogleImportOutcome, fragment?: string) => ({
+    redirectPath: `${payload!.returnPath}?google=${outcome}${fragment ? `#${fragment}` : ''}`,
     outcome,
   });
 
@@ -134,15 +111,10 @@ export async function completeGoogleImport(input: {
   try {
     const window = await googleImportWindow(payload.pollId, now);
     const busy = await participantOAuth.fetchParticipantBusy(input.code, window.from, window.to);
-    if (payload.participantId) {
-      const { availableSlots } = await applyGoogleBusy(payload.participantId, busy, now);
-      return back(availableSlots > 0 ? 'ok' : 'empty');
-    }
-    if (!payload.details) return back('failed');
-    const created = await createParticipantFromGoogle(payload.pollId, payload.details, busy, now);
-    return created.participantToken ? back('ok', created.participantToken) : back('empty');
+    const free = await freeCandidates(payload.pollId, busy, now);
+    if (free.length === 0) return back('empty');
+    return back('ok', `${GOOGLE_FREE_PARAM}=${encodeSpans(spansFromSlots(free))}`);
   } catch (err) {
-    if (err instanceof PollError && err.status === 409) return back('full');
     logger.warn(
       { event: 'poll.google_import_failed', err: err instanceof Error ? err.message : String(err) },
       'participant Google import failed',

@@ -359,14 +359,20 @@ export async function submitPollResponse(
       422,
     );
   }
-  const source = input.via === 'agent' ? 'agent' : undefined;
+  // Self-reported labels for the owner: who or what filled this answer in.
+  const source = input.via;
   const clientRequestHash =
     !existing && input.clientRequestId ? hashToken(`${poll.id}:${input.clientRequestId}`) : null;
 
   const update = async (participantId: string): Promise<void> => {
     await db.pollParticipant.update({
       where: { id: participantId },
-      data: { name: input.name, email: input.email, timezone: input.timezone, ...(source ? { source } : {}) },
+      data: {
+        name: input.name,
+        email: input.email,
+        timezone: input.timezone,
+        ...(source ? { source, googleSyncedAt: source === 'google' ? now : null } : {}),
+      },
     });
   };
   const findRetried = async () =>
@@ -391,6 +397,7 @@ export async function submitPollResponse(
       details: input,
       source: source ?? 'manual',
       clientRequestHash,
+      googleSyncedAt: source === 'google' ? now : undefined,
     });
     if (created) {
       participantId = created.id;
@@ -441,26 +448,16 @@ function resolveVotes(
 }
 
 /**
- * Validate that a Google import may start right now: for an existing
- * participant (re-import, needs their personal token), or for someone new.
- * A new participant isn't saved until Google comes back with free time, so
- * an abandoned or empty import never leaves an empty answer behind.
+ * Validate that a Google import may start right now. The import only reads
+ * free/busy and pre-fills the participant's grid; their answer is saved
+ * like any other, when they press Save.
  */
-export async function prepareGoogleImport(
-  rawToken: string,
-  participantToken: string | null,
-): Promise<{ pollId: string; participantId: string | null }> {
+export async function prepareGoogleImport(rawToken: string): Promise<{ pollId: string }> {
   const { poll } = await resolveOpenPoll(rawToken);
   if (!googleEnabledFor(poll)) {
     throw new PollError('Google Calendar import is not available for this poll.', 403);
   }
-  if (participantToken) {
-    const participant = await findParticipant(poll.id, participantToken);
-    return { pollId: poll.id, participantId: participant!.id };
-  }
-  const count = await db.pollParticipant.count({ where: { pollId: poll.id } });
-  if (count >= MAX_POLL_PARTICIPANTS) throw new PollError('This poll is full.', 409);
-  return { pollId: poll.id, participantId: null };
+  return { pollId: poll.id };
 }
 
 /** A poll that still collects answers, with the event type its candidates come from. */
@@ -490,66 +487,21 @@ export async function googleImportWindow(
   return pollWindow(poll.eventType, now);
 }
 
-async function freeCandidates(pollId: string, busy: readonly BusyInterval[], now: Date): Promise<string[]> {
+/**
+ * The poll's current candidates that don't overlap any of the busy blocks.
+ * Only these are handed back to the participant's browser; the busy blocks
+ * themselves are discarded and nothing is written.
+ */
+export async function freeCandidates(
+  pollId: string,
+  busy: readonly BusyInterval[],
+  now: Date = new Date(),
+): Promise<CandidateSlot[]> {
   const poll = await loadLivePoll(pollId, now);
   const owner = await loadOwner(poll.eventType);
   const candidates = flatten(await loadCandidates(poll.eventType, owner, 'UTC', now));
-  return freeSlotsFromBusy(candidates, busy);
-}
-
-/**
- * Replace a participant's answer with "available" on every candidate slot
- * that doesn't overlap their Google busy blocks. Only the resulting votes
- * are kept — the busy blocks themselves are discarded. When Google shows no
- * free candidate at all, the existing answer is left alone.
- */
-export async function applyGoogleBusy(
-  participantId: string,
-  busy: readonly BusyInterval[],
-  now: Date = new Date(),
-): Promise<{ availableSlots: number }> {
-  const participant = await db.pollParticipant.findUnique({ where: { id: participantId } });
-  if (!participant) throw new PollError('Not found', 404);
-  const free = await freeCandidates(participant.pollId, busy, now);
-  if (free.length === 0) return { availableSlots: 0 };
-
-  await replaceVotes(
-    participantId,
-    free.map((startUtc) => ({ startUtc, value: 'yes' as const })),
-  );
-  await db.pollParticipant.update({
-    where: { id: participantId },
-    data: { source: 'google', googleSyncedAt: now },
-  });
-  return { availableSlots: free.length };
-}
-
-/**
- * Add someone whose first answer comes from Google: their free candidates
- * become "yes" votes. Nobody is added when Google shows no free candidate.
- * Returns the raw personal token for the new participant.
- */
-export async function createParticipantFromGoogle(
-  pollId: string,
-  details: ParticipantDetails,
-  busy: readonly BusyInterval[],
-  now: Date = new Date(),
-): Promise<{ availableSlots: number; participantToken: string | null }> {
-  const free = await freeCandidates(pollId, busy, now);
-  if (free.length === 0) return { availableSlots: 0, participantToken: null };
-  const created = await insertParticipant({
-    pollId,
-    details,
-    source: 'google',
-    clientRequestHash: null,
-    googleSyncedAt: now,
-  });
-  if (!created) throw new PollError('This poll is full.', 409);
-  await replaceVotes(
-    created.id,
-    free.map((startUtc) => ({ startUtc, value: 'yes' as const })),
-  );
-  return { availableSlots: free.length, participantToken: created.token };
+  const free = new Set(freeSlotsFromBusy(candidates, busy));
+  return candidates.filter((c) => free.has(c.startUtc));
 }
 
 /** Finalized time for a closed poll, for the "time confirmed" panel. */

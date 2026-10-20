@@ -32,6 +32,7 @@ import {
   submitPollResponse,
 } from '@/lib/group-poll/service';
 import { completeGoogleImport, startGoogleImport } from '@/lib/group-poll/google-flow';
+import { decodeSpans, encodeSpans, GOOGLE_FREE_PARAM, slotsWithinSpans, spansFromSlots } from '@/lib/group-poll/prefill';
 import { freeSlotsFromBusy, rankSlots, tallySlots } from '@/lib/group-poll/rank';
 import { MAX_POLL_PARTICIPANTS, MAX_POLL_VOTES, pollResponseSchema } from '@/lib/group-poll/validator';
 
@@ -538,9 +539,8 @@ describe('an answer always marks a time', () => {
 
 describe('Google free/busy import', () => {
   it('uses the public redirect URI and only the free/busy scope', async () => {
-    const { token, slots } = await setupPoll();
-    const me = await submitPollResponse(token, answer('Ann', [{ startUtc: slots[0]!.startUtc, value: 'yes' }]), null);
-    const { authUrl } = await startGoogleImport({ inviteToken: token, participantToken: me.participantToken! });
+    const { token } = await setupPoll();
+    const { authUrl } = await startGoogleImport({ inviteToken: token });
     const url = new URL(authUrl);
     expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3000/api/public/polls/google/callback');
     expect(url.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/calendar.freebusy');
@@ -553,89 +553,76 @@ describe('Google free/busy import', () => {
     return fetchBusy;
   }
 
-  const ann = { name: 'Ann', email: 'ann@example.com', timezone: 'UTC' };
+  async function roundTrip(token: string) {
+    const { authUrl, cookieValue } = await startGoogleImport({ inviteToken: token });
+    const state = new URL(authUrl).searchParams.get('state');
+    return completeGoogleImport({ code: 'c', state, oauthError: null, cookieValue });
+  }
 
-  it('adds someone new only once Google comes back with free time, and hands them their token', async () => {
+  it('hands the free times back to the browser to pre-fill, and saves nothing', async () => {
     const { db } = await import('@/lib/db');
     const { token, slots } = await setupPoll();
-    const { authUrl, cookieValue } = await startGoogleImport({
-      inviteToken: token,
-      participantToken: null,
-      details: ann,
-    });
-    // Nothing is saved before the round-trip.
-    expect(await db.pollParticipant.count()).toBe(0);
-
     const busySlot = slots[1]!;
     mockBusy([{ start: new Date(busySlot.startUtc), end: new Date(busySlot.endUtc) }]);
-    const state = new URL(authUrl).searchParams.get('state');
-    const out = await completeGoogleImport({ code: 'c', state, oauthError: null, cookieValue });
+
+    const out = await roundTrip(token);
     expect(out.outcome).toBe('ok');
     const back = new URL(out.redirectPath, 'http://x');
     expect(back.pathname).toBe(`/i/${token}`);
     expect(back.searchParams.get('google')).toBe('ok');
-    const personal = back.searchParams.get('p')!;
+    // Only in the fragment, which the browser never sends to a server.
+    expect(back.search).not.toContain(GOOGLE_FREE_PARAM);
+    const spans = decodeSpans(new URLSearchParams(back.hash.slice(1)).get(GOOGLE_FREE_PARAM));
+    const prefilled = slotsWithinSpans(slots, spans).map((s) => s.startUtc);
+    expect(prefilled).toHaveLength(slots.length - 1);
+    expect(prefilled).not.toContain(busySlot.startUtc);
 
-    const view = await getPublicPollView(token, 'UTC', personal);
-    const voted = view.me!.votes.map((v) => v.startUtc);
-    expect(voted).toHaveLength(slots.length - 1);
-    expect(voted).not.toContain(busySlot.startUtc);
-    expect(view.me).toMatchObject({ name: 'Ann', source: 'google' });
-    expect(view.me!.googleSyncedAt).toBeTruthy();
-
-    // Nothing from Google besides the resulting votes is kept.
+    // Nothing is stored: no answer, nothing from Google.
+    expect(await db.pollParticipant.count()).toBe(0);
     expect(await db.connectedAccount.count()).toBe(1);
   });
 
-  it('saves nobody when Google shows no free time, or when the import is abandoned', async () => {
-    const { db } = await import('@/lib/db');
-    const { token, slots } = await setupPoll();
-    const { authUrl, cookieValue } = await startGoogleImport({
-      inviteToken: token,
-      participantToken: null,
-      details: ann,
-    });
-    mockBusy([{ start: new Date(slots[0]!.startUtc), end: new Date(Date.now() + 365 * 86_400_000) }]);
-    const state = new URL(authUrl).searchParams.get('state');
-    const out = await completeGoogleImport({ code: 'c', state, oauthError: null, cookieValue });
-    expect(out).toEqual({ redirectPath: `/i/${token}?google=empty`, outcome: 'empty' });
-    expect((await completeGoogleImport({ code: null, state: null, oauthError: 'access_denied', cookieValue })).outcome).toBe('denied');
-    expect(await db.pollParticipant.count()).toBe(0);
-  });
-
-  it("re-imports for an existing participant, keeping their answer when Google shows no free time", async () => {
+  it('leaves an existing answer alone until the participant saves', async () => {
     const { token, slots } = await setupPoll();
     const me = await submitPollResponse(token, answer('Ann', [{ startUtc: slots[0]!.startUtc, value: 'maybe' }]), null);
-    const start = async () => {
-      const r = await startGoogleImport({ inviteToken: token, participantToken: me.participantToken! });
-      return { cookieValue: r.cookieValue, state: new URL(r.authUrl).searchParams.get('state') };
-    };
-
-    const allBusy = mockBusy([{ start: new Date(slots[0]!.startUtc), end: new Date(Date.now() + 365 * 86_400_000) }]);
-    const first = await start();
-    expect((await completeGoogleImport({ code: 'c', ...first, oauthError: null })).outcome).toBe('empty');
+    mockBusy([]);
+    expect((await roundTrip(token)).outcome).toBe('ok');
     let view = await getPublicPollView(token, 'UTC', me.participantToken);
     expect(view.me!.votes).toEqual([{ startUtc: slots[0]!.startUtc, value: 'maybe' }]);
-    expect(view.me!.source).toBe('manual');
 
-    allBusy.mockResolvedValue([]);
-    const second = await start();
-    const out = await completeGoogleImport({ code: 'c', ...second, oauthError: null });
-    expect(out).toEqual({ redirectPath: `/i/${token}?google=ok`, outcome: 'ok' });
+    // Saving the pre-filled grid labels the answer as coming from Google.
+    await submitPollResponse(
+      token,
+      { ...answer('Ann', slots.map((s) => ({ startUtc: s.startUtc, value: 'yes' as const }))), via: 'google' },
+      me.participantToken,
+    );
     view = await getPublicPollView(token, 'UTC', me.participantToken);
     expect(view.me!.votes).toHaveLength(slots.length);
     expect(view.me!.source).toBe('google');
+    expect(view.me!.googleSyncedAt).toBeTruthy();
   });
 
-  it('needs the details of someone new, and reports a full poll', async () => {
+  it('reports no free time, and an abandoned or denied import, without saving anything', async () => {
+    const { db } = await import('@/lib/db');
     const { token, slots } = await setupPoll();
-    await expect(startGoogleImport({ inviteToken: token, participantToken: null })).rejects.toThrow(/name and email/);
-    for (let i = 0; i < MAX_POLL_PARTICIPANTS; i++) {
-      await submitPollResponse(token, answer(`P${i}`, [{ startUtc: slots[0]!.startUtc, value: 'yes' }]), null);
-    }
-    await expect(
-      startGoogleImport({ inviteToken: token, participantToken: null, details: ann }),
-    ).rejects.toThrow(/full/);
+    mockBusy([{ start: new Date(slots[0]!.startUtc), end: new Date(Date.now() + 365 * 86_400_000) }]);
+    expect(await roundTrip(token)).toEqual({ redirectPath: `/i/${token}?google=empty`, outcome: 'empty' });
+    const { cookieValue } = await startGoogleImport({ inviteToken: token });
+    expect(
+      (await completeGoogleImport({ code: null, state: null, oauthError: 'access_denied', cookieValue })).outcome,
+    ).toBe('denied');
+    expect(await db.pollParticipant.count()).toBe(0);
+  });
+
+  it('round-trips free spans compactly', () => {
+    const spans = spansFromSlots([
+      { startUtc: '2030-01-01T09:00:00.000Z', endUtc: '2030-01-01T10:00:00.000Z' },
+      { startUtc: '2030-01-01T09:15:00.000Z', endUtc: '2030-01-01T10:15:00.000Z' },
+      { startUtc: '2030-01-01T14:00:00.000Z', endUtc: '2030-01-01T15:00:00.000Z' },
+    ]);
+    expect(spans).toHaveLength(2);
+    expect(decodeSpans(encodeSpans(spans))).toEqual(spans);
+    expect(decodeSpans('garbage,1-0,12-x')).toEqual([]);
   });
 
   it("reads free/busy once and doesn't revoke the shared client's grant", async () => {
@@ -661,9 +648,8 @@ describe('Google free/busy import', () => {
 
   it('rejects a mismatched state and reports a denied consent', async () => {
     const { token } = await setupPoll();
-    const { cookieValue } = await startGoogleImport({ inviteToken: token, participantToken: null, details: ann });
-    const fetchBusy = spyOn(participantOAuth, 'fetchParticipantBusy').mockResolvedValue([]);
-    cleanups.push(() => fetchBusy.mockRestore());
+    const { cookieValue } = await startGoogleImport({ inviteToken: token });
+    const fetchBusy = mockBusy([]);
 
     expect((await completeGoogleImport({ code: 'c', state: 'forged', oauthError: null, cookieValue })).outcome).toBe('failed');
     expect((await completeGoogleImport({ code: null, state: null, oauthError: 'access_denied', cookieValue })).outcome).toBe('denied');
@@ -673,9 +659,7 @@ describe('Google free/busy import', () => {
 
   it('is refused when the owner turned it off', async () => {
     const { token } = await setupPoll({ groupPoll: { enabled: true, allowGoogle: false } });
-    await expect(
-      startGoogleImport({ inviteToken: token, participantToken: null, details: ann }),
-    ).rejects.toThrow(/not available/);
+    await expect(startGoogleImport({ inviteToken: token })).rejects.toThrow(/not available/);
     expect((await getPublicPollView(token, 'UTC', null)).google.enabled).toBe(false);
   });
 });

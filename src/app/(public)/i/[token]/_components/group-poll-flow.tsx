@@ -6,7 +6,8 @@
  *
  *   - "Your availability": a day × time grid of the owner's free slots.
  *     Drag (mouse) or tap (touch / keyboard) to mark "Available" or
- *     "If needed". Optionally pre-filled from Google Calendar free/busy.
+ *     "If needed". Optionally pre-filled from Google Calendar free/busy —
+ *     the import only paints the grid; the participant checks it and saves.
  *   - "Everyone": how many people can make each time so far.
  *
  * The first save returns a personal token, kept in localStorage per invite
@@ -31,6 +32,7 @@ import {
   type VoteValue,
 } from '@/lib/api/group-poll';
 import { hexToHsl, readableForegroundHsl } from '@/lib/brand/css';
+import { decodeSpans, GOOGLE_FREE_PARAM, slotsWithinSpans, type FreeSpan } from '@/lib/group-poll/prefill';
 import { copyToClipboard } from '@/lib/clipboard';
 import { cn } from '@/lib/utils/cn';
 
@@ -51,6 +53,32 @@ const DAYS_PER_PAGE = 7;
 
 function storageKey(inviteToken: string): string {
   return `slotty.poll.${inviteToken}`;
+}
+
+/** Name and email typed before leaving for Google, so they survive the round-trip. */
+function draftKey(inviteToken: string): string {
+  return `slotty.poll.draft.${inviteToken}`;
+}
+
+function writeDraft(inviteToken: string, draft: { name: string; email: string }): void {
+  try {
+    window.sessionStorage.setItem(draftKey(inviteToken), JSON.stringify(draft));
+  } catch {
+    /* storage disabled — they'll retype their name */
+  }
+}
+
+function takeDraft(inviteToken: string): { name: string; email: string } | null {
+  try {
+    const raw = window.sessionStorage.getItem(draftKey(inviteToken));
+    window.sessionStorage.removeItem(draftKey(inviteToken));
+    const v = raw ? (JSON.parse(raw) as { name?: unknown; email?: unknown }) : null;
+    return v && typeof v.name === 'string' && typeof v.email === 'string'
+      ? { name: v.name, email: v.email }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function readStoredToken(inviteToken: string): string | null {
@@ -87,6 +115,9 @@ export function GroupPollFlow(props: Props) {
   const [tz, setTz] = useState('UTC');
   const [participantToken, setParticipantToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  // Free time handed back by the Google import, waiting for the grid to load.
+  const [importedSpans, setImportedSpans] = useState<FreeSpan[] | null>(null);
+  const [importDraft, setImportDraft] = useState<{ name: string; email: string } | null>(null);
 
   // Pick up the timezone, a personal link (?p=) and a Google round-trip
   // result (?google=), then clean the URL so tokens don't linger in history.
@@ -97,10 +128,13 @@ export function GroupPollFlow(props: Props) {
     if (fromLink) writeStoredToken(inviteToken, fromLink);
     setParticipantToken(fromLink ?? readStoredToken(inviteToken));
     const google = url.searchParams.get('google');
-    if (google === 'ok') toast.success('Imported your free time from Google Calendar. Check it and adjust if needed.');
-    else if (google === 'empty')
-      toast.message('Google Calendar shows you busy at every time in this poll, so nothing was saved. Mark the times you can make by hand.');
-    else if (google === 'full') toast.error('This poll is full.');
+    if (google) setImportDraft(takeDraft(inviteToken));
+    const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
+    if (google === 'ok') {
+      setImportedSpans(decodeSpans(fragment.get(GOOGLE_FREE_PARAM)));
+      url.hash = '';
+    } else if (google === 'empty')
+      toast.message('Google Calendar shows you busy at every time in this poll. Mark the times you can make by hand.');
     else if (google === 'denied') toast.message('Google Calendar import cancelled.');
     else if (google === 'failed') toast.error('Could not import from Google Calendar. You can still mark your times by hand.');
     if (fromLink || google) {
@@ -136,6 +170,8 @@ export function GroupPollFlow(props: Props) {
   const [email, setEmail] = useState('');
   const [votes, setVotes] = useState<Map<string, VoteValue>>(new Map());
   const [dirty, setDirty] = useState(false);
+  // Set once the grid holds a Google pre-fill; saved answers carry the label.
+  const [fromGoogle, setFromGoogle] = useState(false);
   const loadedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!data) return;
@@ -149,6 +185,31 @@ export function GroupPollFlow(props: Props) {
       setDirty(false);
     }
   }, [data, participantToken]);
+
+  // Back from Google: paint the free times over whatever was there, as
+  // unsaved changes. Runs after the saved answer (if any) has loaded above.
+  useEffect(() => {
+    if (!data || !importedSpans) return;
+    setImportedSpans(null);
+    if (!data.me && importDraft) {
+      setName(importDraft.name);
+      setEmail(importDraft.email);
+    }
+    const free = slotsWithinSpans(
+      data.days.flatMap((d) => d.slots),
+      importedSpans,
+    );
+    if (free.length === 0) {
+      toast.message('None of the times Google showed you free are still open. Mark your times by hand.');
+      return;
+    }
+    setVotes(new Map(free.map((slot) => [slot.startUtc, 'yes' as const])));
+    setFromGoogle(true);
+    setDirty(true);
+    toast.success(
+      `Marked ${free.length} time${free.length === 1 ? '' : 's'} you're free in Google Calendar. Check them, then press Save.`,
+    );
+  }, [data, importedSpans, importDraft]);
 
   const [tab, setTab] = useState<'mine' | 'everyone'>('mine');
   const [brush, setBrush] = useState<VoteValue>('yes');
@@ -168,6 +229,7 @@ export function GroupPollFlow(props: Props) {
         email: email.trim(),
         timezone: tz,
         votes: Array.from(votes, ([startUtc, value]) => ({ startUtc, value })),
+        ...(fromGoogle ? { via: 'google' as const } : {}),
       }),
     onSuccess: (res) => {
       if (res.participantToken) {
@@ -202,21 +264,11 @@ export function GroupPollFlow(props: Props) {
     }
   }
 
-  async function handleGoogleImport() {
-    // Someone new is only saved once Google comes back with free time, so
-    // their details travel with the import instead of an empty answer first.
-    if (!participantToken && !validateDetails()) return;
-    const fields: [string, string][] = participantToken
-      ? [
-          ['inviteToken', inviteToken],
-          ['participantToken', participantToken],
-        ]
-      : [
-          ['inviteToken', inviteToken],
-          ['name', name.trim()],
-          ['email', email.trim()],
-          ['timezone', tz],
-        ];
+  function handleGoogleImport() {
+    // The import only pre-fills the grid; nothing is saved until Save. Keep
+    // what was typed so far for when the browser comes back.
+    writeDraft(inviteToken, { name, email });
+    const fields: [string, string][] = [['inviteToken', inviteToken]];
     const form = document.createElement('form');
     form.method = 'POST';
     form.action = '/api/public/polls/google/start';
