@@ -150,7 +150,7 @@ export function GroupPollFlow(props: Props) {
       toast.message('Google Calendar shows you busy at every time in this poll. Mark the times you can make by hand.');
     else if (google === 'denied') toast.message('Google Calendar import cancelled.');
     else if (google === 'failed') toast.error('Could not import from Google Calendar. You can still mark your times by hand.');
-    if (fromLink || google) {
+    if (fromLink || google || link) {
       url.searchParams.delete('p');
       url.searchParams.delete('google');
       window.history.replaceState(null, '', url.pathname + url.search + url.hash);
