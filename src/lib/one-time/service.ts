@@ -611,6 +611,26 @@ export async function updateOneTimeLink(
       409,
     );
   }
+  // Answers are "I can make the meeting starting at …" for this length; a
+  // longer meeting would book people for time they never agreed to.
+  if (
+    et.groupPoll &&
+    et.groupPoll._count.participants > 0 &&
+    input.durationMinutes !== et.durationMinutes
+  ) {
+    throw new OneTimeLinkError(
+      "People have already answered this poll, so the meeting length can't change. Delete the invitation to start over.",
+      409,
+    );
+  }
+  // Only a change in who's expected or the deadline (or switching auto-book
+  // on) re-arms "ready"; other edits leave it as it is.
+  const nextPoll = pollSettings(input.groupPoll);
+  const rearm =
+    !et.groupPoll ||
+    et.groupPoll.expectedJson !== nextPoll.expectedJson ||
+    (et.groupPoll.answerBy?.getTime() ?? null) !== (nextPoll.answerBy?.getTime() ?? null) ||
+    (!et.groupPoll.autoBook && nextPoll.autoBook);
 
   await db.$transaction(async (tx) => {
     // Guard against a booking landing between our read and this write: the
@@ -648,9 +668,8 @@ export async function updateOneTimeLink(
     }
 
     if (input.groupPoll.enabled) {
-      // Changing who's expected or the deadline re-arms "ready": it's checked
-      // again right after the edit.
-      const settings = { ...pollSettings(input.groupPoll), readyAt: null };
+      // Re-armed polls are checked again right after the edit.
+      const settings = { ...nextPoll, ...(rearm ? { readyAt: null } : {}) };
       await tx.groupPoll.upsert({
         where: { eventTypeId: et.id },
         create: { eventTypeId: et.id, ...settings },
@@ -674,7 +693,7 @@ export async function updateOneTimeLink(
   invalidateSlotCache(et.id);
 
   // New expected people or deadline: the poll may be ready right away.
-  if (input.groupPoll.enabled) {
+  if (input.groupPoll.enabled && rearm) {
     const poll = await db.groupPoll.findUnique({ where: { eventTypeId: et.id }, select: { id: true } });
     if (poll) await checkPollReady(poll.id, now);
   }

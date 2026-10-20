@@ -21,6 +21,7 @@ import { oneTimeLinkInputSchema } from '@/lib/one-time/validator';
 import {
   checkPollDeadlines,
   checkPollReady,
+  finalizePoll,
   getPollResults,
   getPublicPollView,
   submitPollResponse,
@@ -289,5 +290,97 @@ describe('poll ready', () => {
     expect(
       (await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } })).readyAt,
     ).not.toBeNull();
+  });
+
+  it("won't auto-book over someone whose picked times are all gone, and never books empty answers", async () => {
+    mockGoogle();
+    const { db, user, created, token, poll, slots } = await setup({ autoBook: true });
+    await submitPollResponse(token, answer('Ann', [slots[0]!.startUtc]), null);
+    // Bob answered earlier for a time that has since passed; Old is an empty
+    // answer from before answers needed a time.
+    const bob = await db.pollParticipant.create({
+      data: {
+        pollId: poll.id,
+        name: 'Bob',
+        email: 'bob@example.com',
+        timezone: 'UTC',
+        editTokenHash: 'b',
+      },
+    });
+    await db.pollVote.create({
+      data: { participantId: bob.id, slotStart: new Date(Date.now() - DAY_MS), value: 'yes' },
+    });
+    await db.pollParticipant.create({
+      data: {
+        pollId: poll.id,
+        name: 'Old',
+        email: 'old@example.com',
+        timezone: 'UTC',
+        editTokenHash: 'o',
+      },
+    });
+    await db.groupPoll.update({
+      where: { id: poll.id },
+      data: { answerBy: new Date(Date.now() - 1000) },
+    });
+
+    expect(await checkPollReady(poll.id)).toMatchObject({ reason: 'deadline', bookingId: null });
+    expect(await db.booking.count()).toBe(0);
+
+    // Booking by hand invites the people who answered, never the empty row.
+    const { bookingId } = await finalizePoll(user.id, created.eventTypeId, slots[0]!.startUtc);
+    const booking = await db.booking.findUniqueOrThrow({ where: { id: bookingId } });
+    expect(booking.bookerEmail).toBe('ann@example.com');
+    expect(JSON.parse(booking.additionalGuestsJson)).toEqual(['bob@example.com']);
+  });
+
+  it('rolls an automatic booking back if the answers changed since the poll became ready', async () => {
+    mockGoogle();
+    const { db, user, created, token, poll, slots } = await setup({ autoBook: true });
+    const ann = await submitPollResponse(token, answer('Ann', [slots[0]!.startUtc]), null);
+    await db.groupPoll.update({ where: { id: poll.id }, data: { readyAt: new Date() } });
+    const { readyAt } = await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } });
+
+    // Someone else answered after the decision was taken.
+    await expect(
+      finalizePoll(user.id, created.eventTypeId, slots[0]!.startUtc, {
+        auto: { readyAt: readyAt!, respondentIds: ['someone-else'] },
+      }),
+    ).rejects.toThrow(/changed/);
+    // The poll was re-armed (edited) after it became ready.
+    await expect(
+      finalizePoll(user.id, created.eventTypeId, slots[0]!.startUtc, {
+        auto: { readyAt: new Date(readyAt!.getTime() - 1000), respondentIds: [ann.participantId] },
+      }),
+    ).rejects.toThrow(/changed/);
+    expect(await db.booking.count()).toBe(0);
+    expect((await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } })).status).toBe(
+      'collecting',
+    );
+  });
+
+  it('refuses to change the meeting length once people have answered', async () => {
+    const { user, created, token, slots, input } = await setup();
+    await submitPollResponse(token, answer('Ann', [slots[0]!.startUtc]), null);
+    await expect(
+      updateOneTimeLink(user.id, created.eventTypeId, { ...input({}), durationMinutes: 120 }),
+    ).rejects.toThrow(/meeting length/);
+  });
+
+  it("doesn't re-announce a ready poll after an unrelated edit", async () => {
+    const { db, user, created, token, poll, slots, endpoint, input } = await setup({
+      expected: ['ann@example.com'],
+    });
+    await submitPollResponse(token, answer('Ann', [slots[0]!.startUtc]), null);
+    const { readyAt } = await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } });
+    expect(readyAt).not.toBeNull();
+    await updateOneTimeLink(user.id, created.eventTypeId, {
+      ...input({ expected: ['ann@example.com'] }),
+      title: 'Renamed',
+    });
+    expect((await db.groupPoll.findUniqueOrThrow({ where: { id: poll.id } })).readyAt).toEqual(
+      readyAt,
+    );
+    expect(await readyEvents(endpoint.id)).toHaveLength(1);
   });
 });

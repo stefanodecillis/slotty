@@ -595,17 +595,24 @@ export async function checkPollReady(
   });
   if (claimed.count !== 1) return null;
 
+  // Everyone who answered counts, including people whose picked times have
+  // all gone: they can't make any current time, so they block "everyone".
+  const respondents = poll.participants.filter((p) => p.votes.length > 0);
   const ranked = rankSlots(
     tallySlots(
       candidates,
-      answered.map((p) => ({ id: p.id, votes: votesMap(p.votes) })),
+      respondents.map((p) => ({ id: p.id, votes: votesMap(p.votes) })),
     ),
   );
   const best = ranked[0];
   let bookingId: string | null = null;
   if (poll.autoBook && best && best.no.length === 0) {
     try {
-      bookingId = (await finalizePoll(owner.id, poll.eventTypeId, best.startUtc)).bookingId;
+      bookingId = (
+        await finalizePoll(owner.id, poll.eventTypeId, best.startUtc, {
+          auto: { readyAt: now, respondentIds: respondents.map((p) => p.id) },
+        })
+      ).bookingId;
     } catch (err) {
       logger.warn(
         { event: 'poll.auto_book_failed', pollId: poll.id, err: err instanceof Error ? err.message : String(err) },
@@ -618,7 +625,7 @@ export async function checkPollReady(
     eventTypeId: poll.eventTypeId,
     title: poll.eventType.title,
     reason,
-    respondents: answered.length,
+    respondents: respondents.length,
     expected: { total: expected.length, answered: expected.filter((e) => emails.has(e)).length },
     bestTimes: ranked.slice(0, 3).map((t) => ({
       startAt: t.startUtc,
@@ -732,10 +739,21 @@ export async function finalizePoll(
   userId: string,
   eventTypeId: string,
   startUtc: string,
+  opts: {
+    /**
+     * Automatic booking: only commit if, inside the booking transaction, the
+     * poll is still ready as of `readyAt` with auto-book on, the respondents
+     * are exactly `respondentIds`, and every one of them can make the time.
+     */
+    auto?: { readyAt: Date; respondentIds: string[] };
+  } = {},
 ): Promise<{ bookingId: string; needsSync: boolean }> {
   const { eventType, poll } = await loadOwnedPoll(userId, eventTypeId);
   if (poll.status !== 'collecting') throw new PollError('A time has already been picked.', 409);
-  if (poll.participants.length === 0) throw new PollError('Nobody has answered yet.', 409);
+  // An answer without any times (saved before they were required) isn't an
+  // answer: it never books or gets invited.
+  const respondents = poll.participants.filter((p) => p.votes.length > 0);
+  if (respondents.length === 0) throw new PollError('Nobody has answered yet.', 409);
   const invite = eventType.invites[0];
   if (!invite?.tokenEnc) throw new PollError('This invitation can no longer be booked.', 409);
 
@@ -743,10 +761,11 @@ export async function finalizePoll(
   const voteAt = (p: (typeof poll.participants)[number]) =>
     p.votes.find((v) => v.slotStart.toISOString() === start)?.value ?? null;
   const booker =
-    poll.participants.find((p) => voteAt(p) === 'yes') ??
-    poll.participants.find((p) => voteAt(p) === 'maybe') ??
-    poll.participants[0]!;
-  const guests = poll.participants.filter((p) => p.id !== booker.id).map((p) => p.email);
+    respondents.find((p) => voteAt(p) === 'yes') ??
+    respondents.find((p) => voteAt(p) === 'maybe') ??
+    respondents[0]!;
+  const guests = respondents.filter((p) => p.id !== booker.id).map((p) => p.email);
+  const auto = opts.auto;
 
   let bookingId: string;
   let needsSync: boolean;
@@ -764,7 +783,10 @@ export async function finalizePoll(
       viaGroupPoll: true,
       // The poll closes in the same commit as the booking, so a failure can
       // never leave a booked meeting behind a poll that still collects.
-      inTransaction: (tx, booking) => closePoll(tx, poll.id, booking.id),
+      inTransaction: async (tx, booking) => {
+        if (auto) await assertStillEveryone(tx, poll.id, start, auto);
+        await closePoll(tx, poll.id, booking.id);
+      },
     });
     bookingId = created.booking.id;
     needsSync = created.needsSync;
@@ -786,6 +808,32 @@ export async function finalizePoll(
     'group poll finalized',
   );
   return { bookingId, needsSync };
+}
+
+/**
+ * Inside the booking transaction (SQLite serialises writers, so answers and
+ * edits can't land in between): is an automatic booking still what the
+ * owner asked for? Throws, rolling the booking back, if the poll was edited
+ * since it became ready, auto-book was switched off, someone answered or
+ * changed their answer, or anyone can't make the time.
+ */
+async function assertStillEveryone(
+  tx: Prisma.TransactionClient,
+  pollId: string,
+  start: string,
+  auto: { readyAt: Date; respondentIds: string[] },
+): Promise<void> {
+  const changed = () => new PollError('The poll changed while booking automatically.', 409);
+  const poll = await tx.groupPoll.findUnique({ where: { id: pollId }, select: { autoBook: true, readyAt: true } });
+  if (!poll?.autoBook || poll.readyAt?.getTime() !== auto.readyAt.getTime()) throw changed();
+  const participants = await tx.pollParticipant.findMany({
+    where: { pollId },
+    select: { id: true, votes: { select: { slotStart: true } } },
+  });
+  const respondents = participants.filter((p) => p.votes.length > 0);
+  const expected = new Set(auto.respondentIds);
+  if (respondents.length !== expected.size || respondents.some((p) => !expected.has(p.id))) throw changed();
+  if (respondents.some((p) => !p.votes.some((v) => v.slotStart.toISOString() === start))) throw changed();
 }
 
 /** Mark a poll finalized by `bookingId`. Already closed by that booking is fine. */
