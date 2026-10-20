@@ -27,6 +27,9 @@ export const dynamic = 'force-dynamic';
 
 const RATE_LIMIT = { capacity: 10, windowMs: 60_000 };
 
+// The response carries the booking's capability tokens.
+const NO_STORE = { 'Cache-Control': 'no-store' };
+
 const bodySchema = z
   .object({
     // Either eventTypeSlug or inviteToken must be present (refined below).
@@ -43,6 +46,9 @@ const bodySchema = z
     answers: z.record(z.string(), z.string().max(5000)).optional(),
     clientRequestId: z.string().max(100).optional(),
     password: z.string().max(500).optional(),
+    // Self-reported by AI assistants booking on someone's behalf. Recorded
+    // for the owner; it grants nothing.
+    via: z.enum(['agent']).optional(),
   })
   .refine((d) => Boolean(d.eventTypeSlug) || Boolean(d.inviteToken), {
     message: 'Either eventTypeSlug or inviteToken is required',
@@ -96,37 +102,55 @@ export async function POST(req: NextRequest): Promise<Response> {
       answers: input.answers,
       clientRequestId: input.clientRequestId,
       password: input.password,
+      via: input.via,
     });
+    const times = {
+      startAt: result.booking.startAt.toISOString(),
+      endAt: result.booking.endAt.toISOString(),
+      bookerTimezone: result.booking.bookerTimezone,
+    };
 
     // On idempotent replay we don't have raw tokens to hand back. The original
     // response did. We still return enough for the client to navigate to the
     // confirmation page (without `t=` they'll see the read-only view).
     if (result.idempotentReplay) {
       const base = await makeManageUrl(result.booking.id, '');
-      return NextResponse.json({
-        id: result.booking.id,
-        status: result.booking.status,
-        manageUrl: base.replace(/\?t=$/, ''),
-        meetingUrl: result.booking.meetingUrl,
-        idempotentReplay: true,
-        needsSync: result.booking.needsSync,
-      });
+      return NextResponse.json(
+        {
+          id: result.booking.id,
+          status: result.booking.status,
+          ...times,
+          manageUrl: base.replace(/\?t=$/, ''),
+          meetingUrl: result.booking.meetingUrl,
+          idempotentReplay: true,
+          needsSync: result.booking.needsSync,
+        },
+        { headers: NO_STORE },
+      );
     }
 
-    return NextResponse.json({
-      id: result.booking.id,
-      status: result.booking.status,
-      manageUrl: await makeManageUrl(result.booking.id, result.rawRescheduleToken),
-      cancelToken: result.rawCancelToken,
-      rescheduleToken: result.rawRescheduleToken,
-      meetingUrl: result.booking.meetingUrl,
-      needsSync: result.needsSync,
-    });
+    return NextResponse.json(
+      {
+        id: result.booking.id,
+        status: result.booking.status,
+        ...times,
+        manageUrl: await makeManageUrl(result.booking.id, result.rawRescheduleToken),
+        cancelToken: result.rawCancelToken,
+        rescheduleToken: result.rawRescheduleToken,
+        meetingUrl: result.booking.meetingUrl,
+        needsSync: result.needsSync,
+      },
+      { headers: NO_STORE },
+    );
   } catch (err) {
     if (err instanceof BookingError) {
       return NextResponse.json(
-        { error: err.message, code: err.code },
-        { status: err.httpStatus },
+        {
+          error: err.message,
+          code: err.code,
+          ...(err.problems ? { problems: err.problems } : {}),
+        },
+        { status: err.httpStatus, headers: NO_STORE },
       );
     }
     logger.error(

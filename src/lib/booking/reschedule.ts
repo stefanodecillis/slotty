@@ -67,6 +67,7 @@ async function assertSlotAvailable(
   ownerId: string,
   startAt: Date,
   bookerTz: string,
+  bookingId: string,
 ): Promise<void> {
   const owner = await db.user.findUnique({ where: { id: ownerId } });
   if (!owner) throw new SlotUnavailableError();
@@ -80,6 +81,7 @@ async function assertSlotAvailable(
     to,
     bookerTz,
     noCache: true,
+    excludeBookingId: bookingId,
   });
   const targetIso = startAt.toISOString();
   for (const day of slots.days) {
@@ -118,7 +120,13 @@ export async function rescheduleBooking(
     };
   }
 
-  await assertSlotAvailable(booking.eventType, booking.eventType.userId, newStart, booking.bookerTimezone);
+  await assertSlotAvailable(
+    booking.eventType,
+    booking.eventType.userId,
+    newStart,
+    booking.bookerTimezone,
+    booking.id,
+  );
 
   const previousStart = booking.startAt;
   const previousEnd = booking.endAt;

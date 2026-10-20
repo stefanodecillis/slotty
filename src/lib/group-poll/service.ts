@@ -37,6 +37,7 @@ import {
   freeSlotsFromBusy,
   rankSlots,
   tallySlots,
+  votesFromRanges,
   type CandidateSlot,
   type SlotTally,
   type VoteValue,
@@ -264,11 +265,28 @@ export async function getPublicPollView(
   };
 }
 
+/** What a saved answer ended up as, so a client can check it against what it meant. */
+export interface PollSubmitResult {
+  participantId: string;
+  /** Raw personal token, only for a newly created participant. */
+  participantToken: string | null;
+  /** True when a retry with the same clientRequestId updated an earlier answer. */
+  replayed: boolean;
+  /** The votes stored, in candidate order. */
+  votes: { startUtc: string; value: VoteValue }[];
+  /** Requested vote starts that aren't current candidates (ignored). */
+  droppedVotes: string[];
+}
+
 /**
  * Create or update a participant's answer. Without a personal token a new
  * participant is created; with one, that participant's answer is replaced.
- * Votes outside the current candidates are dropped. Returns the raw personal
- * token for new participants.
+ * Votes outside the current candidates are dropped; free-time ranges become
+ * votes for the candidates they cover. Returns the raw personal token for
+ * new participants.
+ *
+ * A `clientRequestId` on a first answer makes it retry-safe: the same id
+ * again updates that participant rather than adding another one.
  *
  * Emails are deliberately not unique per poll: refusing a taken address
  * would tell anyone with the link who answered, even when names are hidden.
@@ -279,50 +297,104 @@ export async function submitPollResponse(
   input: PollResponseInput,
   participantToken: string | null,
   now: Date = new Date(),
-): Promise<{ participantId: string; participantToken: string | null }> {
+): Promise<PollSubmitResult> {
   const { eventType, poll } = await resolveOpenPoll(rawToken);
   const owner = await loadOwner(eventType);
   const existing = await findParticipant(poll.id, participantToken);
 
-  const candidates = new Set(flatten(await loadCandidates(eventType, owner, 'UTC', now)).map((c) => c.startUtc));
-  const seen = new Set<string>();
-  const votes: { startUtc: string; value: VoteValue }[] = [];
-  for (const v of input.votes) {
-    const iso = toIso(v.startUtc);
-    if (!candidates.has(iso) || seen.has(iso)) continue;
-    seen.add(iso);
-    votes.push({ startUtc: iso, value: v.value });
-  }
+  const candidates = flatten(await loadCandidates(eventType, owner, 'UTC', now));
+  const { votes, droppedVotes } = resolveVotes(candidates, input);
+  const source = input.via === 'agent' ? 'agent' : undefined;
+  const clientRequestHash =
+    !existing && input.clientRequestId ? hashToken(`${poll.id}:${input.clientRequestId}`) : null;
+
+  const update = async (participantId: string): Promise<void> => {
+    await db.pollParticipant.update({
+      where: { id: participantId },
+      data: { name: input.name, email: input.email, timezone: input.timezone, ...(source ? { source } : {}) },
+    });
+  };
+  const findRetried = async () =>
+    clientRequestHash
+      ? db.pollParticipant.findUnique({
+          where: { pollId_clientRequestHash: { pollId: poll.id, clientRequestHash } },
+          select: { id: true },
+        })
+      : null;
 
   let participantId: string;
   let newToken: string | null = null;
-  if (existing) {
-    participantId = existing.id;
-    await db.pollParticipant.update({
-      where: { id: existing.id },
-      data: { name: input.name, email: input.email, timezone: input.timezone },
-    });
+  let replayed = false;
+  const retried = existing ? null : await findRetried();
+  if (existing || retried) {
+    participantId = (existing ?? retried)!.id;
+    replayed = Boolean(retried);
+    await update(participantId);
   } else {
     const token = generateToken(24);
-    // One statement checks the cap and inserts, so it is atomic: concurrent
-    // first saves can't push the poll over it, and nothing is left to undo.
-    // (Prisma can't express a conditional insert, and its interactive
+    // One statement checks the cap (and that no retry of this answer landed
+    // first) and inserts, so it is atomic: concurrent first saves can't push
+    // the poll over it or add the same answer twice, and nothing is left to
+    // undo. (Prisma can't express a conditional insert, and its interactive
     // transactions stall under write contention on SQLite.) DateTime columns
     // hold epoch milliseconds, which is how Prisma writes them on SQLite.
     const id = randomUUID();
     const at = Date.now();
     const inserted = await db.$executeRaw`
       INSERT INTO "poll_participants"
-        ("id", "poll_id", "name", "email", "timezone", "edit_token_hash", "created_at", "updated_at")
-      SELECT ${id}, ${poll.id}, ${input.name}, ${input.email}, ${input.timezone}, ${token.hash}, ${at}, ${at}
-      WHERE (SELECT COUNT(*) FROM "poll_participants" WHERE "poll_id" = ${poll.id}) < ${MAX_POLL_PARTICIPANTS}`;
-    if (inserted !== 1) throw new PollError('This poll is full.', 409);
-    participantId = id;
-    newToken = token.token;
+        ("id", "poll_id", "name", "email", "timezone", "edit_token_hash", "source", "client_request_hash", "created_at", "updated_at")
+      SELECT ${id}, ${poll.id}, ${input.name}, ${input.email}, ${input.timezone}, ${token.hash}, ${source ?? 'manual'}, ${clientRequestHash}, ${at}, ${at}
+      WHERE (SELECT COUNT(*) FROM "poll_participants" WHERE "poll_id" = ${poll.id}) < ${MAX_POLL_PARTICIPANTS}
+        AND NOT EXISTS (
+          SELECT 1 FROM "poll_participants"
+          WHERE "poll_id" = ${poll.id} AND "client_request_hash" = ${clientRequestHash}
+        )`;
+    if (inserted === 1) {
+      participantId = id;
+      newToken = token.token;
+    } else {
+      // Either a concurrent retry of this answer inserted first, or the poll is full.
+      const raced = await findRetried();
+      if (!raced) throw new PollError('This poll is full.', 409);
+      participantId = raced.id;
+      replayed = true;
+      await update(participantId);
+    }
   }
 
   await replaceVotes(participantId, votes);
-  return { participantId, participantToken: newToken };
+  return { participantId, participantToken: newToken, replayed, votes, droppedVotes };
+}
+
+/** The votes an answer amounts to over the current candidates. */
+function resolveVotes(
+  candidates: readonly CandidateSlot[],
+  input: PollResponseInput,
+): { votes: { startUtc: string; value: VoteValue }[]; droppedVotes: string[] } {
+  if (input.available) {
+    const ranges = input.available.map((r) => ({
+      start: new Date(r.start),
+      end: new Date(r.end),
+      value: r.value,
+    }));
+    return { votes: votesFromRanges(candidates, ranges), droppedVotes: [] };
+  }
+  const known = new Set(candidates.map((c) => c.startUtc));
+  const seen = new Set<string>();
+  const votes: { startUtc: string; value: VoteValue }[] = [];
+  const droppedVotes: string[] = [];
+  for (const v of input.votes ?? []) {
+    const iso = toIso(v.startUtc);
+    if (seen.has(iso)) continue;
+    seen.add(iso);
+    if (!known.has(iso)) {
+      droppedVotes.push(iso);
+      continue;
+    }
+    votes.push({ startUtc: iso, value: v.value });
+  }
+  votes.sort((a, b) => a.startUtc.localeCompare(b.startUtc));
+  return { votes, droppedVotes };
 }
 
 /**
@@ -523,7 +595,11 @@ export async function finalizePoll(
       await closePoll(db, poll.id, bookingId);
     }
   } catch (err) {
-    if (err instanceof BookingError) throw new PollError(err.message, err.httpStatus);
+    if (err instanceof BookingError) {
+      // A concurrent finalize for another time already booked this poll.
+      if (err.code === 'IDEMPOTENCY_CONFLICT') throw new PollError('A time has already been picked.', 409);
+      throw new PollError(err.message, err.httpStatus);
+    }
     throw err;
   }
 

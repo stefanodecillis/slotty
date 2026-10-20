@@ -21,20 +21,59 @@ export const groupPollSettingsSchema = z.object({
 
 export type GroupPollSettings = z.infer<typeof groupPollSettingsSchema>;
 
-/** A participant's answer, posted from the public poll page. */
-export const pollResponseSchema = z.object({
-  name: z.string().trim().min(1).max(200),
-  email: z.string().trim().toLowerCase().email().max(320),
-  timezone: z.string().min(1).max(100),
-  votes: z
-    .array(
-      z.object({
-        startUtc: z.string().datetime(),
-        value: z.enum(['yes', 'maybe']),
-      }),
-    )
-    .max(MAX_POLL_VOTES),
-});
+/** Most free-time ranges one answer may list (a month of busy days fits easily). */
+export const MAX_POLL_RANGES = 500;
+
+const instant = z.string().datetime({ offset: true });
+
+/**
+ * A participant's answer, posted from the public poll page or by an AI
+ * assistant. Exactly one of:
+ *   - `votes`: the candidate slots the person can make, one by one;
+ *   - `available`: time ranges the person is free. Every candidate that fits
+ *     entirely inside a range gets that range's value. Anything not covered
+ *     counts as "can't make it", so an incomplete calendar read can't turn
+ *     into a false "yes".
+ */
+export const pollResponseSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    email: z.string().trim().toLowerCase().email().max(320),
+    timezone: z.string().min(1).max(100),
+    votes: z
+      .array(
+        z.object({
+          startUtc: instant,
+          value: z.enum(['yes', 'maybe']),
+        }),
+      )
+      .max(MAX_POLL_VOTES)
+      .optional(),
+    available: z
+      .array(
+        z
+          .object({
+            start: instant,
+            end: instant,
+            value: z.enum(['yes', 'maybe']).default('yes'),
+          })
+          .refine((r) => Date.parse(r.end) > Date.parse(r.start), {
+            message: 'end must be after start',
+          }),
+      )
+      .max(MAX_POLL_RANGES)
+      .optional(),
+    // Lets a retried first answer update itself instead of adding a second
+    // participant. Long and random, like any credential: a retry with it can
+    // replace the answer.
+    clientRequestId: z.string().min(16).max(100).optional(),
+    // Self-reported by AI assistants; shown to the owner, grants nothing.
+    via: z.enum(['agent']).optional(),
+  })
+  .refine((d) => (d.votes === undefined) !== (d.available === undefined), {
+    message: 'Send exactly one of `votes` or `available`',
+    path: ['votes'],
+  });
 
 export type PollResponseInput = z.infer<typeof pollResponseSchema>;
 

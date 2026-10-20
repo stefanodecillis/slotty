@@ -6,7 +6,7 @@
  * closes the poll (the invitation then shows as booked).
  */
 import { useState } from 'react';
-import { CalendarCheck, CalendarDays, X } from 'lucide-react';
+import { Bot, CalendarCheck, CalendarDays, X } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
@@ -262,6 +262,13 @@ function Participants({
                 title="Pre-filled from Google Calendar free/busy"
               >
                 <CalendarDays className="h-3 w-3" aria-hidden /> Google
+              </span>
+            ) : p.source === 'agent' ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                title="Answered by the participant's AI assistant"
+              >
+                <Bot className="h-3 w-3" aria-hidden /> Assistant
               </span>
             ) : null}
             <Button

@@ -58,6 +58,37 @@ export function rankSlots(tallies: readonly SlotTally[]): SlotTally[] {
     );
 }
 
+/** A stretch of time someone is free, as reported by them or their assistant. */
+export interface FreeRange {
+  start: Date;
+  end: Date;
+  value: VoteValue;
+}
+
+/**
+ * Votes for the candidates that fit entirely inside a free range. Candidates
+ * no range covers get no vote ("can't make it"). When ranges overlap, "yes"
+ * beats "maybe".
+ */
+export function votesFromRanges(
+  candidates: readonly CandidateSlot[],
+  ranges: readonly FreeRange[],
+): { startUtc: string; value: VoteValue }[] {
+  const votes: { startUtc: string; value: VoteValue }[] = [];
+  for (const c of candidates) {
+    const s = Date.parse(c.startUtc);
+    const e = Date.parse(c.endUtc);
+    let value: VoteValue | null = null;
+    for (const r of ranges) {
+      if (r.start.getTime() > s || r.end.getTime() < e) continue;
+      value = r.value;
+      if (value === 'yes') break;
+    }
+    if (value) votes.push({ startUtc: c.startUtc, value });
+  }
+  return votes;
+}
+
 /** Candidate slots that don't overlap any busy block — the Google pre-fill. */
 export function freeSlotsFromBusy(
   candidates: readonly CandidateSlot[],
