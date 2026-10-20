@@ -206,6 +206,14 @@ export function GroupPollFlow(props: Props) {
     setPrefill(null);
     if (prefill.name && (!data.me || prefill.via === 'agent')) setName(prefill.name);
     if (prefill.email && (!data.me || prefill.via === 'agent')) setEmail(prefill.email);
+    // A changed name or email over a saved answer is an unsaved change too.
+    if (
+      data.me &&
+      prefill.via === 'agent' &&
+      ((prefill.name && prefill.name !== data.me.name) || (prefill.email && prefill.email !== data.me.email))
+    ) {
+      setDirty(true);
+    }
     const next = votesFromHandoff(
       data.days.flatMap((d) => d.slots),
       prefill.ranges,
