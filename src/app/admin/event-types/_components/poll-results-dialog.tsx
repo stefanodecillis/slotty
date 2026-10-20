@@ -313,9 +313,11 @@ function PollStatus({ data, timeZone }: { data: AdminPollResults; timeZone: stri
       {deadline ? <p className="text-muted-foreground">Answer by {deadline}.</p> : null}
       {data.autoBook ? (
         <p className="text-muted-foreground">
-          {data.readyAt
-            ? 'Book automatically was on, but no time worked for everyone who answered — pick one below.'
-            : 'When it’s ready, Slotty books the best time if it works for everyone who answered.'}
+          {!data.readyAt
+            ? 'When it’s ready, Slotty books the best time if it works for everyone who answered.'
+            : data.slots.some((t) => t.no.length === 0 && t.yes.length + t.maybe.length > 0)
+              ? 'Book automatically was on, but Slotty couldn’t book it (the time may have been taken meanwhile) — pick one below.'
+              : 'Book automatically was on, but no time worked for everyone who answered — pick one below.'}
         </p>
       ) : null}
     </section>
