@@ -36,6 +36,8 @@ export interface CreateBookingPayload {
   answers: Record<string, string>;
   clientRequestId: string;
   password?: string;
+  /** Filled in from an AI assistant's confirmation link (a label for the owner). */
+  via?: 'agent';
 }
 
 export interface CreateBookingResponse {

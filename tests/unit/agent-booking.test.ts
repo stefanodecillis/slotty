@@ -37,6 +37,12 @@ import {
   type AgentLinkDescriptor,
 } from '@/lib/agent/descriptor';
 import { renderDescriptorMarkdown } from '@/lib/agent/markdown';
+import {
+  hasHandoff,
+  parseBookingHandoff,
+  parsePollHandoff,
+  votesFromHandoff,
+} from '@/lib/agent/handoff';
 import { votesFromRanges } from '@/lib/group-poll/rank';
 import { pollResponseSchema } from '@/lib/group-poll/validator';
 import { finalizePoll, getPollResults, submitPollResponse } from '@/lib/group-poll/service';
@@ -837,5 +843,99 @@ describe('server-side booking rules', () => {
     const results = await Promise.all([1, 2, 3].map(() => createBooking(input)));
     expect(new Set(results.map((r) => r.booking.id)).size).toBe(1);
     expect(await db.booking.count()).toBe(1);
+  });
+});
+
+describe('confirmation links for assistants that can only read pages', () => {
+  it('reads a booking link leniently', () => {
+    // Unencoded "+" in an offset and in an email both arrive as spaces.
+    const link = parseBookingHandoff(
+      '#slot=2026-10-21T09:00:00+02:00&name=Ada%20Lovelace&email=ada+work@example.com&tz=Europe/Rome' +
+        '&guests=b@example.com,%20c@example.com&notes=Hi&a.q1=Acme&a.=x',
+    );
+    expect(link).toEqual({
+      slot: '2026-10-21T07:00:00.000Z',
+      name: 'Ada Lovelace',
+      email: 'ada+work@example.com',
+      timezone: 'Europe/Rome',
+      notes: 'Hi',
+      guests: ['b@example.com', 'c@example.com'],
+      answers: { q1: 'Acme' },
+    });
+    expect(hasHandoff('#slot=x')).toBe(true);
+    expect(hasHandoff('#google-free=1-2')).toBe(false);
+    expect(parseBookingHandoff('#slot=tomorrow').slot).toBeNull();
+  });
+
+  it('reads a poll link into votes, "yes" winning over "maybe"', () => {
+    const link = parsePollHandoff(
+      '#name=Ann&email=ann%40example.com&free=2030-01-01T09:00Z/2030-01-01T11:00Z' +
+        '&maybe=2030-01-01T10:00Z/2030-01-01T13:00Z,garbage,2030-01-01T15:00Z/2030-01-01T14:00Z',
+    );
+    expect(link.ranges).toHaveLength(2);
+    const c = (h: number) => ({
+      startUtc: `2030-01-01T${String(h).padStart(2, '0')}:00:00.000Z`,
+      endUtc: `2030-01-01T${String(h + 1).padStart(2, '0')}:00:00.000Z`,
+    });
+    expect(
+      Object.fromEntries(votesFromHandoff([c(9), c(10), c(11), c(12), c(13)], link.ranges)),
+    ).toEqual({
+      [c(9).startUtc]: 'yes',
+      [c(10).startUtc]: 'yes',
+      [c(11).startUtc]: 'maybe',
+      [c(12).startUtc]: 'maybe',
+    });
+  });
+
+  it('offers a ready-to-use link on every open descriptor, and none on closed ones', async () => {
+    const s = await seed();
+    const et = await makeEventType(s, {
+      passwordHash: 'argon2-hash',
+      questions: { create: [{ label: 'Company', kind: 'text', required: true, position: 0 }] },
+    });
+    const d = (await describeEventTypeLink(et.slug, { tz: 'UTC' }))!;
+    expect(d.protocol.steps[0]).toMatch(/cannot send HTTP POST/);
+    expect(d.handoff?.url).toBe(d.link.humanUrl);
+    const example = parseBookingHandoff(new URL(d.handoff!.example).hash);
+    expect(example.slot).toBe(slotsOf(d)[0]!.startUtc);
+    expect(Object.keys(d.handoff!.fields)).toContain(`a.${d.booking!.questions[0]!.id}`);
+    expect(d.handoff!.description).toMatch(/Never put the password/);
+    expect(renderDescriptorMarkdown(d)).toContain(
+      '## Can only read web pages? Give your user a confirmation link',
+    );
+
+    const { token } = await makePoll(s);
+    const p = (await describeInviteLink(token, { tz: 'UTC' }))!;
+    const ranges = parsePollHandoff(new URL(p.handoff!.example).hash).ranges;
+    expect(ranges).toEqual([
+      {
+        start: Date.parse(slotsOf(p)[0]!.startUtc),
+        end: Date.parse(slotsOf(p)[0]!.endUtc),
+        value: 'yes',
+      },
+    ]);
+
+    const inviteEt = await makeEventType(s, { inviteOnly: true });
+    const used = await makeInvite(inviteEt.id, { usedAt: new Date() });
+    expect((await describeInviteLink(used, { tz: 'UTC' }))?.handoff).toBeUndefined();
+  });
+
+  it('records assistant-prepared poll answers as the assistant', async () => {
+    const s = await seed();
+    const { created, token } = await makePoll(s);
+    const slot = slotsOf(await describeInviteLink(token, { tz: 'UTC' }))[0]!;
+    await submitPollResponse(
+      token,
+      {
+        name: 'Ann',
+        email: 'ann@example.com',
+        timezone: 'UTC',
+        votes: [{ startUtc: slot.startUtc, value: 'yes' }],
+        via: 'agent',
+      },
+      null,
+    );
+    const results = await getPollResults(s.user.id, created.eventTypeId);
+    expect(results.participants[0]?.source).toBe('agent');
   });
 });
