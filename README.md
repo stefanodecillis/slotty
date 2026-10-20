@@ -227,7 +227,11 @@ marks when they can make it within the invitation's availability, the answers ar
 tallied into "best times", and you book the time that suits the group. Everyone
 who answered is invited to that one meeting through Google Calendar.
 
-Participants can optionally pre-fill their answer from Google Calendar:
+An answer always marks at least one time: the poll refuses to save an empty one.
+
+Participants can optionally pre-fill their answer from Google Calendar. The import
+only marks their free times in the grid; they check it and press Save like any other
+answer, so an abandoned import leaves nothing behind:
 
 - Only the `https://www.googleapis.com/auth/calendar.freebusy` scope is requested
   (busy blocks of their primary calendar; no titles or details). Add it to your

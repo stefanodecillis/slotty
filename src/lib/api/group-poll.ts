@@ -60,6 +60,8 @@ export interface PollResponsePayload {
   email: string;
   timezone: string;
   votes: { startUtc: string; value: VoteValue }[];
+  /** Pre-filled from the Google import (a label for the owner). */
+  via?: 'google';
 }
 
 export function submitPollResponse(

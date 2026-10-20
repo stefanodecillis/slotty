@@ -126,7 +126,9 @@ JSON shape (`schema: "slotty.agent-link/v1"`):
 
 Exactly one of the two. Anything not covered counts as "can't make it", so an
 assistant that only checked part of the calendar can't produce false "yes"es.
-Raw calendar entries never leave the assistant.
+Raw calendar entries never leave the assistant. An answer has to mark at least
+one current candidate (otherwise `422`): if no time works, the person tells the
+host instead of answering.
 
 ```json
 {

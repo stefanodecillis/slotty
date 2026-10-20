@@ -1,14 +1,13 @@
 /**
  * POST /api/public/polls/google/start — form POST from the poll page
- * (`inviteToken`, `participantToken`). Sets the encrypted state cookie and
- * 303s the participant's browser to Google's consent screen.
+ * (`inviteToken`). Sets the encrypted state cookie and 303s the
+ * participant's browser to Google's consent screen. The import only
+ * pre-fills their grid; nothing is saved until they press Save.
  *
  * Public on purpose: participants aren't on the owner's private network.
  * See `src/lib/group-poll/google-flow.ts`.
  *
- * Same-origin only. Otherwise another site could auto-submit this form with
- * the attacker's own personal token, and whoever picks a Google account on
- * the consent screen would pour their free/busy into the attacker's answer.
+ * Same-origin only, so another site can't start imports on a visitor's behalf.
  */
 import { cookies } from 'next/headers';
 import type { NextRequest } from 'next/server';
@@ -37,20 +36,19 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   const form = await req.formData().catch(() => null);
   const inviteToken = form?.get('inviteToken');
-  const participantToken = form?.get('participantToken');
   if (typeof inviteToken !== 'string' || !inviteToken || inviteToken.length > 200) {
     return NextResponse.json({ error: 'Missing invite token' }, { status: 400 });
   }
   const back = new URL(`/i/${encodeURIComponent(inviteToken)}`, env.SLOTTY_PUBLIC_URL);
 
   const decision = consume('public-poll-google', getClientIp(req.headers), RATE_LIMIT);
-  if (!decision.allowed || typeof participantToken !== 'string' || !participantToken) {
+  if (!decision.allowed) {
     back.searchParams.set('google', 'failed');
     return NextResponse.redirect(back, { status: 303 });
   }
 
   try {
-    const { authUrl, cookieValue } = await startGoogleImport({ inviteToken, participantToken });
+    const { authUrl, cookieValue } = await startGoogleImport({ inviteToken });
     cookies().set(POLL_OAUTH_COOKIE, cookieValue, {
       httpOnly: true,
       secure: pollCookieSecure(),

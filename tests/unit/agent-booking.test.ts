@@ -695,11 +695,12 @@ describe('an agent answering a group poll', () => {
     const { db } = await import('@/lib/db');
     const s = await seed();
     const { token } = await makePoll(s);
+    const first = slotsOf(await describeInviteLink(token, { tz: 'UTC' }))[0]!;
     const answer = {
       name: 'Bo',
       email: 'bo@example.com',
       timezone: 'UTC',
-      votes: [],
+      votes: [{ startUtc: first.startUtc, value: 'yes' as const }],
       clientRequestId: crypto.randomUUID(),
     };
     const results = await Promise.all([1, 2, 3].map(() => submitPollResponse(token, answer, null)));
